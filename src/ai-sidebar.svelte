@@ -1244,6 +1244,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     let pendingToolCall: ToolCall | null = null; // 待批准的工具调用
     let isToolApprovalDialogOpen = false; // 工具批准对话框是否打开
     let isToolConfigLoaded = false; // 标记工具配置是否已加载
+    let lastSavedToolsConfigSnapshot = '[]'; // 最近一次已加载/已保存的工具配置快照
 
     // 多模型对话
     let enableMultiModel = false; // 是否启用多模型模式
@@ -7906,9 +7907,12 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             } else {
                 selectedTools = [];
             }
+            // 初始化快照，避免初次加载触发自动保存
+            lastSavedToolsConfigSnapshot = JSON.stringify(selectedTools || []);
         } catch (error) {
             console.error('[ToolConfig] Load error:', error);
             selectedTools = [];
+            lastSavedToolsConfigSnapshot = JSON.stringify(selectedTools);
         } finally {
             // 标记配置已加载完成，此后才允许自动保存
             isToolConfigLoaded = true;
@@ -7920,8 +7924,16 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         if (!isToolConfigLoaded) {
             return;
         }
+
+        const currentSnapshot = JSON.stringify(selectedTools || []);
+        // 配置未变化时不落盘，避免安装后自动生成配置文件
+        if (currentSnapshot === lastSavedToolsConfigSnapshot) {
+            return;
+        }
+
         try {
             await plugin.saveData('agent-tools-config.json', { selectedTools });
+            lastSavedToolsConfigSnapshot = currentSnapshot;
         } catch (error) {
             console.error('[ToolConfig] Save error:', error);
         }
