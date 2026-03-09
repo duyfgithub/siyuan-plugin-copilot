@@ -516,10 +516,6 @@
         await loadNotebooks();
 
         updateGroupItems();
-        // 确保设置已保存（可能包含新的默认值）
-        await saveSettings();
-
-        // console.debug(t('common.configComplete'));
     }
 
     // 加载笔记本列表
