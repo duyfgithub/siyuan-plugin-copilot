@@ -6421,7 +6421,14 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 }
             }
 
-            const blocks = await sql(`SELECT * FROM blocks WHERE id = '${targetBlockId}'`);
+            const safeTargetBlockId = targetBlockId.replace(/'/g, "''");
+            const blocks = await sql(`
+                SELECT b.id, b.type, b.content, b.root_id, d.content AS root_doc_content
+                FROM blocks b
+                LEFT JOIN blocks d ON d.id = b.root_id AND d.type = 'd'
+                WHERE b.id = '${safeTargetBlockId}'
+                LIMIT 1
+            `);
             if (blocks && blocks.length > 0) {
                 const block = blocks[0];
                 let docId = targetBlockId;
@@ -6432,15 +6439,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     docTitle = block.content || t('common.untitled');
                     await addDocumentToContext(docId, docTitle);
                 } else {
-                    // 如果是普通块，获取所属文档的标题
-                    const rootBlocks = await sql(
-                        `SELECT content FROM blocks WHERE id = '${block.root_id}' AND type = 'd'`
-                    );
-                    if (rootBlocks && rootBlocks.length > 0) {
-                        docTitle = rootBlocks[0].content || '未命名文档';
-                    }
+                    // 普通块：文档标题已在联查中拿到
+                    docTitle = block.root_doc_content || t('common.untitled');
                     // 添加该块的内容
-                    await addBlockToContext(targetBlockId, docTitle);
+                    await addBlockToContext(targetBlockId, docTitle, false);
                 }
             }
         } catch (error) {
@@ -6450,7 +6452,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     }
 
     // 添加块到上下文（而不是整个文档）
-    async function addBlockToContext(blockId: string, blockTitle: string) {
+    async function addBlockToContext(
+        blockId: string,
+        blockTitle: string,
+        isDocOverride?: boolean
+    ) {
         // 检查是否已存在
         if (contextDocuments.find(doc => doc.id === blockId)) {
             pushMsg(t('aiSidebar.success.blockExists'));
@@ -6458,9 +6464,12 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         }
 
         try {
-            // 获取块信息以判断类型
-            const blockInfo = await getBlockByID(blockId);
-            const isDoc = blockInfo?.type === 'd'; // 'd' 表示文档块
+            // 优先复用调用方传入的块类型，避免重复查询
+            let isDoc = isDocOverride === true;
+            if (isDocOverride === undefined) {
+                const blockInfo = await getBlockByID(blockId);
+                isDoc = blockInfo?.type === 'd'; // 'd' 表示文档块
+            }
 
             // agent模式和edit模式：获取kramdown格式（用于AI），但使用Markdown生成显示标题
             if (chatMode === 'agent' || chatMode === 'edit') {
@@ -6484,7 +6493,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                         displayTitle =
                             contentPreview.length > 20
                                 ? contentPreview.substring(0, 20) + '...'
-                                : contentPreview || (isDoc ? '文档内容' : '块内容');
+                                : contentPreview || blockTitle || (isDoc ? '文档内容' : '块内容');
                     }
 
                     contextDocuments = [
@@ -6546,7 +6555,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 const displayTitle =
                     contentPreview.length > 20
                         ? contentPreview.substring(0, 20) + '...'
-                        : contentPreview || (isDoc ? '文档内容' : '块内容');
+                        : contentPreview || blockTitle || (isDoc ? '文档内容' : '块内容');
 
                 contextDocuments = [
                     ...contextDocuments,
