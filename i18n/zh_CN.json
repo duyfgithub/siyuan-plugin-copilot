@@ -1,7 +1,8 @@
 {
     "menu": {
         "summarizeDoc": "AI 总结文章",
-        "summarizePrompt": "请总结这篇文章的主要内容"
+        "summarizePrompt": "请总结这篇文章的主要内容",
+        "openLinkInTab": "在页签中打开链接"
     },
     "settings": {
         "settingsPanel": "设置面板",

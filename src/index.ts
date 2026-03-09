@@ -55,6 +55,7 @@ export default class PluginSample extends Plugin {
     private webViewHistory: WebViewHistory[] = []; // WebView 历史记录
     private openMenuDoctreeBindThis = this.openMenuDoctree.bind(this);
     private clickEditorTitleIconBindThis = this.clickEditorTitleIcon.bind(this);
+    private openMenuLinkBindThis = this.openMenuLink.bind(this);
     private domainIconMap: Map<string, string> = new Map(); // 缓存域名与图标文件名的映射
 
     /**
@@ -417,6 +418,8 @@ export default class PluginSample extends Plugin {
         this.eventBus.on("open-menu-doctree", this.openMenuDoctreeBindThis);
         // 注册文档块块标右键菜单
         this.eventBus.on("click-editortitleicon", this.clickEditorTitleIconBindThis);
+        // 注册链接右键菜单
+        this.eventBus.on("open-menu-link", this.openMenuLinkBindThis);
 
 
 
@@ -1871,6 +1874,7 @@ export default class PluginSample extends Plugin {
         //当插件被禁用的时候，会自动调用这个函数
         this.eventBus.off("open-menu-doctree", this.openMenuDoctreeBindThis);
         this.eventBus.off("click-editortitleicon", this.clickEditorTitleIconBindThis);
+        this.eventBus.off("open-menu-link", this.openMenuLinkBindThis);
         console.log("Copilot onunload");
     }
 
@@ -1903,6 +1907,53 @@ export default class PluginSample extends Plugin {
             label: t('menu.summarizeDoc'),
             click: () => {
                 this.summarizeDocInSidebar(docId);
+            }
+        });
+    }
+
+    private openMenuLink({ detail }: any) {
+        const menu = detail.menu;
+        const element: HTMLElement = detail.element;
+        if (!element) return;
+
+        const href = element.getAttribute('data-href');
+        if (!href || !href.startsWith('https://')) return;
+
+        menu.addItem({
+            icon: "iconCopilotWebApp",
+            label: t('menu.openLinkInTab'),
+            click: () => {
+                const linkTitle = element.textContent?.trim() || href;
+                const appData = {
+                    id: `link-${Date.now()}`,
+                    name: linkTitle.length > 50 ? linkTitle.substring(0, 50) + '...' : linkTitle,
+                    url: href,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                };
+                this.webApps.set(appData.id, appData);
+
+                openTab({
+                    app: this.app,
+                    custom: {
+                        icon: "iconCopilotWebApp",
+                        title: appData.name,
+                        data: { app: appData },
+                        id: this.name + WEBAPP_TAB_TYPE
+                    }
+                });
+
+                // 后台异步检查本地 favicon 缓存并更新标签图标
+                (async () => {
+                    try {
+                        const iconId = await this.getOrCreateIconForDomain(href);
+                        if (iconId && iconId !== 'iconCopilotWebApp') {
+                            this.registerWebAppIcon(this.getDomainFromUrl(href), iconId);
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                })();
             }
         });
     }
@@ -2047,10 +2098,10 @@ export default class PluginSample extends Plugin {
         // 检测是否需要保存设置
         let needsSave = false;
 
-        // 如果是首次安装（settings.json 不存在或为空），需要保存
+        // 如果是首次安装（settings.json 不存在或为空），不需要保存
         const isFirstInstall = !settings || Object.keys(settings).length === 0;
         if (isFirstInstall) {
-            needsSave = true;
+            needsSave = false;
         }
 
         // 如果是升级场景：settings 存在但没有 webApps，或 webApps 为空

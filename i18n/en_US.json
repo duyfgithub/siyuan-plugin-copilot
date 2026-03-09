@@ -1,7 +1,8 @@
 {
     "menu": {
         "summarizeDoc": "AI Summarize",
-        "summarizePrompt": "Please summarize the main content of this article"
+        "summarizePrompt": "Please summarize the main content of this article",
+        "openLinkInTab": "Open Link in Tab"
     },
     "settings": {
         "settingsPanel": "Settings Panel",
