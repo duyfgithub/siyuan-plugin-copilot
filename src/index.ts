@@ -910,8 +910,43 @@ export default class PluginSample extends Plugin {
                     webviewWrapper.appendChild(searchBar);
                     // ----------------- 搜索栏结束 -----------------
 
-                    // 创建 webview 元素
-                    const webview = document.createElement('webview') as any;
+                    // 创建 webview/iframe 元素：Electron 环境使用 webview，其他环境降级为 iframe
+                    const isElec = navigator.userAgent.toLowerCase().includes('electron');
+                    const webview = document.createElement(isElec ? 'webview' : 'iframe') as any;
+                    if (!isElec) {
+                        webview.reload = function () {
+                            const t = webview.src;
+                            webview.src = '';
+                            setTimeout(() => {
+                                webview.src = t;
+                            }, 100);
+                        };
+                        webview.canGoBack = function () {
+                            return false;
+                        };
+                        webview.canGoForward = function () {
+                            return false;
+                        };
+                        webview.goBack = function () { };
+                        webview.goForward = function () { };
+                        webview.stopFindInPage = function () { };
+                        webview.findInPage = function () { };
+                        webview.stop = function () { };
+                        webview.getURL = function () {
+                            return webview.src;
+                        };
+                        webview.executeJavaScript = function () {
+                            return Promise.resolve();
+                        };
+                        const origAdd = webview.addEventListener;
+                        webview.addEventListener = function (e: string, t: EventListenerOrEventListenerObject) {
+                            if (e === 'dom-ready' || e === 'did-stop-loading') {
+                                origAdd.call(webview, 'load', t);
+                            } else {
+                                origAdd.call(webview, e, t);
+                            }
+                        };
+                    }
                     webview.style.width = '100%';
                     webview.style.height = '100%';
                     webview.style.border = 'none';
