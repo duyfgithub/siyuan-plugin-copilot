@@ -100,6 +100,7 @@
     // 附件管理
     let currentAttachments: MessageAttachment[] = [];
     let isUploadingFile = false;
+    const pendingAttachmentSaveTasks = new Set<Promise<void>>();
 
     // 网页链接功能
     let isWebLinkDialogOpen = false;
@@ -1582,30 +1583,39 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             return;
         }
 
-        try {
-            isUploadingFile = true;
+        // 先立即显示预览，资源保存在后台进行，减少拖拽后的卡顿感
+        const blobUrl = URL.createObjectURL(file);
+        const attachment: MessageAttachment = {
+            type: 'image',
+            name: file.name,
+            data: blobUrl,
+            path: '',
+            mimeType: file.type,
+        };
+        currentAttachments = [...currentAttachments, attachment];
 
-            // 保存为 SiYuan 资源
-            const assetPath = await saveAsset(file, file.name);
-            // 本地预览使用 Blob URL
-            const blobUrl = URL.createObjectURL(file);
+        isUploadingFile = true;
+        const saveTask = (async () => {
+            try {
+                const assetPath = await saveAsset(file, file.name);
+                currentAttachments = currentAttachments.map(att =>
+                    att === attachment ? { ...att, path: assetPath } : att
+                );
+            } catch (error) {
+                console.error('Add image error:', error);
+                // 保存失败时移除该附件，避免后续会话中保留无效 blob URL
+                currentAttachments = currentAttachments.filter(att => att !== attachment);
+                pushErrMsg(t('aiSidebar.errors.addImageFailed'));
+            }
+        })();
 
-            currentAttachments = [
-                ...currentAttachments,
-                {
-                    type: 'image',
-                    name: file.name,
-                    data: blobUrl,
-                    path: assetPath,
-                    mimeType: file.type,
-                },
-            ];
-        } catch (error) {
-            console.error('Add image error:', error);
-            pushErrMsg(t('aiSidebar.errors.addImageFailed'));
-        } finally {
-            isUploadingFile = false;
-        }
+        pendingAttachmentSaveTasks.add(saveTask);
+        saveTask.finally(() => {
+            pendingAttachmentSaveTasks.delete(saveTask);
+            if (pendingAttachmentSaveTasks.size === 0) {
+                isUploadingFile = false;
+            }
+        });
     }
 
     // 添加文件附件
@@ -1634,18 +1644,15 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         }
 
         try {
-            isUploadingFile = true;
-
             if (isImage) {
                 await addImageAttachment(file);
             } else {
-                // 读取文本文件内容
-                const content = await file.text();
-                // 保存为 SiYuan 资源
-                const assetPath = await saveAsset(
-                    new Blob([content], { type: file.type }),
-                    file.name
-                );
+                isUploadingFile = true;
+                // 文本读取与资源保存并行，减少等待时间
+                const [content, assetPath] = await Promise.all([
+                    file.text(),
+                    saveAsset(file, file.name),
+                ]);
 
                 currentAttachments = [
                     ...currentAttachments,
@@ -1662,7 +1669,22 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             console.error('Add file error:', error);
             pushErrMsg(t('aiSidebar.errors.addFileFailed'));
         } finally {
-            isUploadingFile = false;
+            if (pendingAttachmentSaveTasks.size === 0) {
+                isUploadingFile = false;
+            }
+        }
+    }
+
+    // 附件保存可能在后台进行，发送前等待完成，确保 path 持久化可用
+    async function waitForPendingAttachmentSaves() {
+        if (pendingAttachmentSaveTasks.size === 0) return;
+        await Promise.all(Array.from(pendingAttachmentSaveTasks));
+    }
+
+    async function addFilesInBatches(files: File[], concurrency = 3) {
+        for (let i = 0; i < files.length; i += concurrency) {
+            const batch = files.slice(i, i + concurrency);
+            await Promise.all(batch.map(file => addFileAttachment(file)));
         }
     }
 
@@ -1691,9 +1713,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
         if (!files || files.length === 0) return;
 
-        for (let i = 0; i < files.length; i++) {
-            await addFileAttachment(files[i]);
-        }
+        await addFilesInBatches(Array.from(files));
 
         // 清空 input，允许重复选择同一文件
         input.value = '';
@@ -3363,6 +3383,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     // 发送消息
     async function sendMessage() {
         if ((!currentInput.trim() && currentAttachments.length === 0) || isLoading) return;
+
+        // 等待拖拽后仍在后台落盘的附件，保证会话里有稳定的 path
+        await waitForPendingAttachmentSaves();
 
         // 如果处于等待选择答案状态，阻止发送
         if (isWaitingForAnswerSelection) {
@@ -6452,11 +6475,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     }
 
     // 添加块到上下文（而不是整个文档）
-    async function addBlockToContext(
-        blockId: string,
-        blockTitle: string,
-        isDocOverride?: boolean
-    ) {
+    async function addBlockToContext(blockId: string, blockTitle: string, isDocOverride?: boolean) {
         // 检查是否已存在
         if (contextDocuments.find(doc => doc.id === blockId)) {
             pushMsg(t('aiSidebar.success.blockExists'));
@@ -6626,9 +6645,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         // 处理标准文件拖放
         const files = event.dataTransfer.files;
         if (files && files.length > 0) {
-            for (let i = 0; i < files.length; i++) {
-                await addFileAttachment(files[i]);
-            }
+            await addFilesInBatches(Array.from(files));
             return;
         }
 
