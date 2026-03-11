@@ -4382,6 +4382,22 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                             }
                                         }
 
+                                        // 对于用户消息，如果有上下文文档，需要重新注入上下文内容
+                                        // 因为 msg.content 只存储了原始输入，不包含上下文
+                                        if (msg.role === 'user' && msg.contextDocuments && msg.contextDocuments.length > 0) {
+                                            const contextText = msg.contextDocuments
+                                                .map(doc => {
+                                                    const label = doc.type === 'doc' ? '文档' : '块';
+                                                    if (doc.type === 'doc') {
+                                                        return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
+                                                    } else {
+                                                        return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
+                                                    }
+                                                })
+                                                .join('\n\n---\n\n');
+                                            baseMsg.content += `\n\n---\n\n以下是相关内容作为上下文：\n\n${contextText}`;
+                                        }
+
                                         return baseMsg;
                                     });
 
