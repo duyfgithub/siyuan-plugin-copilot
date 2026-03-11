@@ -6,6 +6,30 @@
 import { Readability } from '@mozilla/readability';
 
 /**
+ * 清理 Markdown 中的多余空白行
+ * - 删除连续的多个空行，最多保留一个
+ * - 删除行首和行尾的空白字符
+ * - 清理全文前后的空白
+ * @param markdown 原始 Markdown 文本
+ * @returns 清理后的 Markdown 文本
+ */
+export function cleanMarkdownBlankLines(markdown: string): string {
+    if (!markdown) return markdown;
+    
+    return markdown
+        // 按行分割
+        .split('\n')
+        // 删除行尾空白字符
+        .map(line => line.trimEnd())
+        // 重新组合
+        .join('\n')
+        // 将连续3个或以上的换行符替换为2个（保留段落间距）
+        .replace(/\n{3,}/g, '\n\n')
+        // 清理全文前后的空白
+        .trim();
+}
+
+/**
  * 处理粗体样式为 <b> 标签
  */
 function processBoldStyle(element: HTMLElement) {
@@ -401,7 +425,10 @@ export async function parseWebPageToMarkdown(
 
         // 转换为 Markdown
         const lute = (window as any).Lute.New();
-        const markdown = lute.HTML2Md(tempElement.innerHTML);
+        let markdown = lute.HTML2Md(tempElement.innerHTML);
+        
+        // 清理空白行
+        markdown = cleanMarkdownBlankLines(markdown);
 
         return {
             success: true,
@@ -490,4 +517,118 @@ export async function parseMultipleWebPages(
     }
 
     return results;
+}
+
+
+/**
+ * 使用 WebView 获取网页内容
+ * 作为备用方案，当直接 fetch 失败时使用
+ * @param url 要获取的网页 URL
+ * @returns Promise<{ success: boolean; title?: string; markdown?: string; error?: string }>
+ */
+export async function fetchWithWebView(url: string): Promise<{ success: boolean; title?: string; markdown?: string; error?: string }> {
+    return new Promise((resolve) => {
+        const partitionName = 'get_siyuan_skillst:siyuan-copilot-webapp-shared';
+        // 创建 webview 元素，使用 any 类型绕过类型检查
+        const webview = document.createElement('webview') as any;
+        
+        // 设置 webview 属性
+        webview.setAttribute('src', url);
+        webview.setAttribute('partition', partitionName);
+        webview.setAttribute('style', 'width:1px;height:1px;opacity:0;position:absolute;left:-9999px;');
+        webview.setAttribute('nodeintegration', 'false');
+        webview.setAttribute('webpreferences', 'contextIsolation=true,allowRunningInsecureContent=true');
+        
+        let timeoutId: NodeJS.Timeout;
+        let isResolved = false;
+        
+        const cleanup = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (webview.parentNode) {
+                webview.parentNode.removeChild(webview);
+            }
+        };
+        
+        const resolveOnce = (result: { success: boolean; title?: string; markdown?: string; error?: string }) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                resolve(result);
+            }
+        };
+        
+        // 设置超时
+        timeoutId = setTimeout(() => {
+            resolveOnce({ success: false, error: 'WebView 加载超时' });
+        }, 30000); // 30秒超时
+        
+        // 页面加载完成
+        webview.addEventListener('dom-ready', async () => {
+            try {
+                // 执行脚本提取内容
+                const result = await webview.executeJavaScript(`
+                    (function() {
+                        try {
+                            // 移除脚本和样式元素
+                            document.querySelectorAll('script, style, nav, header, footer, aside, [role="navigation"]').forEach(el => el.remove());
+                            
+                            // 获取标题
+                            const title = document.title || document.querySelector('h1')?.textContent || '';
+                            
+                            // 尝试找到主要内容区域
+                            const article = document.querySelector('article, main, [role="main"], .content, .article, .post');
+                            const content = article || document.body;
+                            
+                            if (!content) {
+                                return { success: false, error: '无法找到页面内容' };
+                            }
+                            
+                            // 获取 HTML 内容
+                            const html = content.innerHTML;
+                            
+                            return { 
+                                success: true, 
+                                title: title.trim(),
+                                html: html
+                            };
+                        } catch (e) {
+                            return { success: false, error: e.message };
+                        }
+                    })()
+                `);
+                
+                if (result.success && result.html) {
+                    // 使用 Lute 将 HTML 转换为 Markdown
+                    const lute = (window as any).Lute.New();
+                    let markdown = lute.HTML2Md(result.html);
+                    
+                    // 清理空白行
+                    markdown = cleanMarkdownBlankLines(markdown);
+                    
+                    resolveOnce({
+                        success: true,
+                        title: result.title,
+                        markdown: markdown
+                    });
+                } else {
+                    resolveOnce({ success: false, error: result.error || '内容提取失败' });
+                }
+            } catch (error) {
+                resolveOnce({ 
+                    success: false, 
+                    error: `WebView 执行失败: ${error instanceof Error ? error.message : String(error)}` 
+                });
+            }
+        });
+        
+        // 加载失败
+        webview.addEventListener('did-fail-load', (event: any) => {
+            if (event.errorCode !== 0) {
+                resolveOnce({ success: false, error: `页面加载失败 (错误码: ${event.errorCode})` });
+            }
+        });
+        
+        // 添加到文档以开始加载
+        document.body.appendChild(webview);
+    });
 }

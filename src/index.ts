@@ -483,6 +483,7 @@ export default class PluginSample extends Plugin {
                 // 从 this.data 中获取 app 信息
                 const app = this.data?.app;
                 if (app) {
+                    const initialTitle = app.name || 'Web Link';
                     // 创建 webview 容器
                     const container = document.createElement('div');
                     container.className = 'fn__flex-1 fn__flex-column';
@@ -747,6 +748,31 @@ export default class PluginSample extends Plugin {
                                     if (pluginInstance.isLikelyUrl(raw)) {
                                         // 把可能的域名或网址补全协议
                                         targetUrl = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+
+                                        suggestionList.style.display = 'none';
+                                        redirectCount = 0;
+                                        lastUrl = targetUrl;
+                                        webview.src = targetUrl;
+
+                                        // 尝试更新标签图标
+                                        (async () => {
+                                            try {
+                                                const iconId = await pluginInstance.getOrCreateIconForDomain(targetUrl);
+                                                try { if (this.tab) (this.tab as any).icon = iconId; } catch (e) { }
+                                                try {
+                                                    const headers = document.querySelectorAll('li[data-type="tab-header"]');
+                                                    for (const h of Array.from(headers)) {
+                                                        const textEl = h.querySelector('.item__text');
+                                                        if (textEl && textEl.textContent && textEl.textContent.indexOf(initialTitle) !== -1) {
+                                                            const useEl = h.querySelector('svg use');
+                                                            if (useEl) useEl.setAttribute('xlink:href', `#${iconId}`);
+                                                            break;
+                                                        }
+                                                    }
+                                                } catch (e) { }
+                                            } catch (e) { }
+                                        })();
+                                        urlInput.blur();
                                     } else {
                                         // 作为搜索关键词，使用用户设置的搜索引擎
                                         getSettings().then((s: any) => {

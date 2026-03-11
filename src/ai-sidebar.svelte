@@ -37,7 +37,7 @@
         removeFile,
     } from './api';
     import { saveAsset, loadAsset, base64ToBlob, readAssetAsText } from './utils/assets';
-    import { parseMultipleWebPages } from './utils/webParser';
+    import { parseMultipleWebPages, fetchWithWebView } from './utils/webParser';
     import MultiModelSelector from './components/MultiModelSelector.svelte';
     import SessionManager from './components/SessionManager.svelte';
     import ToolSelector, { type ToolConfig } from './components/ToolSelector.svelte';
@@ -1795,14 +1795,53 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     successCount++;
                     pushMsg(`✓ 成功获取: ${result.title || result.url}`);
                 } else {
-                    // 处理错误
-                    if (
-                        result.error?.includes('CORS') ||
-                        result.error?.includes('Failed to fetch')
-                    ) {
-                        pushErrMsg(`✗ CORS 限制: ${result.url} - 该网站不允许跨域访问`);
-                    } else {
-                        pushErrMsg(`✗ 获取失败: ${result.url} - ${result.error}`);
+                    // 解析失败，尝试使用 WebView 模式
+                    pushMsg(`普通模式失败，尝试 WebView 模式: ${result.url}`);
+                    
+                    try {
+                        const webviewResult = await fetchWithWebView(result.url);
+                        
+                        if (webviewResult.success && webviewResult.markdown) {
+                            // 从 URL 中提取文件名
+                            const urlObj = new URL(result.url);
+                            const fileName = `${urlObj.hostname.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.md`;
+
+                            // 保存为 SiYuan 资源
+                            const assetPath = await saveAsset(
+                                new Blob([webviewResult.markdown], { type: 'text/markdown' }),
+                                fileName
+                            );
+
+                            // 添加到附件列表，标记为网页类型
+                            currentAttachments = [
+                                ...currentAttachments,
+                                {
+                                    type: 'file',
+                                    name: result.url,
+                                    data: webviewResult.markdown,
+                                    path: assetPath,
+                                    mimeType: 'text/markdown',
+                                    isWebPage: true, // 标记为网页附件
+                                    url: result.url, // 保存原始URL
+                                },
+                            ];
+
+                            successCount++;
+                            pushMsg(`✓ WebView 模式成功: ${webviewResult.title || result.url}`);
+                        } else {
+                            // WebView 也失败了
+                            if (
+                                result.error?.includes('CORS') ||
+                                result.error?.includes('Failed to fetch')
+                            ) {
+                                pushErrMsg(`✗ CORS 限制: ${result.url} - 该网站不允许跨域访问`);
+                            } else {
+                                pushErrMsg(`✗ 获取失败: ${result.url} - ${result.error}`);
+                            }
+                        }
+                    } catch (webviewError) {
+                        console.error('WebView fetch error:', webviewError);
+                        pushErrMsg(`✗ WebView 模式也失败了: ${result.url}`);
                     }
                 }
             }
@@ -4170,7 +4209,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
                 // 保存基础系统提示词（包含工具使用指引）
-                const toolUsageInstruction = `\n\n=== 工具使用强制规则 ===\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下直接调用任何思源笔记工具。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 思源笔记的工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+                const toolUsageInstruction = `\n\n=== 工具使用强制规则 ===\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下直接调用任何工具。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
                 let baseSystemPrompt = (settings.aiSystemPrompt || '') + toolUsageInstruction;
 
                 while (shouldContinue && !abortController.signal.aborted) {

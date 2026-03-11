@@ -37,7 +37,7 @@ import {
     removeAttributeViewBlocks,
 } from '../api';
 import { getActiveEditor } from 'siyuan';
-import { parseWebPageToMarkdown } from '../utils/webParser';
+import { parseWebPageToMarkdown, fetchWithWebView } from '../utils/webParser';
 
 /**
  * 获取当前激活的编辑器 Protyle 实例
@@ -77,6 +77,7 @@ export interface ToolParameter {
     items?: {
         type: string;
     };
+    default?: any;
 }
 
 export interface ToolCall {
@@ -1373,32 +1374,49 @@ siyuan_move_documents({
 - 需要抓取外部网页信息保存到笔记
 - 需要阅读和分析在线文档、博客、新闻等
 
-## 功能说明
-- 自动提取网页的主要内容（去除广告、导航等无关元素）
-- 将 HTML 转换为易读的 Markdown 格式
-- 支持多种网站的智能解析
-- 自动处理编码和字符集问题
+## 两种获取模式
+
+### 1. 普通模式（默认）
+直接发送 HTTP 请求获取网页内容，速度快，适用于大多数网站。
+
+### 2. WebView 模式
+使用内置浏览器加载页面，可以执行 JavaScript，适用于：
+- 需要登录才能查看内容的网站
+- 内容通过 JavaScript 动态加载的网站
+- 有反爬虫机制的网站
+- 需要执行页面脚本才能获取完整内容的网站
 
 ## 使用示例
 
 \`\`\`javascript
-// 获取某篇文章
+// 普通模式获取某篇文章
 web_fetch({
   url: "https://example.com/article"
+})
+
+// WebView 模式获取某篇文章（适用于动态加载或有反爬虫机制的网站）
+web_fetch({
+  url: "https://example.com/article",
+  useWebView: true
 })
 \`\`\`
 
 ## 注意事项
-- 某些网站有严格的反爬虫机制，可能无法获取
+- 某些网站有严格的反爬虫机制，如果普通模式失败，请尝试 WebView 模式
 - 知乎网站暂不支持解析
-- 获取的内容会转换为 Markdown 格式返回
-- 如果获取失败，会返回错误信息说明原因`,
+- WebView 模式会实际加载页面，可能需要更长时间（最长等待30秒）
+- 获取的内容会转换为 Markdown 格式返回`,
         {
             type: 'object',
             properties: {
                 url: {
                     type: 'string',
                     description: '要获取的网页 URL，必须是完整的 http:// 或 https:// 链接',
+                },
+                useWebView: {
+                    type: 'boolean',
+                    description: '是否使用 WebView 模式加载页面。默认为 false（普通模式）。对于需要登录、动态加载或有反爬虫机制的网站，建议设为 true',
+                    default: false,
                 },
             },
             required: ['url'],
@@ -1938,141 +1956,36 @@ export async function siyuan_database(params: any): Promise<any> {
 }
 
 /**
- * 使用 WebView 获取网页内容
- * 作为备用方案，当直接 fetch 失败时使用
- */
-async function fetchWithWebView(url: string): Promise<{ success: boolean; title?: string; markdown?: string; error?: string }> {
-    return new Promise((resolve) => {
-        const partitionName = 'get_siyuan_skillst:siyuan-copilot-webapp-shared';
-        // 创建 webview 元素，使用 any 类型绕过类型检查
-        const webview = document.createElement('webview') as any;
-        
-        // 设置 webview 属性
-        webview.setAttribute('src', url);
-        webview.setAttribute('partition', partitionName);
-        webview.setAttribute('style', 'width:1px;height:1px;opacity:0;position:absolute;left:-9999px;');
-        webview.setAttribute('nodeintegration', 'false');
-        webview.setAttribute('webpreferences', 'contextIsolation=true,allowRunningInsecureContent=true');
-        
-        let timeoutId: NodeJS.Timeout;
-        let isResolved = false;
-        
-        const cleanup = () => {
-            if (timeoutId) clearTimeout(timeoutId);
-            if (webview.parentNode) {
-                webview.parentNode.removeChild(webview);
-            }
-        };
-        
-        const resolveOnce = (result: { success: boolean; title?: string; markdown?: string; error?: string }) => {
-            if (!isResolved) {
-                isResolved = true;
-                cleanup();
-                resolve(result);
-            }
-        };
-        
-        // 设置超时
-        timeoutId = setTimeout(() => {
-            resolveOnce({ success: false, error: 'WebView 加载超时' });
-        }, 30000); // 30秒超时
-        
-        // 页面加载完成
-        webview.addEventListener('dom-ready', async () => {
-            try {
-                // 执行脚本提取内容
-                const result = await webview.executeJavaScript(`
-                    (function() {
-                        try {
-                            // 移除脚本和样式元素
-                            document.querySelectorAll('script, style, nav, header, footer, aside, [role="navigation"]').forEach(el => el.remove());
-                            
-                            // 获取标题
-                            const title = document.title || document.querySelector('h1')?.textContent || '';
-                            
-                            // 尝试找到主要内容区域
-                            const article = document.querySelector('article, main, [role="main"], .content, .article, .post');
-                            const content = article || document.body;
-                            
-                            if (!content) {
-                                return { success: false, error: '无法找到页面内容' };
-                            }
-                            
-                            // 获取 HTML 内容
-                            const html = content.innerHTML;
-                            
-                            return { 
-                                success: true, 
-                                title: title.trim(),
-                                html: html
-                            };
-                        } catch (e) {
-                            return { success: false, error: e.message };
-                        }
-                    })()
-                `);
-                
-                if (result.success && result.html) {
-                    // 使用 Lute 将 HTML 转换为 Markdown
-                    const lute = (window as any).Lute.New();
-                    const markdown = lute.HTML2Md(result.html);
-                    
-                    resolveOnce({
-                        success: true,
-                        title: result.title,
-                        markdown: markdown
-                    });
-                } else {
-                    resolveOnce({ success: false, error: result.error || '内容提取失败' });
-                }
-            } catch (error) {
-                resolveOnce({ 
-                    success: false, 
-                    error: `WebView 执行失败: ${error instanceof Error ? error.message : String(error)}` 
-                });
-            }
-        });
-        
-        // 加载失败
-        webview.addEventListener('did-fail-load', (event: any) => {
-            if (event.errorCode !== 0) {
-                resolveOnce({ success: false, error: `页面加载失败 (错误码: ${event.errorCode})` });
-            }
-        });
-        
-        // 添加到文档以开始加载
-        document.body.appendChild(webview);
-    });
-}
-
-/**
  * 获取网页内容并转换为 Markdown
- * 先尝试直接获取，失败则使用 WebView
+ * @param url 要获取的网页 URL
+ * @param useWebView 是否使用 WebView 模式，默认为 false
  */
-export async function web_fetch(url: string): Promise<string> {
-    // 首先尝试直接获取
+export async function web_fetch(url: string, useWebView: boolean = false): Promise<string> {
+    // 如果明确指定使用 WebView 模式
+    if (useWebView) {
+        try {
+            const webviewResult = await fetchWithWebView(url);
+            
+            if (webviewResult.success) {
+                return `# ${webviewResult.title}\n\n来源: ${url}\n\n---\n\n${webviewResult.markdown}`;
+            } else {
+                return `WebView 模式获取失败: ${webviewResult.error}`;
+            }
+        } catch (error) {
+            console.error('WebView fetch error:', error);
+            return `WebView 模式获取失败: ${(error as Error).message}`;
+        }
+    }
+    
+    // 普通模式：直接获取
     const result = await parseWebPageToMarkdown(url);
     
     if (result.success) {
         return `# ${result.title}\n\n来源: ${result.url}\n\n---\n\n${result.markdown}`;
     }
     
-    console.log(`直接获取失败: ${result.error}，尝试使用 WebView...`);
-    
-    // 直接获取失败，尝试使用 WebView
-    try {
-        const webviewResult = await fetchWithWebView(url);
-        
-        if (webviewResult.success) {
-            return `# ${webviewResult.title}\n\n来源: ${url}\n\n---\n\n${webviewResult.markdown}`;
-        } else {
-            // 两种方法都失败，返回错误信息
-            return `获取网页内容失败:\n\n【直接获取】${result.error}\n\n【WebView】${webviewResult.error}`;
-        }
-    } catch (error) {
-        console.error('Web fetch error:', error);
-        return `获取网页内容失败:\n\n【直接获取】${result.error}\n\n【WebView】${(error as Error).message}`;
-    }
+    // 普通模式失败，提示用户可以尝试 WebView 模式
+    return `获取网页内容失败: ${result.error}\n\n提示: 如果该网站需要登录、使用 JavaScript 动态加载内容或有反爬虫机制，请使用 WebView 模式重试。设置 useWebView: true 即可。`;
 }
 
 /**
@@ -2155,7 +2068,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 return JSON.stringify(dbResult, null, 2);
 
             case 'web_fetch':
-                const webResult = await web_fetch(args.url);
+                const webResult = await web_fetch(args.url, args.useWebView);
                 return webResult;
 
             default:
