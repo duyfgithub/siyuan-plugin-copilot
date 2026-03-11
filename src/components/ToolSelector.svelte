@@ -44,6 +44,10 @@
                 'siyuan_move_documents',
             ],
         },
+        other: {
+            name: t('tools.category.other'),
+            tools: ['web_fetch'],
+        },
     };
 
     // 按类别组织工具

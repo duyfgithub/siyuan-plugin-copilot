@@ -554,7 +554,8 @@
     "tools": {
         "category": {
             "web": "Web Tools",
-            "siyuan": "SiYuan Notes"
+            "siyuan": "SiYuan Notes",
+            "other": "Other"
         },
         "selector": {
             "title": "Tool Selection",
@@ -570,6 +571,9 @@
             "footerInfo": "You can set auto-approve for each tool individually"
         },
         "fetch_web_content": {
+            "name": "Fetch Web Content"
+        },
+        "web_fetch": {
             "name": "Fetch Web Content"
         },
         "siyuan_sql_query": {

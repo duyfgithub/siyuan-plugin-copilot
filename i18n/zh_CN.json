@@ -554,7 +554,8 @@
     "tools": {
         "category": {
             "web": "网页工具",
-            "siyuan": "思源笔记"
+            "siyuan": "思源笔记",
+            "other": "其他"
         },
         "selector": {
             "title": "工具选择",
@@ -570,6 +571,9 @@
             "footerInfo": "可为每个工具单独设置是否自动批准"
         },
         "fetch_web_content": {
+            "name": "获取网页内容"
+        },
+        "web_fetch": {
             "name": "获取网页内容"
         },
         "siyuan_sql_query": {
