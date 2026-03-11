@@ -1,4 +1,11 @@
 
+## v1.8.0 / 20260312
+- 🎨 添加web_fetch工具，支持获取网页内容，遇到防爬的网页，会自动使用webview打开（比如知乎，需要先用小程序功能登录，这样就可以获取知乎文章了）
+- 🎨 新增get_siyuan_skills工具，自动调用工具具体使用技巧，节省token
+- 🎨 insertBlock工具：可以直接通过markdown插入多个块，无需一次插入一个块
+- 🎨 适配kimi k2.5不思考模式：官方默认设置thinking: {type: "enabled"}，不思考时需要设置 thinking: {type: "disabled"}，kimi k2.5不能设置temperature
+- 🐛 agent模式丢失块上下文
+
 ## v1.7.0 / 20260309
 - 🎨 新增一键添加当前文档、右键AI总结、全局按钮悬浮提示 (感谢[ocean-zhc](https://github.com/Achuan-2/siyuan-plugin-copilot/issues/114)贡献)
   - 🎨 新增"添加当前文档到上下文"按钮，一键将当前打开的文档添加为AI上下文
