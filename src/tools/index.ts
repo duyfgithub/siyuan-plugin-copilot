@@ -302,11 +302,11 @@ siyuan_insert_block({
 \`\`\`
 
 ## 注意事项
+- 插入块可以通过markdown换行符一次性插入多个块，可以一次性插入长文本
 - 至少需要指定一个位置参数（parentID、appendParentID、previousID或nextID）
 - 如果指定parentID，会作为子块追加到父块的最前面
 - 如果指定appendParentID，会作为子块追加到父块的最后面
 - previousID和nextID用于在同级块中定位
-- 插入大量内容时考虑分批插入
 
 ## 调用工具后
 - 插入块后以思源块链接格式返回，方便用户点击跳转查看`,
