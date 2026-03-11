@@ -37,7 +37,7 @@
         removeFile,
     } from './api';
     import { saveAsset, loadAsset, base64ToBlob, readAssetAsText } from './utils/assets';
-    import { parseMultipleWebPages, fetchWithWebView } from './utils/webParser';
+    import { parseMultipleWebPages, fetchWithWebView, parseWebPageToMarkdown } from './utils/webParser';
     import MultiModelSelector from './components/MultiModelSelector.svelte';
     import SessionManager from './components/SessionManager.svelte';
     import ToolSelector, { type ToolConfig } from './components/ToolSelector.svelte';
@@ -819,7 +819,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             try {
                 let content: string;
 
-                if (chatMode === 'agent') {
+                if (doc.type === 'webpage') {
+                    // 网页类型：保持原内容不变（已经获取到内容）
+                    content = doc.content;
+                } else if (chatMode === 'agent') {
                     // agent模式：文档只保留ID，块获取kramdown
                     if (doc.type === 'doc') {
                         content = ''; // 文档不保存内容，只保留ID
@@ -855,6 +858,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     title: doc.title,
                     content: content,
                     type: doc.type,
+                    url: doc.url,
                 });
             } catch (error) {
                 console.error(`Failed to update content for block ${doc.id}:`, error);
@@ -2944,7 +2948,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
                     const contextText = msg.contextDocuments
                         .map(doc => {
-                            const label = doc.type === 'doc' ? '文档' : '块';
+                            const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                             // agent模式：文档块只传递ID，不传递内容
                             if (chatMode === 'agent' && doc.type === 'doc') {
@@ -3109,7 +3113,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                                 // agent模式：文档块只传递ID，不传递内容
                                 if (chatMode === 'agent' && doc.type === 'doc') {
@@ -3180,7 +3184,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                                 // agent模式：文档块只传递ID，不传递内容
                                 if (chatMode === 'agent' && doc.type === 'doc') {
@@ -3656,7 +3660,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     // 构建上下文文本（agent模式下，文档块只传递ID）
                     const contextText = msg.contextDocuments
                         .map(doc => {
-                            const label = doc.type === 'doc' ? '文档' : '块';
+                            const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                             // agent模式：文档块只传递ID，不传递内容
                             if (chatMode === 'agent' && doc.type === 'doc') {
@@ -3813,7 +3817,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                                 // agent模式：文档块只传递ID，不传递内容
                                 if (chatMode === 'agent' && doc.type === 'doc') {
@@ -3888,7 +3892,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
 
                                 // agent模式：文档块只传递ID，不传递内容
                                 if (chatMode === 'agent' && doc.type === 'doc') {
@@ -4426,7 +4430,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                         if (msg.role === 'user' && msg.contextDocuments && msg.contextDocuments.length > 0) {
                                             const contextText = msg.contextDocuments
                                                 .map(doc => {
-                                                    const label = doc.type === 'doc' ? '文档' : '块';
+                                                    const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
                                                     if (doc.type === 'doc') {
                                                         return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                                     } else {
@@ -6814,13 +6818,65 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         } else if (event.dataTransfer.types.includes(Constants.SIYUAN_DROP_TAB)) {
             const data = event.dataTransfer.getData(Constants.SIYUAN_DROP_TAB);
             const payload = JSON.parse(data);
-            const rootId = payload?.children?.rootId;
-            if (rootId) {
-                // 拖放页签时：使用拖拽的文档ID，不应覆盖为当前聚焦的块ID
-                // 之前传入了 true 来使用聚焦块，这会导致插件错误地使用当前已打开的文档
-                // 而不是拖动的文档。改为 false 以使用拖动的文档 ID。
-                await addItemByBlockId(rootId, false);
+            
+            // 检查是否是 webview 网页标签页
+            // payload 中没有 type 字段，需要通过 customModelType 判断
+            const customModelType = payload?.children?.customModelType;
+            const tabTitle = payload?.title;
+            const webviewUrl = payload?.children?.customModelData?.app?.url;
+            
+            // 判断是否是 webview 网页标签页：customModelType 包含 copilot-webapp
+            const isWebViewTab = customModelType && customModelType.includes(WEBAPP_TAB_TYPE);
+            console.log(isWebViewTab, webviewUrl);
+            console.log(payload);
+            if (isWebViewTab && webviewUrl) {
+                // 是 webview 网页，直接使用 WebView 模式获取内容（因为已经是 webview 打开的）
+                pushMsg(`正在获取网页内容: ${tabTitle || webviewUrl}`);
+                
+                try {
+                    const webviewResult = await fetchWithWebView(webviewUrl);
+                    
+                    if (webviewResult.success && webviewResult.markdown) {
+                        // 从 URL 中提取文件名
+                        const urlObj = new URL(webviewUrl);
+                        const fileName = `${urlObj.hostname.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.md`;
+                        
+                        // 保存为 SiYuan 资源
+                        const assetPath = await saveAsset(
+                            new Blob([webviewResult.markdown], { type: 'text/markdown' }),
+                            fileName
+                        );
+                        
+                        // 添加到附件列表，标记为网页类型（与添加网页链接弹窗一致）
+                        currentAttachments = [
+                            ...currentAttachments,
+                            {
+                                type: 'file',
+                                name: webviewUrl,
+                                data: webviewResult.markdown,
+                                path: assetPath,
+                                mimeType: 'text/markdown',
+                                isWebPage: true, // 标记为网页附件
+                                url: webviewUrl, // 保存原始URL
+                            },
+                        ];
+                        
+                        pushMsg(`✓ 成功添加网页: ${webviewResult.title || tabTitle || webviewUrl}`);
+                    } else {
+                        pushErrMsg(`✗ 获取失败: ${webviewUrl} - ${webviewResult.error}`);
+                    }
+                } catch (error) {
+                    console.error('获取网页内容失败:', error);
+                    pushErrMsg(`✗ 获取网页失败: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            } else {
+                // 普通文档标签页
+                const rootId = payload?.children?.rootId;
+                if (rootId) {
+                    await addItemByBlockId(rootId, false);
+                }
             }
+            
             const tab = document.querySelector(
                 `li[data-type="tab-header"][data-id="${payload.id}"]`
             ) as HTMLElement;
@@ -8794,7 +8850,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     // 构建上下文文本
                     const contextText = msg.contextDocuments
                         .map(doc => {
-                            const label = doc.type === 'doc' ? '文档' : '块';
+                            const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
                             return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
                         })
                         .join('\n\n---\n\n');
@@ -8964,7 +9020,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
                             })
                             .join('\n\n---\n\n');
@@ -9030,7 +9086,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     if (contextDocumentsWithLatestContent.length > 0) {
                         const contextText = contextDocumentsWithLatestContent
                             .map(doc => {
-                                const label = doc.type === 'doc' ? '文档' : '块';
+                                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
                             })
                             .join('\n\n---\n\n');
