@@ -60,6 +60,15 @@ export interface Tool {
     };
 }
 
+/**
+ * 工具详细描述接口
+ */
+export interface ToolDetails {
+    name: string;
+    shortDescription: string;
+    fullDescription: string;
+}
+
 export interface ToolParameter {
     type: string;
     description: string;
@@ -87,14 +96,151 @@ export interface ToolResult {
 
 // ==================== 工具定义 ====================
 
-export const AVAILABLE_TOOLS: Tool[] = [
+/**
+ * 工具的完整详细描述映射
+ * 键为工具名称，值为工具的完整描述（包含使用说明、示例、注意事项等）
+ */
+export const TOOL_FULL_DESCRIPTIONS: Record<string, string> = {};
 
-    // SQL查询工具
+/**
+ * 获取工具的简短描述（用于工具列表展示）
+ * 从完整描述中提取第一行非空内容
+ */
+function extractShortDescription(fullDescription: string): string {
+    const lines = fullDescription.split('\n');
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('`')) {
+            return trimmed;
+        }
+    }
+    return fullDescription.substring(0, 100) + '...';
+}
+
+/**
+ * 创建工具定义，同时注册完整描述
+ */
+function createTool(
+    name: string,
+    description: string,
+    parameters: Tool['function']['parameters']
+): Tool {
+    // 注册完整描述
+    TOOL_FULL_DESCRIPTIONS[name] = description;
+
+    return {
+        type: 'function',
+        function: {
+            name,
+            description: extractShortDescription(description),
+            parameters,
+        },
+    };
+}
+
+/**
+ * 获取工具的完整描述
+ */
+export function getToolFullDescription(toolName: string): string | undefined {
+    return TOOL_FULL_DESCRIPTIONS[toolName];
+}
+
+/**
+ * 构建包含工具详细描述的系统提示词追加内容
+ * @param toolNames 需要添加详细描述的工具名称列表
+ * @param existingDescriptions 已存在的描述（用于避免重复）
+ * @returns 追加的系统提示词内容，以及更新后的已存在描述集合
+ */
+export function buildToolDescriptionsPrompt(
+    toolNames: string[],
+    existingDescriptions: Set<string> = new Set()
+): { prompt: string; newDescriptions: Set<string> } {
+    const newToolDescriptions: string[] = [];
+    const newDescriptions = new Set(existingDescriptions);
+
+    for (const toolName of toolNames) {
+        // 避免重复添加同一个工具的详细描述
+        if (newDescriptions.has(toolName)) {
+            continue;
+        }
+
+        const fullDesc = TOOL_FULL_DESCRIPTIONS[toolName];
+        if (fullDesc) {
+            newToolDescriptions.push(`## ${toolName}\n\n${fullDesc}`);
+            newDescriptions.add(toolName);
+        }
+    }
+
+    if (newToolDescriptions.length === 0) {
+        return { prompt: '', newDescriptions };
+    }
+
+    const prompt = `\n\n=== 工具详细使用说明 ===\n\n${newToolDescriptions.join('\n\n---\n\n')}`;
+    return { prompt, newDescriptions };
+}
+
+/**
+ * 获取工具的详细描述文档
+ * AI 应该先调用此工具获取目标工具的详细使用说明，然后再调用实际工具
+ */
+export function getSiyuanSkills(toolName: string): string {
+    const description = TOOL_FULL_DESCRIPTIONS[toolName];
+    if (!description) {
+        return `未找到工具 "${toolName}" 的详细描述。可用工具: ${Object.keys(TOOL_FULL_DESCRIPTIONS).join(', ')}`;
+    }
+    return description;
+}
+
+export const AVAILABLE_TOOLS: Tool[] = [
+    // 工具详细描述查询工具 - 隐藏工具，不在 UI 中显示
     {
         type: 'function',
         function: {
-            name: 'siyuan_sql_query',
-            description: `执行思源笔记SQL查询的工具。
+            name: 'get_siyuan_skills',
+            description: `了解思源笔记AI使用规范，获取指定工具的详细使用说明文档。
+
+**重要规则**
+- 在使用任何工具之前，必须先调用此工具获取该工具的详细说明。
+## 使用流程
+1. 确定需要使用的工具名称
+2. 调用 get_siyuan_skills 获取该工具的详细文档
+3. 阅读文档了解参数要求、使用示例、注意事项
+4. 根据文档正确调用目标工具
+
+## 参数
+- toolName: 要查询的工具名称，如 "siyuan_sql_query", "siyuan_update_block" 等`,
+            parameters: {
+                type: 'object',
+                properties: {
+                    toolName: {
+                        type: 'string',
+                        description: '要获取详细描述的工具名称',
+                        enum: [
+                            'siyuan_sql_query',
+                            'siyuan_update_block',
+                            'siyuan_insert_block',
+                            'siyuan_get_block_content',
+                            'siyuan_create_document',
+                            'siyuan_list_notebooks',
+                            'siyuan_get_doc_tree',
+                            'siyuan_create_notebook',
+                            'siyuan_rename_document',
+                            'siyuan_move_documents',
+                            'siyuan_get_block_attrs',
+                            'siyuan_set_block_attrs',
+                            'siyuan_database',
+                        ],
+                    },
+                },
+                required: ['toolName'],
+            },
+        },
+    },
+
+    // SQL查询工具
+    createTool(
+        'siyuan_sql_query',
+        `执行思源笔记SQL查询的工具。
 
 ## 何时使用
 - 需要搜索、统计或分析笔记内容
@@ -179,24 +325,21 @@ SELECT * FROM blocks WHERE tag LIKE '%标签名%';
 - 避免查询过多数据，使用LIMIT限制结果数量，默认50，除非用户有要求指定数量
 - 查询之后的结果总结，使用思源笔记块链接的格式包裹，如\`[脑机接口](siyuan://blocks/20240519195512-ccrifu0)\`
 `,
-            parameters: {
-                type: 'object',
-                properties: {
-                    sql: {
-                        type: 'string',
-                        description: 'SQL查询语句，必须是有效的SQLite语法',
-                    },
+        {
+            type: 'object',
+            properties: {
+                sql: {
+                    type: 'string',
+                    description: 'SQL查询语句，必须是有效的SQLite语法',
                 },
-                required: ['sql'],
             },
-        },
-    },
+            required: ['sql'],
+        }
+    ),
     // 更新块工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_update_block',
-            description: `更新思源笔记中已存在块的工具。
+    createTool(
+        'siyuan_update_block',
+        `更新思源笔记中已存在块的工具。
 
 ## 何时使用
 - 需要修改现有笔记内容
@@ -214,43 +357,44 @@ SELECT * FROM blocks WHERE tag LIKE '%标签名%';
 
 ## 注意事项
 - 必须提供准确的块ID
-- 思源笔记kramdown格式可以添加文字颜色：格式为<span data-type="text">添加颜色的文字1</span>{: style="color: var(--b3-font-color1);"}，优先使用以下颜色变量：
-  - --b3-font-color1: 红色
-  - --b3-font-color2: 橙色
-  - --b3-font-color3: 蓝色
-  - --b3-font-color4: 绿色
-  - --b3-font-color5: 灰色
+- 思源笔记kramdown格式可以添加文字颜色：格式为<span data-type="text" style="background-color: var(--b3-card-error-background); color: var(--b3-card-error-color);">文本</span>，优先使用以下颜色变量：
+  - 红色文字：--b3-font-color1
+  - 橙色文字：--b3-font-color2
+  - 蓝色文字：--b3-font-color3
+  - 绿色文字：--b3-font-color4
+  - 灰色文字：--b3-font-color5
+  - 红色卡片：color: var(--b3-card-error-color); background-color: var(--b3-card-error-background);
+  - 绿色卡片：color: var(--b3-card-success-color); background-color: var(--b3-card-success-background);
+  - 蓝色卡片：color: var(--b3-card-info-color); background-color: var(--b3-card-info-background);
+  - 橙色卡片：color: var(--b3-card-warning-color); background-color: var(--b3-card-warning-background);
 - 不建议频繁更新大型文档块，考虑只更新特定段落
 
 ## 调用工具后
 - 更新块后以思源块链接格式返回，方便用户点击跳转查看`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    dataType: {
-                        type: 'string',
-                        description: '数据类型，通常使用 "markdown"',
-                        enum: ['markdown', 'dom'],
-                    },
-                    data: {
-                        type: 'string',
-                        description: '新的块内容，使用Markdown格式',
-                    },
-                    id: {
-                        type: 'string',
-                        description: '要更新的块ID',
-                    },
+        {
+            type: 'object',
+            properties: {
+                dataType: {
+                    type: 'string',
+                    description: '数据类型，通常使用 "markdown"',
+                    enum: ['markdown', 'dom'],
                 },
-                required: ['dataType', 'data', 'id'],
+                data: {
+                    type: 'string',
+                    description: '新的块内容，使用Markdown格式',
+                },
+                id: {
+                    type: 'string',
+                    description: '要更新的块ID',
+                },
             },
-        },
-    },
+            required: ['dataType', 'data', 'id'],
+        }
+    ),
     // 插入块工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_insert_block',
-            description: `在思源笔记中插入新块的工具。
+    createTool(
+        'siyuan_insert_block',
+        `在思源笔记中插入新块的工具。
 
 ## 何时使用
 - 用户要求添加新内容到笔记
@@ -260,7 +404,7 @@ SELECT * FROM blocks WHERE tag LIKE '%标签名%';
 ## 使用方法
 1. 使用markdown格式准备要插入的内容
 2. 确定插入位置（在某个块之前、之后，或作为子块）
-3. 调用工具插入内容
+3. 调用工具插入内容，插入
 
 ## 位置参数说明
 - parentID: 将新块作为指定块的子块插入（前置子块）
@@ -309,48 +453,45 @@ siyuan_insert_block({
 
 ## 调用工具后
 - 插入块后以思源块链接格式返回，方便用户点击跳转查看`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    dataType: {
-                        type: 'string',
-                        description: '数据类型，通常使用 "markdown"',
-                        enum: ['markdown', 'dom'],
-                    },
-                    data: {
-                        type: 'string',
-                        description: '要插入的内容，使用Markdown格式',
-                    },
-                    parentID: {
-                        type: 'string',
-                        description: '父块ID，将新块作为前置子块插入（可选）',
-                    },
-                    appendParentID: {
-                        type: 'string',
-                        description: '父块ID，将新块作为后置子块追加到父块最后（可选）',
-                    },
-                    previousID: {
-                        type: 'string',
-                        description: '前一个块的ID，将新块插入到该块之后（可选）',
-                    },
-                    nextID: {
-                        type: 'string',
-                        description: '后一个块的ID，将新块插入到该指定块之前（可选）',
-                    },
+        {
+            type: 'object',
+            properties: {
+                dataType: {
+                    type: 'string',
+                    description: '数据类型，通常使用 "markdown"',
+                    enum: ['markdown', 'dom'],
                 },
-                required: ['dataType', 'data'],
+                data: {
+                    type: 'string',
+                    description: '要插入的内容，使用Markdown格式，可以一次性插入多个块，无需一个个插入',
+                },
+                parentID: {
+                    type: 'string',
+                    description: '父块ID，将新块作为前置子块插入（可选）',
+                },
+                appendParentID: {
+                    type: 'string',
+                    description: '父块ID，将新块作为后置子块追加到父块最后（可选）',
+                },
+                previousID: {
+                    type: 'string',
+                    description: '前一个块的ID，将新块插入到该块之后（可选）',
+                },
+                nextID: {
+                    type: 'string',
+                    description: '后一个块的ID，将新块插入到该指定块之前（可选）',
+                },
             },
-        },
-    },
+            required: ['dataType', 'data'],
+        }
+    ),
 
 
 
     // 获取块内容工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_get_block_content',
-            description: `获取思源笔记块的详细内容的工具。
+    createTool(
+        'siyuan_get_block_content',
+        `获取思源笔记块的详细内容的工具。
 
 ## 何时使用
 - 需要查看特定块的完整内容
@@ -377,30 +518,27 @@ siyuan_insert_block({
 ## 注意事项
 - 块ID必须存在且有效
 - Kramdown格式包含额外的元数据`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    id: {
-                        type: 'string',
-                        description: '要获取内容的块ID',
-                    },
-                    format: {
-                        type: 'string',
-                        description: '返回格式：markdown（纯文本）或 kramdown（包含ID信息）',
-                        enum: ['markdown', 'kramdown'],
-                    },
+        {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: '要获取内容的块ID',
                 },
-                required: ['id', 'format'],
+                format: {
+                    type: 'string',
+                    description: '返回格式：markdown（纯文本）或 kramdown（包含ID信息）',
+                    enum: ['markdown', 'kramdown'],
+                },
             },
-        },
-    },
+            required: ['id', 'format'],
+        }
+    ),
 
     // 创建文档工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_create_document',
-            description: `在思源笔记中创建新文档的工具。
+    createTool(
+        'siyuan_create_document',
+        `在思源笔记中创建新文档的工具。
 
 ## 何时使用
 - 用户要求创建新笔记
@@ -443,33 +581,30 @@ siyuan_create_document({
 - Markdown内容会被解析并转换为块
 - 自动块引用功能会增加处理时间
 - 建议合理组织文档结构，避免过深的层级`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    notebook: {
-                        type: 'string',
-                        description: '笔记本ID，可以通过SQL查询 "SELECT * FROM blocks WHERE type=\'d\' LIMIT 1" 获取box字段',
-                    },
-                    path: {
-                        type: 'string',
-                        description: '文档路径，如 /日记/2024-01-01，会自动创建父目录',
-                    },
-                    markdown: {
-                        type: 'string',
-                        description: '文档内容，使用Markdown格式。支持自动块引用功能。',
-                    },
+        {
+            type: 'object',
+            properties: {
+                notebook: {
+                    type: 'string',
+                    description: '笔记本ID，可以通过SQL查询 "SELECT * FROM blocks WHERE type=\'d\' LIMIT 1" 获取box字段',
                 },
-                required: ['notebook', 'path', 'markdown'],
+                path: {
+                    type: 'string',
+                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录',
+                },
+                markdown: {
+                    type: 'string',
+                    description: '文档内容，使用Markdown格式。支持自动块引用功能。',
+                },
             },
-        },
-    },
+            required: ['notebook', 'path', 'markdown'],
+        }
+    ),
 
     // 列出笔记本工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_list_notebooks',
-            description: `获取所有笔记本列表的工具。
+    createTool(
+        'siyuan_list_notebooks',
+        `获取所有笔记本列表的工具。
 
 ## 何时使用
 - 需要查看系统中有哪些笔记本
@@ -492,20 +627,17 @@ siyuan_create_document({
 - 返回包括已打开和已关闭的笔记本
 - 可以通过 closed 字段判断笔记本是否已关闭
 - 笔记本ID是创建文档等操作的必要参数`,
-            parameters: {
-                type: 'object',
-                properties: {},
-                required: [],
-            },
-        },
-    },
+        {
+            type: 'object',
+            properties: {},
+            required: [],
+        }
+    ),
 
     // 获取文档树工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_get_doc_tree',
-            description: `获取指定路径下的子文档结构（文档树结构）
+    createTool(
+        'siyuan_get_doc_tree',
+        `获取指定路径下的子文档结构（文档树结构）
 
 ## 何时使用
 - 需要列出某个笔记本下的文档树
@@ -529,33 +661,30 @@ siyuan_create_document({
 ## 注意事项
 - 如果笔记本的 sortMode 为 15（文档树排序），函数会读取全局文件树排序设置：window.siyuan.config.fileTree.sort
 - 返回结果为 JSON 数组，节点包含 name、id 和 children 字段，children 为数组（可能为空）`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    notebook: {
-                        type: 'string',
-                        description: '笔记本ID',
-                    },
-                    path: {
-                        type: 'string',
-                        description: "起始路径，默认 '/'",
-                    },
-                    sortMode: {
-                        type: 'number',
-                        description: '可选的排序模式，若不提供将由笔记本或全局配置决定',
-                    },
+        {
+            type: 'object',
+            properties: {
+                notebook: {
+                    type: 'string',
+                    description: '笔记本ID',
                 },
-                required: ['notebook'],
+                path: {
+                    type: 'string',
+                    description: "起始路径，默认 '/'",
+                },
+                sortMode: {
+                    type: 'number',
+                    description: '可选的排序模式，若不提供将由笔记本或全局配置决定',
+                },
             },
-        },
-    },
+            required: ['notebook'],
+        }
+    ),
 
     // 创建笔记本工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_create_notebook',
-            description: `创建新笔记本的工具。
+    createTool(
+        'siyuan_create_notebook',
+        `创建新笔记本的工具。
 
 ## 何时使用
 - 用户要求创建新的笔记本
@@ -586,25 +715,22 @@ siyuan_create_notebook({
 - 如果同名笔记本已存在，可能会报错
 - 创建成功后会返回笔记本对象，包含ID等信息
 - 新笔记本默认会自动打开`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    name: {
-                        type: 'string',
-                        description: '笔记本名称',
-                    },
+        {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description: '笔记本名称',
                 },
-                required: ['name'],
             },
-        },
-    },
+            required: ['name'],
+        }
+    ),
 
     // 重命名文档工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_rename_document',
-            description: `重命名思源笔记文档的工具。
+    createTool(
+        'siyuan_rename_document',
+        `重命名思源笔记文档的工具。
 
 ## 何时使用
 - 用户要求修改文档标题
@@ -636,29 +762,26 @@ siyuan_rename_document({
 - 重命名不会改变文档ID
 - 不会影响文档的内容和结构
 - 文件系统中的文件名也会相应更新`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    id: {
-                        type: 'string',
-                        description: '文档ID',
-                    },
-                    title: {
-                        type: 'string',
-                        description: '新的文档标题',
-                    },
+        {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: '文档ID',
                 },
-                required: ['id', 'title'],
+                title: {
+                    type: 'string',
+                    description: '新的文档标题',
+                },
             },
-        },
-    },
+            required: ['id', 'title'],
+        }
+    ),
 
     // 移动文档工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_move_documents',
-            description: `移动思源笔记文档到指定位置的工具。
+    createTool(
+        'siyuan_move_documents',
+        `移动思源笔记文档到指定位置的工具。
 
 ## 何时使用
 - 用户要求移动文档到其他文档下或其他笔记本
@@ -699,31 +822,28 @@ siyuan_move_documents({
 - 移动会改变文档的路径和层级关系
 - 可以批量移动多个文档
 - 不能将文档移动到其自身或其子文档下`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    fromIDs: {
-                        type: 'array',
-                        description: '源文档ID数组，可以是一个或多个文档ID',
-                        items: {
-                            type: 'string',
-                        },
-                    },
-                    toID: {
+        {
+            type: 'object',
+            properties: {
+                fromIDs: {
+                    type: 'array',
+                    description: '源文档ID数组，可以是一个或多个文档ID',
+                    items: {
                         type: 'string',
-                        description: '目标父文档ID或笔记本ID',
                     },
                 },
-                required: ['fromIDs', 'toID'],
+                toID: {
+                    type: 'string',
+                    description: '目标父文档ID或笔记本ID',
+                },
             },
-        },
-    },
+            required: ['fromIDs', 'toID'],
+        }
+    ),
     // 获取块属性工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_get_block_attrs',
-            description: `获取指定块的属性。
+    createTool(
+        'siyuan_get_block_attrs',
+        `获取指定块的属性。
 
 ## 使用场景
 - 读取某个块的自定义属性（如 tags、bookmark、alias 等）
@@ -754,25 +874,22 @@ siyuan_move_documents({
 ## 注意
 - 不包含文档路径、归属笔记本等信息，需要通过sql查询
 `,
-            parameters: {
-                type: 'object',
-                properties: {
-                    id: {
-                        type: 'string',
-                        description: '要获取属性的块ID',
-                    },
+        {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: '要获取属性的块ID',
                 },
-                required: ['id'],
             },
-        },
-    },
+            required: ['id'],
+        }
+    ),
 
     // 设置块属性工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_set_block_attrs',
-            description: `设置指定块的属性。
+    createTool(
+        'siyuan_set_block_attrs',
+        `设置指定块的属性。
 
 ## 使用场景
 - 修改或添加块属性（如 tags、bookmark、alias 等）
@@ -792,28 +909,25 @@ siyuan_move_documents({
 ## 注意事项
 - 如果要设置标签需要先获取已有标签，然后根据用户需求是增加新标签还是直接覆盖标签，如果标签为空则直接覆盖
 `,
-            parameters: {
-                type: 'object',
-                properties: {
-                    id: {
-                        type: 'string',
-                        description: '要设置属性的块ID',
-                    },
-                    attrs: {
-                        type: 'object',
-                        description: '属性对象，键为属性名，值为字符串',
-                    },
+        {
+            type: 'object',
+            properties: {
+                id: {
+                    type: 'string',
+                    description: '要设置属性的块ID',
                 },
-                required: ['id', 'attrs'],
+                attrs: {
+                    type: 'object',
+                    description: '属性对象，键为属性名，值为字符串',
+                },
             },
-        },
-    },
+            required: ['id', 'attrs'],
+        }
+    ),
     // 数据库工具
-    {
-        type: 'function',
-        function: {
-            name: 'siyuan_database',
-            description: `思源笔记数据库(AttributeView)操作工具。数据库由多个API组合使用，此工具整合了所有数据库相关操作。
+    createTool(
+        'siyuan_database',
+        `思源笔记数据库(AttributeView)操作工具。数据库由多个API组合使用，此工具整合了所有数据库相关操作。
 
 ## 何时使用
 - 需要搜索、查询或操作数据库
@@ -1133,120 +1247,119 @@ siyuan_move_documents({
 - 添加绑定块时，isDetached设为false
 - 添加非绑定块时，使用addDetachedRows操作
 `,
-            parameters: {
-                type: 'object',
-                properties: {
-                    operation: {
+        {
+            type: 'object',
+            properties: {
+                operation: {
+                    type: 'string',
+                    description: '操作类型',
+                    enum: [
+                        'searchDatabase',
+                        'getColumns',
+                        'renderDatabase',
+                        'addDetachedRows',
+                        'addBoundBlocks',
+                        'setAttribute',
+                        'batchSetAttributes',
+                        'getDatabasesForBlock',
+                        'getItemIDsByBlockIDs',
+                        'getBlockIDsByItemIDs',
+                        'addColumn',
+                        'removeColumn',
+                        'removeRows'
+                    ],
+                },
+                keyword: {
+                    type: 'string',
+                    description: '搜索关键词 (searchDatabase操作)',
+                },
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
+                viewID: {
+                    type: 'string',
+                    description: '视图ID (renderDatabase操作)',
+                },
+                pageSize: {
+                    type: 'number',
+                    description: '每页数量 (renderDatabase操作，默认9999999)',
+                },
+                page: {
+                    type: 'number',
+                    description: '页码 (renderDatabase操作，默认1)',
+                },
+                blocksValues: {
+                    type: 'array',
+                    description: '二维数组，每个元素是一行的数据 (addDetachedRows操作)',
+                },
+                blockIDs: {
+                    type: 'array',
+                    description: '块ID数组',
+                    items: {
                         type: 'string',
-                        description: '操作类型',
-                        enum: [
-                            'searchDatabase',
-                            'getColumns',
-                            'renderDatabase',
-                            'addDetachedRows',
-                            'addBoundBlocks',
-                            'setAttribute',
-                            'batchSetAttributes',
-                            'getDatabasesForBlock',
-                            'getItemIDsByBlockIDs',
-                            'getBlockIDsByItemIDs',
-                            'addColumn',
-                            'removeColumn',
-                            'removeRows'
-                        ],
-                    },
-                    keyword: {
-                        type: 'string',
-                        description: '搜索关键词 (searchDatabase操作)',
-                    },
-                    avID: {
-                        type: 'string',
-                        description: '数据库ID',
-                    },
-                    viewID: {
-                        type: 'string',
-                        description: '视图ID (renderDatabase操作)',
-                    },
-                    pageSize: {
-                        type: 'number',
-                        description: '每页数量 (renderDatabase操作，默认9999999)',
-                    },
-                    page: {
-                        type: 'number',
-                        description: '页码 (renderDatabase操作，默认1)',
-                    },
-                    blocksValues: {
-                        type: 'array',
-                        description: '二维数组，每个元素是一行的数据 (addDetachedRows操作)',
-                    },
-                    blockIDs: {
-                        type: 'array',
-                        description: '块ID数组',
-                        items: {
-                            type: 'string',
-                        },
-                    },
-                    itemIDs: {
-                        type: 'array',
-                        description: 'ItemID数组',
-                        items: {
-                            type: 'string',
-                        },
-                    },
-                    keyID: {
-                        type: 'string',
-                        description: '列ID (setAttribute/removeColumn操作)',
-                    },
-                    itemID: {
-                        type: 'string',
-                        description: '行ID/ItemID (setAttribute操作)',
-                    },
-                    valueType: {
-                        type: 'string',
-                        description: '值类型 (setAttribute操作)',
-                        enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
-                    },
-                    value: {
-                        type: 'object',
-                        description: '属性值对象 (setAttribute操作)',
-                    },
-                    values: {
-                        type: 'array',
-                        description: '属性值数组 (batchSetAttributes操作)',
-                    },
-                    blockID: {
-                        type: 'string',
-                        description: '块ID (getDatabasesForBlock操作)',
-                    },
-                    keyName: {
-                        type: 'string',
-                        description: '列名称 (addColumn操作)',
-                    },
-                    keyType: {
-                        type: 'string',
-                        description: '列类型 (addColumn操作)',
-                        enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
-                    },
-                    keyIcon: {
-                        type: 'string',
-                        description: '列图标 (addColumn操作，可选，默认为空字符串)',
-                    },
-                    previousKeyID: {
-                        type: 'string',
-                        description: '前一列ID (addColumn操作，用于指定新列的位置)',
-                    },
-                    srcIDs: {
-                        type: 'array',
-                        description: '要删除的行ID数组 (removeRows操作)',
-                        items: {
-                            type: 'string',
-                        },
                     },
                 },
-                required: ['operation'],
+                itemIDs: {
+                    type: 'array',
+                    description: 'ItemID数组',
+                    items: {
+                        type: 'string',
+                    },
+                },
+                keyID: {
+                    type: 'string',
+                    description: '列ID (setAttribute/removeColumn操作)',
+                },
+                itemID: {
+                    type: 'string',
+                    description: '行ID/ItemID (setAttribute操作)',
+                },
+                valueType: {
+                    type: 'string',
+                    description: '值类型 (setAttribute操作)',
+                    enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
+                },
+                value: {
+                    type: 'object',
+                    description: '属性值对象 (setAttribute操作)',
+                },
+                values: {
+                    type: 'array',
+                    description: '属性值数组 (batchSetAttributes操作)',
+                },
+                blockID: {
+                    type: 'string',
+                    description: '块ID (getDatabasesForBlock操作)',
+                },
+                keyName: {
+                    type: 'string',
+                    description: '列名称 (addColumn操作)',
+                },
+                keyType: {
+                    type: 'string',
+                    description: '列类型 (addColumn操作)',
+                    enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
+                },
+                keyIcon: {
+                    type: 'string',
+                    description: '列图标 (addColumn操作，可选，默认为空字符串)',
+                },
+                previousKeyID: {
+                    type: 'string',
+                    description: '前一列ID (addColumn操作，用于指定新列的位置)',
+                },
+                srcIDs: {
+                    type: 'array',
+                    description: '要删除的行ID数组 (removeRows操作)',
+                    items: {
+                        type: 'string',
+                    },
+                },
             },
-        },
-    },
+            required: ['operation'],
+        }
+    ),
 ];
 
 // ==================== 工具实现 ====================
@@ -1790,6 +1903,11 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
         const args = JSON.parse(argsStr);
 
         switch (name) {
+            case 'get_siyuan_skills':
+                // 获取工具详细描述
+                const toolDesc = getSiyuanSkills(args.toolName);
+                return toolDesc;
+
             case 'siyuan_sql_query':
                 const results = await siyuan_sql_query(args.sql);
                 return JSON.stringify(results, null, 2);

@@ -4120,9 +4120,16 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             let toolsForAgent: any[] | undefined = undefined;
             if (chatMode === 'agent' && selectedTools.length > 0) {
                 // 根据选中的工具名称筛选出对应的工具定义
-                toolsForAgent = AVAILABLE_TOOLS.filter(tool =>
+                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                     selectedTools.some(t => t.name === tool.function.name)
                 );
+                // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
+                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                if (descTool) {
+                    toolsForAgent = [descTool, ...selectedToolDefs];
+                } else {
+                    toolsForAgent = selectedToolDefs;
+                }
             }
 
             // 准备联网搜索工具（如果启用）
@@ -4162,6 +4169,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
+                // 保存基础系统提示词（包含工具使用指引）
+                const toolUsageInstruction = `\n\n=== 工具使用强制规则 ===\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下直接调用任何思源笔记工具。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 思源笔记的工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+                let baseSystemPrompt = (settings.aiSystemPrompt || '') + toolUsageInstruction;
 
                 while (shouldContinue && !abortController.signal.aborted) {
                     // 标记是否收到工具调用
@@ -4220,7 +4230,8 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                     // 只有在启用 thinking 模式时才添加 reasoning_content
                                     // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
                                     if (isDeepseekThinkingAgent) {
-                                        assistantMessage.reasoning_content = streamingThinking || '';
+                                        assistantMessage.reasoning_content =
+                                            streamingThinking || '';
                                         if (streamingThinking) {
                                             assistantMessage.thinking = streamingThinking;
                                         }
@@ -4253,7 +4264,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                     const toolConfig = selectedTools.find(
                                         t => t.name === toolCall.function.name
                                     );
-                                    const autoApprove = toolConfig?.autoApprove || false;
+                                    // get_siyuan_skills 是系统工具，默认自动批准
+                                    const isSystemTool =
+                                        toolCall.function.name === 'get_siyuan_skills';
+                                    const autoApprove =
+                                        isSystemTool || toolConfig?.autoApprove || false;
 
                                     try {
                                         let toolResult: string;
@@ -4330,36 +4345,53 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
                                 // 更新 messagesToSend，准备下一次循环
                                 // 只在字段存在时才包含，避免传递 undefined 字段给 API
-                                messagesToSend = messages.map(msg => {
-                                    const baseMsg: any = {
-                                        role: msg.role,
-                                        content: msg.content,
-                                    };
+                                messagesToSend = messages
+                                    .filter(msg => msg.role !== 'system') // 过滤掉旧的系统消息
+                                    .map(msg => {
+                                        const baseMsg: any = {
+                                            role: msg.role,
+                                            content: msg.content,
+                                        };
 
-                                    // 只在有工具调用相关字段时才包含
-                                    if (msg.tool_calls) {
-                                        baseMsg.tool_calls = msg.tool_calls;
-                                    }
-                                    if (msg.tool_call_id) {
-                                        baseMsg.tool_call_id = msg.tool_call_id;
-                                        baseMsg.name = msg.name;
-                                    }
-
-                                    // 只有在启用 thinking 模式时才保留 reasoning_content
-                                    // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
-                                    if (isDeepseekThinkingAgent && msg.reasoning_content !== undefined) {
-                                        baseMsg.reasoning_content = msg.reasoning_content;
-                                    }
-
-                                    // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
-                                    if (isDeepseekThinkingAgent && msg.tool_calls && msg.tool_calls.length > 0) {
-                                        if (baseMsg.reasoning_content === undefined) {
-                                            baseMsg.reasoning_content = '';
+                                        // 只在有工具调用相关字段时才包含
+                                        if (msg.tool_calls) {
+                                            baseMsg.tool_calls = msg.tool_calls;
                                         }
-                                    }
+                                        if (msg.tool_call_id) {
+                                            baseMsg.tool_call_id = msg.tool_call_id;
+                                            baseMsg.name = msg.name;
+                                        }
 
-                                    return baseMsg;
-                                });
+                                        // 只有在启用 thinking 模式时才保留 reasoning_content
+                                        // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                                        if (
+                                            isDeepseekThinkingAgent &&
+                                            msg.reasoning_content !== undefined
+                                        ) {
+                                            baseMsg.reasoning_content = msg.reasoning_content;
+                                        }
+
+                                        // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+                                        if (
+                                            isDeepseekThinkingAgent &&
+                                            msg.tool_calls &&
+                                            msg.tool_calls.length > 0
+                                        ) {
+                                            if (baseMsg.reasoning_content === undefined) {
+                                                baseMsg.reasoning_content = '';
+                                            }
+                                        }
+
+                                        return baseMsg;
+                                    });
+
+                                // 添加系统提示词到消息列表开头
+                                if (baseSystemPrompt.trim()) {
+                                    messagesToSend.unshift({
+                                        role: 'system',
+                                        content: baseSystemPrompt,
+                                    });
+                                }
 
                                 // 通知工具执行完成
                                 toolExecutionComplete?.();
@@ -4397,7 +4429,8 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
                                         // 只有在启用 thinking 模式时才更新 reasoning_content
                                         if (isDeepseekThinkingAgent) {
-                                            existingMessage.reasoning_content = streamingThinking || '';
+                                            existingMessage.reasoning_content =
+                                                streamingThinking || '';
                                         }
 
                                         // 添加思考内容（如果有）
