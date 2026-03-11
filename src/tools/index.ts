@@ -204,18 +204,17 @@ SELECT * FROM blocks WHERE tag LIKE '%标签名%';
 - 修正或改进已有信息
 
 ## 使用方法
-1. 先通过SQL查询或其他方式获取要更新的块ID
+1. 获取要更新的块ID（上下文提供、SQL查询等方式）
 2. 准备新的内容（Markdown格式）
 3. 调用工具更新块内容
 
 ## 更新策略
-- 完全替换：新内容会完全替换旧内容
 - 保留结构：尽量保持原有的块结构和子块
 - 属性保留：块属性（如别名、标签）会被保留
 
 ## 注意事项
 - 必须提供准确的块ID
-- 思源笔记kramdown格式如果要添加颜色：应该是<span data-type="text">添加颜色的文字1</span>{: style="color: var(--b3-font-color1);"}，优先使用以下颜色变量：
+- 思源笔记kramdown格式可以添加文字颜色：格式为<span data-type="text">添加颜色的文字1</span>{: style="color: var(--b3-font-color1);"}，优先使用以下颜色变量：
   - --b3-font-color1: 红色
   - --b3-font-color2: 橙色
   - --b3-font-color3: 蓝色
