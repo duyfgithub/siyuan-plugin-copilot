@@ -1243,6 +1243,8 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     // Agent 模式
     let isToolSelectorOpen = false;
     let selectedTools: ToolConfig[] = []; // 选中的工具配置列表
+    // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
+    $: userToolCount = (selectedTools || []).filter(t => t.name !== 'get_siyuan_skills').length;
     let toolCallsInProgress: Set<string> = new Set(); // 正在执行的工具调用ID
     let toolCallsExpanded: Record<string, boolean> = {}; // 工具调用是否展开，默认折叠
     let toolCallResultsExpanded: Record<string, boolean> = {}; // 工具结果是否展开，默认折叠
@@ -4161,15 +4163,19 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
             // 准备 Agent 模式的工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if (chatMode === 'agent' && selectedTools.length > 0) {
+            if (chatMode === 'agent' && userToolCount > 0) {
                 // 根据选中的工具名称筛选出对应的工具定义
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                     selectedTools.some(t => t.name === tool.function.name)
                 );
                 // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
+                // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
                 const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
                 if (descTool) {
-                    toolsForAgent = [descTool, ...selectedToolDefs];
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills'
+                    );
+                    toolsForAgent = [descTool, ...filteredToolDefs];
                 } else {
                     toolsForAgent = selectedToolDefs;
                 }
@@ -10903,7 +10909,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     title={t('aiSidebar.agent.selectTools')}
                 >
                     <svg class="b3-button__icon"><use xlink:href="#iconSettings"></use></svg>
-                    <span>{t('aiSidebar.agent.tools')} ({selectedTools.length})</span>
+                    <span>{t('aiSidebar.agent.tools')} ({userToolCount})</span>
                 </button>
             {/if}
 

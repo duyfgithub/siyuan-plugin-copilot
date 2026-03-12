@@ -17,9 +17,16 @@
     // 使用本地状态管理选中工具，避免双向绑定的问题
     let localSelectedTools: ToolConfig[] = [...selectedTools];
 
+    // 持久化保存每个工具的自动批准配置（无论是否选中）
+    let toolAutoApproveMap: Map<string, boolean> = new Map();
+
     // 当外部 selectedTools 改变时，同步到本地状态
     $: if (selectedTools) {
         localSelectedTools = [...selectedTools];
+        // 同步 autoApprove 配置到持久化存储
+        selectedTools.forEach(t => {
+            toolAutoApproveMap.set(t.name, t.autoApprove);
+        });
     }
 
     function close() {
@@ -63,11 +70,12 @@
     function toggleTool(toolName: string) {
         const index = localSelectedTools.findIndex(t => t.name === toolName);
         if (index >= 0) {
-            // 移除工具
+            // 移除工具（保留 autoApprove 配置在 toolAutoApproveMap 中）
             localSelectedTools = localSelectedTools.filter(t => t.name !== toolName);
         } else {
-            // 添加工具
-            localSelectedTools = [...localSelectedTools, { name: toolName, autoApprove: false }];
+            // 添加工具，使用持久化的 autoApprove 配置（默认 false）
+            const savedAutoApprove = toolAutoApproveMap.get(toolName) ?? false;
+            localSelectedTools = [...localSelectedTools, { name: toolName, autoApprove: savedAutoApprove }];
         }
         // 通知父组件更新
         selectedTools = [...localSelectedTools];
@@ -77,15 +85,21 @@
     // 切换工具的自动批准状态
     function toggleToolAutoApprove(toolName: string) {
         const index = localSelectedTools.findIndex(t => t.name === toolName);
+        const currentValue = toolAutoApproveMap.get(toolName) ?? false;
+        const newValue = !currentValue;
+        
+        // 更新持久化配置
+        toolAutoApproveMap.set(toolName, newValue);
+        
         if (index >= 0) {
             // 工具已选中,更新其自动批准状态
             // 创建新数组以触发响应式更新
             localSelectedTools = localSelectedTools.map((tool, i) =>
-                i === index ? { ...tool, autoApprove: !tool.autoApprove } : tool
+                i === index ? { ...tool, autoApprove: newValue } : tool
             );
         } else {
-            // 工具未选中,添加工具并设置自动批准为 true
-            localSelectedTools = [...localSelectedTools, { name: toolName, autoApprove: true }];
+            // 工具未选中,添加工具并设置自动批准
+            localSelectedTools = [...localSelectedTools, { name: toolName, autoApprove: newValue }];
         }
         // 同步到导出 prop 以支持 bind:selectedTools
         selectedTools = [...localSelectedTools];
@@ -93,17 +107,33 @@
         dispatch('update', localSelectedTools);
     }
 
+    // 用户可选择的工具列表（排除系统工具 get_siyuan_skills）
+    $: userSelectableTools = AVAILABLE_TOOLS.filter(
+        tool => tool.function.name !== 'get_siyuan_skills'
+    );
+
+    // 用户选中的工具数量（排除系统工具）
+    $: userSelectedCount = localSelectedTools.filter(
+        t => t.name !== 'get_siyuan_skills'
+    ).length;
+
     // 全选/取消全选
     function toggleAll() {
-        if (localSelectedTools.length === AVAILABLE_TOOLS.length) {
-            // 取消全选
-            localSelectedTools = [];
+        if (userSelectedCount === userSelectableTools.length) {
+            // 取消全选（保留系统工具，如果存在）
+            // 注意：不清除 toolAutoApproveMap，保留自动批准配置
+            localSelectedTools = localSelectedTools.filter(
+                t => t.name === 'get_siyuan_skills'
+            );
         } else {
-            // 全选
-            localSelectedTools = AVAILABLE_TOOLS.map(tool => ({
+            // 全选用户可选工具（保留系统工具，如果存在）
+            const systemTool = localSelectedTools.find(t => t.name === 'get_siyuan_skills');
+            // 使用持久化的 autoApprove 配置
+            const newSelection = userSelectableTools.map(tool => ({
                 name: tool.function.name,
-                autoApprove: false,
+                autoApprove: toolAutoApproveMap.get(tool.function.name) ?? false,
             }));
+            localSelectedTools = systemTool ? [systemTool, ...newSelection] : newSelection;
         }
         // 同步到导出 prop 以支持 bind:selectedTools
         selectedTools = [...localSelectedTools];
@@ -158,7 +188,7 @@
         <h3>{t('tools.selector.title')}</h3>
         <div class="tool-selector__actions">
             <button class="b3-button b3-button--text" on:click={toggleAll}>
-                {localSelectedTools.length === AVAILABLE_TOOLS.length
+                {userSelectedCount === userSelectableTools.length
                     ? t('tools.selector.deselectAll')
                     : t('tools.selector.selectAll')}
             </button>
@@ -205,7 +235,7 @@
                                         <input
                                             type="checkbox"
                                             class="b3-switch"
-                                            checked={autoApproveMap.get(toolName) || false}
+                                            checked={toolAutoApproveMap.get(toolName) || false}
                                             on:change={() => toggleToolAutoApprove(toolName)}
                                         />
                                         <span class="tool-item__auto-approve-text">
@@ -271,7 +301,7 @@
             </div>
         </div>
         <span class="tool-selector__count">
-            {t('tools.selector.selected')}: {localSelectedTools.length}/{AVAILABLE_TOOLS.length}
+            {t('tools.selector.selected')}: {userSelectedCount}/{userSelectableTools.length}
         </span>
     </div>
 </div>
