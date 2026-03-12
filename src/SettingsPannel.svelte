@@ -358,9 +358,9 @@
                     key: 'searchEngine',
                     value: settings.searchEngine,
                     type: 'select',
-                    title: t('settings.searchEngine.title') || '搜索引擎',
+                    title: '搜索引擎',
                     description:
-                        t('settings.searchEngine.description') || '选择地址栏使用的默认搜索引擎',
+                        '选择地址栏使用的默认搜索引擎',
                     options: {
                         google: 'Google',
                         bing: 'Bing',
