@@ -640,6 +640,9 @@
         "siyuan_get_current_time":{
             "name": "获取当前时间"
         },
+        "siyuan_create_child_document": {
+            "name": "创建子文档"
+        },
         "calling": "正在调用工具",
         "called": "工具已调用",
         "result": "工具结果",

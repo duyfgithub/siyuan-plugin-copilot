@@ -229,6 +229,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
                             'siyuan_insert_block',
                             'siyuan_get_block_content',
                             'siyuan_create_document',
+                            'siyuan_create_child_document',
                             'siyuan_list_notebooks',
                             'siyuan_get_doc_tree',
                             'siyuan_create_notebook',
@@ -563,7 +564,6 @@ siyuan_insert_block({
 1. 自动创建层级目录
 2. 支持完整的Markdown格式
 3. 自动处理块引用
-4. 可以在内容中使用关键词自动创建引用
 
 ## 路径格式
 - 使用 / 分隔的路径，如 /日记/2024/01
@@ -577,15 +577,8 @@ siyuan_insert_block({
 // 创建日记
 siyuan_create_document({
   notebook: "20210808180117-6v0mkxr",
-  path: "/日记/2024-01-01",
+  path: "/日记/2026-01-01",
   markdown: "# 今日总结\\n\\n学习了AI知识..."
-})
-
-// 创建带引用的文档
-siyuan_create_document({
-  notebook: "20210808180117-6v0mkxr",
-  path: "/笔记/机器学习/概述",
-  markdown: "# 机器学习概述\\n\\n机器学习是人工智能的一个分支..."
 })
 \`\`\`
 
@@ -608,10 +601,60 @@ siyuan_create_document({
                 },
                 markdown: {
                     type: 'string',
-                    description: '文档内容，使用Markdown格式。支持自动块引用功能。',
+                    description: '文档内容，使用Markdown格式。',
                 },
             },
             required: ['notebook', 'path', 'markdown'],
+        }
+    ),
+
+    // 创建子文档工具
+    createTool(
+        'siyuan_create_child_document',
+        `在指定父文档下创建子文档的工具。
+
+## 何时使用
+- 需要在指定文档下创建子文档
+- 用户要求在某个文档内部创建新文档
+- 整理层级笔记结构
+
+## 文档创建功能
+1. 自动在父文档路径下创建子文档
+2. 支持Markdown格式创建文档
+
+## 使用示例
+
+\`\`\`javascript
+// 在父文档下创建子文档
+siyuan_create_child_document({
+  parentId: "20210808180117-6v0mkxr",  // 父文档ID
+  title: "子文档标题",                 // 子文档标题（不含路径）
+  markdown: "# 子文档内容\\n\\n这是内容..."
+})
+\`\`\`
+
+## 参数说明
+- parentId: 父文档ID（必填）
+- title: 子文档标题（必填，不含路径，仅文档名）
+- markdown: 文档内容，使用Markdown格式（必填）
+`,
+        {
+            type: 'object',
+            properties: {
+                parentId: {
+                    type: 'string',
+                    description: '父文档ID，子文档将创建在此文档下',
+                },
+                title: {
+                    type: 'string',
+                    description: '子文档标题（不含路径，仅文档名）',
+                },
+                markdown: {
+                    type: 'string',
+                    description: '文档内容，使用Markdown格式',
+                },
+            },
+            required: ['parentId', 'title', 'markdown'],
         }
     ),
 
@@ -1848,7 +1891,7 @@ siyuan_delete_block({
     // 通用思源API调用工具
     createTool(
         'siyuan_fetch_sync_post',
-        `通用思源笔记 API 调用工具。可以调用任何思源笔记提供的 API 接口。
+        `通用思源笔记 API 调用工具。可以调用任何思源笔记提供的 API 接口（如无必要，不要使用）。
 
 ## 何时使用
 - 需要使用当前工具列表中未提供的 API 功能
@@ -2581,6 +2624,52 @@ export async function siyuan_create_document(
 }
 
 /**
+ * 创建子文档
+ * @param parentId 父文档ID
+ * @param title 子文档标题
+ * @param markdown 文档内容
+ */
+export async function siyuan_create_child_document(
+    parentId: string,
+    title: string,
+    markdown: string
+): Promise<string> {
+    try {
+        // 获取父文档信息
+        const parentBlock = await getBlockByID(parentId);
+        if (!parentBlock) {
+            throw new Error(`父文档不存在，ID: ${parentId}`);
+        }
+        if (parentBlock.type !== 'd') {
+            throw new Error(`指定的 parentId 不是文档类型，当前类型: ${parentBlock.type}`);
+        }
+
+        // 获取父文档的笔记本和路径
+        const notebook = parentBlock.box;
+        const parentPath = parentBlock.hpath;
+        
+        // 构建子文档路径
+        const childTitle = title || '未命名文档';
+        const path = `${parentPath}/${childTitle}`;
+
+        // 创建文档
+        const docId = await createDocWithMd(notebook, path, markdown);
+
+        // 自动打开创建的文档
+        try {
+            await openBlock(docId);
+        } catch (openError) {
+            console.warn('打开文档失败，但文档已创建:', openError);
+        }
+
+        return docId;
+    } catch (error) {
+        console.error('Create child document error:', error);
+        throw new Error(`创建子文档失败: ${(error as Error).message}`);
+    }
+}
+
+/**
  * 列出所有笔记本
  */
 export async function siyuan_list_notebooks(): Promise<any> {
@@ -3289,6 +3378,10 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
             case 'siyuan_create_document':
                 const docId = await siyuan_create_document(args.notebook, args.path, args.markdown);
                 return `文档创建成功，ID: ${docId}`;
+
+            case 'siyuan_create_child_document':
+                const childDocId = await siyuan_create_child_document(args.parentId, args.title, args.markdown);
+                return `子文档创建成功，ID: ${childDocId}`;
 
             case 'siyuan_list_notebooks':
                 const notebooks = await siyuan_list_notebooks();
