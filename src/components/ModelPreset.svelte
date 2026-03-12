@@ -10,7 +10,7 @@
     export let currentProvider = '';
     export let currentModelId = '';
     export let appliedSettings = {
-        contextCount: 10,
+        contextCount: -1,
         temperature: 1,
         temperatureEnabled: true,
         systemPrompt: '',
@@ -42,7 +42,7 @@
     let settingsElement: HTMLDivElement;
 
     // 模型设置（临时值，用于编辑）
-    let tempContextCount = 10;
+    let tempContextCount = -1;
     let tempTemperature = 1;
     let tempTemperatureEnabled = false;
     let tempSystemPrompt = '';
@@ -97,7 +97,7 @@
     // 保存初始状态，用于检测是否有未保存的更改
     let initialState = {
         presetName: '',
-        contextCount: 10,
+        contextCount: -1,
         temperature: 1,
         temperatureEnabled: true,
         systemPrompt: '',
@@ -567,7 +567,7 @@
     // 重置为默认值
     async function resetToDefaults() {
         const modelConfig = getCurrentModelConfig();
-        tempContextCount = 10;
+        tempContextCount = -1;
         tempTemperature = modelConfig?.temperature ?? 1;
         tempTemperatureEnabled = false;
         tempSystemPrompt = '';
@@ -944,7 +944,7 @@
                                         <div class="model-settings-preset-list-item-content">
                                             <span class="preset-name">{preset.name}</span>
                                             <div class="model-settings-preset-details">
-                                                {t('aiSidebar.modelSettings.contextCount')}: {preset.contextCount}
+                                                {t('aiSidebar.modelSettings.contextCount')}: {preset.contextCount === -1 ? (t('aiSidebar.modelSettings.unlimited') || '不限制') : preset.contextCount}
                                                 {#if preset.temperatureEnabled ?? true}
                                                     | {t('aiSidebar.modelSettings.temperature')}: {preset.temperature.toFixed(
                                                         2
@@ -1081,11 +1081,13 @@
                 <div class="model-settings-item">
                     <label class="model-settings-label">
                         {t('aiSidebar.modelSettings.contextCount')}
-                        <span class="model-settings-value">{tempContextCount}</span>
+                        <span class="model-settings-value">
+                            {tempContextCount === -1 ? (t('aiSidebar.modelSettings.unlimited') || '不限制') : tempContextCount}
+                        </span>
                     </label>
                     <input
                         type="range"
-                        min="1"
+                        min="-1"
                         max="50"
                         step="1"
                         bind:value={tempContextCount}
@@ -1094,6 +1096,7 @@
                     />
                     <div class="model-settings-hint">
                         {t('aiSidebar.modelSettings.contextCountHint')}
+                        {tempContextCount === -1 ? (t('aiSidebar.modelSettings.unlimitedHint') || '（-1 代表不限制上下文消息数）') : ''}
                     </div>
                 </div>
 

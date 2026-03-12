@@ -264,6 +264,8 @@
             "error": "翻译失败"
         },
         "modelSettings": {
+            "unlimited": "无限制",
+            "unlimitedHint": "-1 代表不限制上下文消息数",
             "title": "预设设置",
             "contextCount": "上下文消息数",
             "contextCountHint": "控制对话历史中包含的消息数量",

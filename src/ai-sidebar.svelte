@@ -169,7 +169,7 @@
 
     // 模型临时设置
     let tempModelSettings = {
-        contextCount: 10,
+        contextCount: -1, // -1表示使用不限制
         temperature: 1,
         temperatureEnabled: true,
         systemPrompt: '',
@@ -1259,7 +1259,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     let pendingToolCall: ToolCall | null = null; // 待批准的工具调用
     let isToolApprovalDialogOpen = false; // 工具批准对话框是否打开
     let isToolConfigLoaded = false; // 标记工具配置是否已加载
-    let lastSavedToolsConfigSnapshot = JSON.stringify({ selectedTools: [], toolAutoApproveSettings: {} }); // 最近一次已加载/已保存的工具配置快照
+    let lastSavedToolsConfigSnapshot = JSON.stringify({
+        selectedTools: [],
+        toolAutoApproveSettings: {},
+    }); // 最近一次已加载/已保存的工具配置快照
 
     // 多模型对话
     let enableMultiModel = false; // 是否启用多模型模式
@@ -3259,7 +3262,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         // 限制上下文消息数量
         const systemMessages = messagesToSend.filter(msg => msg.role === 'system');
         const otherMessages = messagesToSend.filter(msg => msg.role !== 'system');
-        const limitedMessages = otherMessages.slice(-tempModelSettings.contextCount);
+        const limitedMessages =
+            tempModelSettings.contextCount < 0
+                ? otherMessages
+                : otherMessages.slice(-tempModelSettings.contextCount);
 
         // 建立 tool_call_id => tool 消息的索引，便于补全被截断的链条
         const toolResultById = new Map<string, Message>();
@@ -4156,7 +4162,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         // 限制上下文消息数量
         const systemMessages = messagesToSend.filter(msg => msg.role === 'system');
         const otherMessages = messagesToSend.filter(msg => msg.role !== 'system');
-        const limitedMessages = otherMessages.slice(-tempModelSettings.contextCount);
+        const limitedMessages =
+            tempModelSettings.contextCount < 0
+                ? otherMessages
+                : otherMessages.slice(-tempModelSettings.contextCount);
 
         // 建立 tool_call_id => tool 消息的索引，便于补全被截断的链条
         const toolResultById = new Map<string, Message>();
@@ -8189,12 +8198,18 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 toolAutoApproveSettings = {};
             }
             // 初始化快照，避免初次加载触发自动保存
-            lastSavedToolsConfigSnapshot = JSON.stringify({ selectedTools: selectedTools || [], toolAutoApproveSettings: toolAutoApproveSettings || {} });
+            lastSavedToolsConfigSnapshot = JSON.stringify({
+                selectedTools: selectedTools || [],
+                toolAutoApproveSettings: toolAutoApproveSettings || {},
+            });
         } catch (error) {
             console.error('[ToolConfig] Load error:', error);
             selectedTools = [];
             toolAutoApproveSettings = {};
-            lastSavedToolsConfigSnapshot = JSON.stringify({ selectedTools: [], toolAutoApproveSettings: {} });
+            lastSavedToolsConfigSnapshot = JSON.stringify({
+                selectedTools: [],
+                toolAutoApproveSettings: {},
+            });
         } finally {
             // 标记配置已加载完成，此后才允许自动保存
             isToolConfigLoaded = true;
@@ -8207,9 +8222,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             return;
         }
 
-        const currentConfig = { 
-            selectedTools: selectedTools || [], 
-            toolAutoApproveSettings: toolAutoApproveSettings || {} 
+        const currentConfig = {
+            selectedTools: selectedTools || [],
+            toolAutoApproveSettings: toolAutoApproveSettings || {},
         };
         const currentSnapshot = JSON.stringify(currentConfig);
         // 配置未变化时不落盘，避免安装后自动生成配置文件
@@ -11835,10 +11850,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
     <!-- 工具选择器对话框 -->
     {#if isToolSelectorOpen}
-        <ToolSelector 
-            bind:selectedTools 
-            bind:toolAutoApproveSettings 
-            on:close={() => (isToolSelectorOpen = false)} 
+        <ToolSelector
+            bind:selectedTools
+            bind:toolAutoApproveSettings
+            on:close={() => (isToolSelectorOpen = false)}
         />
     {/if}
 
