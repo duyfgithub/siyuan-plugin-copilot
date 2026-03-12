@@ -54,6 +54,9 @@
     import { t } from './utils/i18n';
     import { AVAILABLE_TOOLS, executeToolCall } from './tools';
 
+    // Agent 模式工具使用强制规则（统一常量）
+    const AGENT_TOOL_USAGE_INSTRUCTION = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+
     export let plugin: any;
     export let initialMessage: string = ''; // 初始消息
     export let mode: 'sidebar' | 'dialog' = 'sidebar'; // 使用模式：sidebar或dialog
@@ -3239,13 +3242,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         // Agent 模式下添加工具使用强制规则（在第一次对话前就放入）
         let hasToolInstruction = false;
         if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
-            const toolUsageInstruction = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
-            
             // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
             if (baseSystemPrompt.trim()) {
-                baseSystemPrompt += '\n\n' + toolUsageInstruction;
+                baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
-                baseSystemPrompt = toolUsageInstruction;
+                baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
             hasToolInstruction = true;
         }
@@ -4130,13 +4131,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             messagesToSend.unshift({ role: 'system', content: editModePrompt });
         } else if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
             // Agent 模式下添加工具使用强制规则
-            const toolUsageInstruction = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载完整SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
-            
             let baseSystemPrompt = settings.aiSystemPrompt || '';
             if (baseSystemPrompt.trim()) {
-                baseSystemPrompt += '\n\n' + toolUsageInstruction;
+                baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
-                baseSystemPrompt = toolUsageInstruction;
+                baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
             messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
         } else if (settings.aiSystemPrompt) {
