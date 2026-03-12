@@ -59,7 +59,9 @@
         },
         other: {
             name: t('tools.category.other'),
-            tools: ['web_fetch'],
+            tools: [
+            'web_fetch',
+            'soul'],
         },
     };
 

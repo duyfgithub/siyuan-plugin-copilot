@@ -3,7 +3,7 @@
     import SettingPanel from '@/libs/components/setting-panel.svelte';
     import { t } from './utils/i18n';
     import { getDefaultSettings } from './defaultSettings';
-    import { pushMsg, pushErrMsg, lsNotebooks } from './api';
+    import { pushMsg, pushErrMsg, lsNotebooks, getBlockByID } from './api';
     import { confirm } from 'siyuan';
     import ProviderConfigPanel from './components/ProviderConfigPanel.svelte';
     import type { CustomProviderConfig } from './defaultSettings';
@@ -14,6 +14,12 @@
 
     // 笔记本列表
     let notebookOptions: Record<string, string> = {};
+
+    // SOUL 文档验证状态
+    let soulDocValidation: { status: 'idle' | 'checking' | 'valid' | 'invalid'; message: string } = {
+        status: 'idle',
+        message: '',
+    };
 
     interface ISettingGroup {
         name: string;
@@ -322,6 +328,21 @@
             ],
         },
         {
+            name: t('settings.settingsGroup.soul') || 'SOUL 文档',
+            items: [
+                {
+                    key: 'soulDocId',
+                    value: settings.soulDocId,
+                    type: 'textinput',
+                    title: t('settings.soulDocId.title') || 'SOUL 文档 ID',
+                    description:
+                        t('settings.soulDocId.description') ||
+                        '设置 SOUL 数据存储的文档 ID。SOUL 工具只能在此文档内进行增删改查操作。',
+                    placeholder: t('settings.soulDocId.placeholder') || '输入文档块 ID，如 20260312120000-xxxxxxxx',
+                },
+            ],
+        },
+        {
             name: t('settings.settingsGroup.webApp') || '网页小程序',
             items: [
                 {
@@ -515,6 +536,11 @@
         // 加载笔记本列表
         await loadNotebooks();
 
+        // 如果有设置 SOUL 文档 ID，自动验证
+        if (settings.soulDocId) {
+            await validateSoulDocId();
+        }
+
         updateGroupItems();
     }
 
@@ -541,6 +567,48 @@
             console.error('Load notebooks error:', error);
             notebookOptions = {
                 '': t('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --',
+            };
+        }
+    }
+
+    /**
+     * 验证 SOUL 文档 ID
+     */
+    async function validateSoulDocId() {
+        const docId = settings.soulDocId?.trim();
+        if (!docId) {
+            soulDocValidation = { status: 'idle', message: '' };
+            return;
+        }
+
+        soulDocValidation = { status: 'checking', message: t('settings.soulDocId.validating') || '验证中...' };
+
+        try {
+            const block = await getBlockByID(docId);
+            if (!block) {
+                soulDocValidation = {
+                    status: 'invalid',
+                    message: t('settings.soulDocId.notFound') || '块不存在，请检查 ID 是否正确',
+                };
+                return;
+            }
+
+            if (block.type !== 'd') {
+                soulDocValidation = {
+                    status: 'invalid',
+                    message: t('settings.soulDocId.notDoc') || `该 ID 不是文档类型，当前类型: ${block.type}`,
+                };
+                return;
+            }
+
+            soulDocValidation = {
+                status: 'valid',
+                message: t('settings.soulDocId.valid') || `✓ 有效文档: ${block.content || '未命名'}`,
+            };
+        } catch (error) {
+            soulDocValidation = {
+                status: 'invalid',
+                message: t('settings.soulDocId.error') || '验证失败: ' + (error as Error).message,
             };
         }
     }
@@ -819,6 +887,52 @@
                     </div>
                 {/if}
             </div>
+        {:else if focusGroup === (t('settings.settingsGroup.soul') || 'SOUL 文档')}
+            <!-- SOUL 文档设置特殊处理 -->
+            <div class="soul-settings-panel">
+                <div class="config__item">
+                    <div class="config__item-label">
+                        <div class="config__item-title">
+                            {t('settings.soulDocId.title') || 'SOUL 文档 ID'}
+                        </div>
+                        <div class="config__item-description">
+                            {t('settings.soulDocId.description') ||
+                                '设置 SOUL 数据存储的文档 ID'}
+                        </div>
+                    </div>
+                    <div class="config__item-control">
+                        <input
+                            class="b3-text-field"
+                            type="text"
+                            bind:value={settings.soulDocId}
+                            on:change={async () => {
+                                await saveSettings();
+                                await validateSoulDocId();
+                            }}
+                            placeholder={t('settings.soulDocId.placeholder') ||
+                                '输入文档块 ID，如 20260312120000-xxxxxxxx'}
+                        />
+                        <button
+                            class="b3-button b3-button--outline"
+                            on:click={validateSoulDocId}
+                            disabled={soulDocValidation.status === 'checking'}
+                        >
+                            {soulDocValidation.status === 'checking'
+                                ? t('settings.soulDocId.validating') || '验证中...'
+                                : t('settings.soulDocId.validate') || '验证'}
+                        </button>
+                    </div>
+                    {#if soulDocValidation.message}
+                        <div
+                            class="soul-validation-message"
+                            class:soul-validation-valid={soulDocValidation.status === 'valid'}
+                            class:soul-validation-invalid={soulDocValidation.status === 'invalid'}
+                        >
+                            {soulDocValidation.message}
+                        </div>
+                    {/if}
+                </div>
+            </div>
         {:else}
             <SettingPanel
                 group={currentGroup?.name || ''}
@@ -983,6 +1097,34 @@
         gap: 16px;
         flex: 1;
         overflow-y: auto;
+    }
+
+    .soul-settings-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+    }
+
+    .soul-validation-message {
+        margin-top: 8px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        background: var(--b3-theme-surface);
+        color: var(--b3-theme-on-surface);
+    }
+
+    .soul-validation-valid {
+        background: var(--b3-card-success-background);
+        color: var(--b3-card-success-color);
+    }
+
+    .soul-validation-invalid {
+        background: var(--b3-card-error-background);
+        color: var(--b3-card-error-color);
     }
 
     .auto-rename-model-selector {

@@ -3230,20 +3230,29 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             }
         }
 
-        // 添加系统提示词
-        if (settings.aiSystemPrompt) {
-            messagesToSend.unshift({ role: 'system', content: settings.aiSystemPrompt });
+        // 使用临时系统提示词（如果设置了）- 优先使用临时系统提示词作为基础
+        let baseSystemPrompt = settings.aiSystemPrompt || '';
+        if (tempModelSettings.systemPrompt.trim()) {
+            baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
-        // 使用临时系统提示词（如果设置了）
-        if (tempModelSettings.systemPrompt.trim()) {
-            // 如果已有系统提示词，替换它；否则添加新的
-            const systemMsgIndex = messagesToSend.findIndex(msg => msg.role === 'system');
-            if (systemMsgIndex !== -1) {
-                messagesToSend[systemMsgIndex].content = tempModelSettings.systemPrompt;
+        // Agent 模式下添加工具使用强制规则（在第一次对话前就放入）
+        let hasToolInstruction = false;
+        if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
+            const toolUsageInstruction = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+            
+            // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
+            if (baseSystemPrompt.trim()) {
+                baseSystemPrompt += '\n\n' + toolUsageInstruction;
             } else {
-                messagesToSend.unshift({ role: 'system', content: tempModelSettings.systemPrompt });
+                baseSystemPrompt = toolUsageInstruction;
             }
+            hasToolInstruction = true;
+        }
+
+        // 添加最终的系统提示词（只要基础提示词或工具说明不为空就添加）
+        if (baseSystemPrompt.trim() || hasToolInstruction) {
+            messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
         }
 
         // 限制上下文消息数量
@@ -4119,6 +4128,17 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             }
             // 再添加编辑模式的提示词
             messagesToSend.unshift({ role: 'system', content: editModePrompt });
+        } else if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
+            // Agent 模式下添加工具使用强制规则
+            const toolUsageInstruction = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载完整SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+            
+            let baseSystemPrompt = settings.aiSystemPrompt || '';
+            if (baseSystemPrompt.trim()) {
+                baseSystemPrompt += '\n\n' + toolUsageInstruction;
+            } else {
+                baseSystemPrompt = toolUsageInstruction;
+            }
+            messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
         } else if (settings.aiSystemPrompt) {
             messagesToSend.unshift({ role: 'system', content: settings.aiSystemPrompt });
         }
@@ -4253,9 +4273,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
-                // 保存基础系统提示词（包含工具使用指引）
-                const toolUsageInstruction = `\n\n=== 工具使用强制规则 ===\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下直接调用任何工具。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
-                let baseSystemPrompt = (settings.aiSystemPrompt || '') + toolUsageInstruction;
 
                 while (shouldContinue && !abortController.signal.aborted) {
                     // 标记是否收到工具调用
@@ -4494,11 +4511,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                         return baseMsg;
                                     });
 
-                                // 添加系统提示词到消息列表开头
-                                if (baseSystemPrompt.trim()) {
+                                // 添加系统提示词到消息列表开头（工具使用说明已在 prepareMessagesForAI 中添加）
+                                if (settings.aiSystemPrompt) {
                                     messagesToSend.unshift({
                                         role: 'system',
-                                        content: baseSystemPrompt,
+                                        content: settings.aiSystemPrompt,
                                     });
                                 }
 

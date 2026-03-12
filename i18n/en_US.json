@@ -14,6 +14,7 @@
             "displayAndOperation": "Display & Operation",
             "noteExport": "Chat Export",
             "sessionManagement": "Session Management",
+            "soul": "SOUL Document",
             "webApp": "Web App",
             "translate": "Translation Settings",
             "group1": "Tab1",
@@ -147,6 +148,17 @@
         "openLinksInWebView": {
             "title": "Open Links in WebView",
             "description": "When clicking https links in SiYuan notes, open them in built-in WebView tabs instead of external browser"
+        },
+        "soulDocId": {
+            "title": "SOUL Document ID",
+            "description": "Set the document ID for SOUL data storage. SOUL tools can only perform CRUD operations within this document.",
+            "placeholder": "Enter document block ID, e.g., 20260312120000-xxxxxxxx",
+            "validate": "Validate",
+            "validating": "Validating...",
+            "valid": "✓ Valid document",
+            "notFound": "Block not found, please check the ID",
+            "notDoc": "The ID is not a document type",
+            "error": "Validation failed"
         },
         "translate": {
             "temperature": {

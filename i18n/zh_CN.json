@@ -14,6 +14,7 @@
             "displayAndOperation": "显示与操作",
             "noteExport": "对话导出",
             "sessionManagement": "会话管理",
+            "soul": "SOUL 文档",
             "webApp": "网页小程序",
             "translate": "翻译设置",
             "group1": "页签1",
@@ -146,6 +147,17 @@
         "openLinksInWebView": {
             "title": "在 WebView 中打开链接",
             "description": "点击思源笔记中的 https 链接时，在内置 WebView 标签页中打开，而不是外部浏览器"
+        },
+        "soulDocId": {
+            "title": "SOUL 文档 ID",
+            "description": "设置 SOUL 数据存储的文档 ID",
+            "placeholder": "输入文档块 ID，如 20260312120000-xxxxxxxx",
+            "validate": "验证",
+            "validating": "验证中...",
+            "valid": "✓ 有效文档",
+            "notFound": "块不存在，请检查 ID 是否正确",
+            "notDoc": "该 ID 不是文档类型",
+            "error": "验证失败"
         },
         "translate": {
             "temperature": {

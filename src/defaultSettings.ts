@@ -200,6 +200,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     // WebApp 相关设置
     openLinksInWebView: false, // 是否在 webview 中打开外部链接
 
+    // SOUL 文档设置
+    soulDocId: '' as string,  // SOUL 数据存储的文档ID
+
     // 数据迁移标志
     dataTransfer: {
         sessionData: false,

@@ -18,6 +18,7 @@ import {
     renameDocByID,
     moveDocsByID,
     appendBlock,
+    insertBlock,
     getBlockAttrs,
     setBlockAttrs,
     getNotebookConf,
@@ -41,6 +42,8 @@ import {
 } from '../api';
 import { getActiveEditor } from 'siyuan';
 import { parseWebPageToMarkdown, fetchWithWebView } from '../utils/webParser';
+import { settingsStore } from '../stores/settings';
+import { get } from 'svelte/store';
 
 /**
  * 获取当前激活的编辑器 Protyle 实例
@@ -239,6 +242,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
                             'siyuan_fetch_sync_post',
                             'siyuan_send_notification',
                             'siyuan_get_current_time',
+                            'soul',
                         ],
                     },
                 },
@@ -1456,6 +1460,183 @@ web_fetch({
                 },
             },
             required: ['url'],
+        }
+    ),
+
+    // SOUL 工具 - 受限的笔记操作
+    createTool(
+        'soul',
+        `SOUL 工具(AI的记忆存放)。
+
+## 何时使用
+- 当用户让AI记住某些信息、要求的时候
+- 当用户需要让AI回忆之前的要求时
+
+
+## 主要操作类型
+
+### 1. append - 追加记忆
+在 SOUL 文档中追加新的内容块。
+
+**参数:**
+- operation: "append"
+- content: 要追加的 Markdown 内容
+- parentId: (可选)父块ID，如果提供则作为该块的子块追加
+
+**示例:**
+\`\`\`json
+{
+  "operation": "append",
+  "content": "## 新标题\n\n这是新内容。",
+  "parentId": "20260312120000-xxxxxxxx"
+}
+\`\`\`
+
+### 2. update - 更新记忆
+更新 SOUL 文档中已有的块内容。
+
+**参数:**
+- operation: "update"
+- blockId: 要更新的块ID
+- content: 新的 Markdown 内容
+
+**示例:**
+\`\`\`json
+{
+  "operation": "update",
+  "blockId": "20260312120000-xxxxxxxx",
+  "content": "更新后的内容"
+}
+\`\`\`
+
+### 3. delete - 删除记忆
+删除 SOUL 文档中的指定块。
+
+**参数:**
+- operation: "delete"
+- blockId: 要删除的块ID
+
+**示例:**
+\`\`\`json
+{
+  "operation": "delete",
+  "blockId": "20260312120000-xxxxxxxx"
+}
+\`\`\`
+
+### 4. sql - 查询记忆
+使用 SQL 查询 SOUL 文档中的内容。
+
+**参数:**
+- operation: "sql"
+- query: SQL 查询语句（自动限制在 SOUL 文档范围内）
+
+**示例:**
+\`\`\`json
+{
+  "operation": "sql",
+  "query": "SELECT * FROM blocks WHERE type='p' LIMIT 10"
+}
+\`\`\`
+
+### 5. insert - 插入块
+在 SOUL 文档的指定位置插入新块。
+
+**参数:**
+- operation: "insert"
+- content: 要插入的 Markdown 内容
+- previousId: (可选)前一个块ID，在此块之后插入
+- nextId: (可选)后一个块ID，在此块之前插入
+- parentId: (可选)父块ID，作为该块的子块插入（与 previousId/nextId 互斥）
+
+**注意:** 
+- previousId、nextId、parentId 至少需要提供一个
+- 所有涉及的块ID都必须在 SOUL 文档内
+
+**示例:**
+\`\`\`json
+// 在某个块之后插入
+{
+  "operation": "insert",
+  "content": "插入的内容",
+  "previousId": "20260312120000-xxxxxxxx"
+}
+
+// 在某个块之前插入
+{
+  "operation": "insert",
+  "content": "插入的内容",
+  "nextId": "20260312120000-xxxxxxxx"
+}
+
+// 作为子块插入
+{
+  "operation": "insert",
+  "content": "插入的内容",
+  "parentId": "20260312120000-xxxxxxxx"
+}
+\`\`\`
+
+### 6. getDoc - 获取完整文档
+获取 SOUL 文档的完整 Markdown 内容。
+
+**参数:**
+- operation: "getDoc"
+
+**返回:**
+- 返回 SOUL 文档的完整 Markdown 内容
+
+**示例:**
+\`\`\`json
+{
+  "operation": "getDoc"
+}
+\`\`\`
+
+## 重要限制
+- **所有操作仅限于用户设置的 SOUL 文档内**
+- 如果用户未设置 SOUL 文档ID，工具会返回错误提示
+- 不能操作 SOUL 文档范围外的任何块
+- 查询结果会自动过滤，只返回 SOUL 文档内的块
+
+## 注意事项
+- 在操作前，SOUL 工具会自动验证块ID是否属于 SOUL 文档
+- 如果尝试操作非 SOUL 文档的块，会返回权限错误
+- 建议先使用 sql 操作查询已有内容，再进行增删改操作`,
+        {
+            type: 'object',
+            properties: {
+                operation: {
+                    type: 'string',
+                    description: '操作类型',
+                    enum: ['append', 'update', 'delete', 'sql', 'insert', 'getDoc'],
+                },
+                content: {
+                    type: 'string',
+                    description: '内容（append、update、insert 操作需要）',
+                },
+                blockId: {
+                    type: 'string',
+                    description: '块ID（update 和 delete 操作需要）',
+                },
+                parentId: {
+                    type: 'string',
+                    description: '父块ID（append 操作可选，作为子块追加；insert 操作可选，作为子块插入）',
+                },
+                previousId: {
+                    type: 'string',
+                    description: '前一个块ID（insert 操作可选，在此块之后插入）',
+                },
+                nextId: {
+                    type: 'string',
+                    description: '后一个块ID（insert 操作可选，在此块之前插入）',
+                },
+                query: {
+                    type: 'string',
+                    description: 'SQL 查询语句（sql 操作需要）',
+                },
+            },
+            required: ['operation'],
         }
     ),
 
@@ -2821,6 +3002,250 @@ export async function web_fetch(url: string, useWebView: boolean = false): Promi
 }
 
 /**
+ * 验证块是否属于 SOUL 文档
+ * @param blockId 要验证的块ID
+ * @param soulDocId SOUL 文档ID
+ * @returns 是否属于 SOUL 文档
+ */
+async function verifyBlockInSoulDoc(blockId: string, soulDocId: string): Promise<boolean> {
+    try {
+        const block = await getBlockByID(blockId);
+        if (!block) {
+            return false;
+        }
+        // 检查块的 root_id 是否等于 SOUL 文档ID
+        return block.root_id === soulDocId;
+    } catch (error) {
+        console.error('Verify block in SOUL doc error:', error);
+        return false;
+    }
+}
+
+/**
+ * 获取插件设置
+ */
+function getPluginSettings(): any {
+    // 从 settingsStore 同步获取设置
+    return get(settingsStore);
+}
+
+/**
+ * SOUL 工具 - 受限的笔记操作
+ * 所有操作仅限于用户设置的 SOUL 文档内
+ */
+export async function soul(params: {
+    operation: 'append' | 'update' | 'delete' | 'sql' | 'insert' | 'getDoc';
+    content?: string;
+    blockId?: string;
+    parentId?: string;
+    previousId?: string;
+    nextId?: string;
+    query?: string;
+}): Promise<any> {
+    const settings = getPluginSettings();
+    const soulDocId = settings?.soulDocId;
+
+    if (!soulDocId) {
+        throw new Error('SOUL 文档未设置。请在插件设置中设置 SOUL 文档ID。');
+    }
+
+    // 验证 SOUL 文档是否存在
+    const soulDoc = await getBlockByID(soulDocId);
+    if (!soulDoc) {
+        throw new Error(`SOUL 文档不存在，ID: ${soulDocId}`);
+    }
+    if (soulDoc.type !== 'd') {
+        throw new Error(`设置的 SOUL ID 不是文档类型，当前类型: ${soulDoc.type}`);
+    }
+
+    const { operation } = params;
+
+    switch (operation) {
+        case 'append': {
+            const { content, parentId } = params;
+            if (!content) {
+                throw new Error('append 操作需要提供 content 参数');
+            }
+
+            // 如果提供了 parentId，验证它是否属于 SOUL 文档
+            if (parentId) {
+                const isInSoul = await verifyBlockInSoulDoc(parentId, soulDocId);
+                if (!isInSoul) {
+                    throw new Error(`指定的 parentId 不属于 SOUL 文档，SOUL 文档ID: ${soulDocId}`);
+                }
+                // 作为子块追加
+                const result = await appendBlock('markdown', content, parentId);
+                return { success: true, operation: 'append', parentId, result };
+            } else {
+                // 追加到 SOUL 文档末尾
+                const result = await appendBlock('markdown', content, soulDocId);
+                return { success: true, operation: 'append', docId: soulDocId, result };
+            }
+        }
+
+        case 'update': {
+            const { blockId, content } = params;
+            if (!blockId || !content) {
+                throw new Error('update 操作需要提供 blockId 和 content 参数');
+            }
+
+            // 验证块是否属于 SOUL 文档
+            const isInSoul = await verifyBlockInSoulDoc(blockId, soulDocId);
+            if (!isInSoul) {
+                throw new Error(`不能更新不属于 SOUL 文档的块，SOUL 文档ID: ${soulDocId}`);
+            }
+
+            const result = await updateBlock('markdown', content, blockId);
+            return { success: true, operation: 'update', blockId, result };
+        }
+
+        case 'delete': {
+            const { blockId } = params;
+            if (!blockId) {
+                throw new Error('delete 操作需要提供 blockId 参数');
+            }
+
+            // 验证块是否属于 SOUL 文档
+            const isInSoul = await verifyBlockInSoulDoc(blockId, soulDocId);
+            if (!isInSoul) {
+                throw new Error(`不能删除不属于 SOUL 文档的块，SOUL 文档ID: ${soulDocId}`);
+            }
+
+            // 防止删除 SOUL 文档本身
+            if (blockId === soulDocId) {
+                throw new Error('不能删除 SOUL 文档本身');
+            }
+
+            const result = await deleteBlock(blockId);
+            return { success: true, operation: 'delete', blockId, result };
+        }
+
+        case 'insert': {
+            const { content, previousId, nextId, parentId } = params;
+            if (!content) {
+                throw new Error('insert 操作需要提供 content 参数');
+            }
+
+            // 检查至少提供了一个位置参数
+            if (!previousId && !nextId && !parentId) {
+                throw new Error('insert 操作需要提供 previousId、nextId 或 parentId 中的至少一个参数');
+            }
+
+            // 验证位置参数对应的块是否都属于 SOUL 文档
+            if (previousId) {
+                const isInSoul = await verifyBlockInSoulDoc(previousId, soulDocId);
+                if (!isInSoul) {
+                    throw new Error(`指定的 previousId 不属于 SOUL 文档，SOUL 文档ID: ${soulDocId}`);
+                }
+            }
+            if (nextId) {
+                const isInSoul = await verifyBlockInSoulDoc(nextId, soulDocId);
+                if (!isInSoul) {
+                    throw new Error(`指定的 nextId 不属于 SOUL 文档，SOUL 文档ID: ${soulDocId}`);
+                }
+            }
+            if (parentId) {
+                const isInSoul = await verifyBlockInSoulDoc(parentId, soulDocId);
+                if (!isInSoul) {
+                    throw new Error(`指定的 parentId 不属于 SOUL 文档，SOUL 文档ID: ${soulDocId}`);
+                }
+            }
+
+            // 使用 insertBlock API 插入块
+            const result = await insertBlock('markdown', content, nextId as any, previousId as any, parentId as any);
+            return { 
+                success: true, 
+                operation: 'insert', 
+                previousId, 
+                nextId, 
+                parentId,
+                result 
+            };
+        }
+
+        case 'sql': {
+            const { query } = params;
+            if (!query) {
+                throw new Error('sql 操作需要提供 query 参数');
+            }
+
+            // 构建限制在 SOUL 文档内的查询
+            // 将用户的查询包装在子查询中，限制 root_id
+            let limitedQuery: string;
+            
+            // 检查是否已经有 WHERE 子句
+            const lowerQuery = query.toLowerCase();
+            if (lowerQuery.includes('where')) {
+                // 在现有的 WHERE 后添加条件
+                limitedQuery = query.replace(/where/i, `WHERE root_id = '${soulDocId}' AND `);
+            } else {
+                // 添加 WHERE 子句
+                // 处理 ORDER BY, LIMIT, GROUP BY 等
+                const orderMatch = lowerQuery.match(/\s+order\s+by\s+/i);
+                const limitMatch = lowerQuery.match(/\s+limit\s+/i);
+                const groupMatch = lowerQuery.match(/\s+group\s+by\s+/i);
+                
+                let insertPos = query.length;
+                if (orderMatch && orderMatch.index) {
+                    insertPos = Math.min(insertPos, orderMatch.index);
+                }
+                if (limitMatch && limitMatch.index) {
+                    insertPos = Math.min(insertPos, limitMatch.index);
+                }
+                if (groupMatch && groupMatch.index) {
+                    insertPos = Math.min(insertPos, groupMatch.index);
+                }
+                
+                const beforeClause = query.substring(0, insertPos);
+                const afterClause = query.substring(insertPos);
+                
+                // 检查是否从 FROM 开始
+                if (lowerQuery.includes('from')) {
+                    limitedQuery = `${beforeClause} WHERE root_id = '${soulDocId}'${afterClause}`;
+                } else {
+                    // 如果查询不完整，添加 FROM blocks
+                    limitedQuery = `SELECT * FROM blocks WHERE root_id = '${soulDocId}' AND (${query})`;
+                }
+            }
+
+            // 限制返回数量
+            if (!limitedQuery.toLowerCase().includes('limit')) {
+                limitedQuery += ' LIMIT 100';
+            }
+
+            const results = await sql(limitedQuery);
+            return { 
+                success: true, 
+                operation: 'sql', 
+                docId: soulDocId,
+                originalQuery: query,
+                executedQuery: limitedQuery,
+                count: results.length,
+                results 
+            };
+        }
+
+        case 'getDoc': {
+            // 获取 SOUL 文档的完整 Markdown 内容
+            const docContent = await exportMdContent(soulDocId, false, false, 2, 0, false);
+            if (!docContent || !docContent.content) {
+                throw new Error('获取 SOUL 文档内容失败');
+            }
+            
+            return { 
+                success: true, 
+                operation: 'getDoc', 
+                docId: soulDocId,
+                content: docContent.content 
+            };
+        }
+
+        default:
+            throw new Error(`未知的 SOUL 操作类型: ${operation}`);
+    }
+}
+
+/**
  * 执行工具调用
  */
 export async function executeToolCall(toolCall: ToolCall): Promise<string> {
@@ -2830,6 +3255,10 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
         const args = JSON.parse(argsStr);
 
         switch (name) {
+            case 'soul':
+                const soulResult = await soul(args);
+                return JSON.stringify(soulResult, null, 2);
+
             case 'get_siyuan_skills':
                 // 获取工具详细描述
                 const toolDesc = getSiyuanSkills(args.toolName);
