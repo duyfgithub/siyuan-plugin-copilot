@@ -53,6 +53,8 @@
                 'siyuan_rename_document',
                 'siyuan_move_documents',
                 'siyuan_fetch_sync_post',
+                'siyuan_send_notification',
+                'siyuan_get_current_time',
             ],
         },
         other: {

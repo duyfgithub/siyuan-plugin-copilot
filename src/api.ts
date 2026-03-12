@@ -700,13 +700,16 @@ export async function getAttributeViewKeysByAvID(avID: string): Promise<any> {
  * @param viewID 视图ID
  * @param pageSize 每页数量，默认9999999
  * @param page 页码，默认1
+ * @param createIfNotExist 如果视图不存在是否创建
  */
-export async function renderAttributeView(id: string, viewID: string, pageSize: number = 9999999, page: number = 1): Promise<any> {
+export async function renderAttributeView(id: string, viewID: string, pageSize: number = 9999999, page: number = 1, createIfNotExist =false): Promise<any> {
     let data = {
         id: id,
         viewID: viewID,
         pageSize: pageSize,
-        page: page
+        page: page,
+        createIfNotExist: createIfNotExist
+
     };
     let url = '/api/av/renderAttributeView';
     return request(url, data);
@@ -891,7 +894,12 @@ export async function currentTime(): Promise<number> {
 export async function sendNotification(
     title: string,
     body: string,
-    // 支持三种形式：数字（秒），Date 对象，或可被 Date.parse 解析的时间字符串（ISO 等）
+    // 支持三种形式：
+    // - 数字（秒）：延迟秒数
+    // - Date 对象：具体的日期时间
+    // - 字符串：ISO 8601 格式时间
+    //   * 本地时间: "2026-03-12T11:50:00"（无时区后缀，表示本地时区）
+    //   * UTC 时间: "2026-03-12T11:50:00Z"（带 Z 后缀，表示 UTC 时区）
     whenOrDelay: number | string | Date = 0,
     timeoutType: 'default' | 'never' = 'default'
 ) {
@@ -904,15 +912,20 @@ export async function sendNotification(
         delayInSeconds = Math.max(0, Math.ceil(diffMs / 1000));
     } else if (typeof whenOrDelay === 'string') {
         const t = Date.parse(whenOrDelay);
+        console.log(`sendNotification: parsing time string "${whenOrDelay}", parsed timestamp=${t}, Date.now()=${Date.now()}`);
         if (isNaN(t)) {
             console.warn('sendNotification: invalid time string, sending immediately');
             delayInSeconds = 0;
         } else {
             const diffMs = t - Date.now();
             delayInSeconds = Math.max(0, Math.ceil(diffMs / 1000));
+            console.log(`sendNotification: diffMs=${diffMs}, delayInSeconds=${delayInSeconds}`);
+            if (delayInSeconds === 0 && diffMs < 0) {
+                console.warn(`sendNotification: time "${whenOrDelay}" is in the past, sending immediately`);
+            }
         }
     }
-
+    console.log(`sendNotification: title="${title}", body="${body}", delayInSeconds=${delayInSeconds}, timeoutType=${timeoutType}`);
     return platformUtils.sendNotification({
         channel: "Siyuan Copilot",
         title: title,

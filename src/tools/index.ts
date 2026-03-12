@@ -37,6 +37,7 @@ import {
     removeAttributeViewBlocks,
     deleteBlock,
     request,
+    sendNotification,
 } from '../api';
 import { getActiveEditor } from 'siyuan';
 import { parseWebPageToMarkdown, fetchWithWebView } from '../utils/webParser';
@@ -236,6 +237,8 @@ export const AVAILABLE_TOOLS: Tool[] = [
                             'web_fetch',
                             'siyuan_delete_block',
                             'siyuan_fetch_sync_post',
+                            'siyuan_send_notification',
+                            'siyuan_get_current_time',
                         ],
                     },
                 },
@@ -977,18 +980,19 @@ siyuan_move_documents({
 }
 \`\`\`
 
-### 3. renderDatabase - 获取数据库内容
-渲染并获取数据库的完整内容，包括所有行和列的数据。
+### 3. renderDatabase - 获取数据库内容/创建数据库
+渲染并获取数据库的完整内容，包括所有行和列的数据。也可以用于在指定块中创建新的数据库。
 
 **参数:**
-- avID: 数据库ID
+- avID: 数据库ID（已存在的数据库）或块ID（要在其中创建新数据库的块）
 - viewID: 视图ID
 - pageSize: (可选)每页数量，默认9999999
 - page: (可选)页码，默认1
+- createIfNotExist: (可选)如果不存在是否创建，默认true
 
 **返回:** 完整的数据库视图数据
 
-**示例:**
+**获取已有数据库内容示例:**
 \`\`\`json
 {
   "operation": "renderDatabase",
@@ -998,6 +1002,30 @@ siyuan_move_documents({
   "page": 1
 }
 \`\`\`
+
+**在块中创建新数据库:**
+要在指定块中创建新数据库，需要先调用 renderDatabase 获取数据库视图，然后使用 siyuan_update_block 在块内容中插入以下 HTML：
+
+\`\`\`html
+<div data-type="NodeAttributeView" data-av-id="数据库ID" data-av-type="table"></div>
+\`\`\`
+
+其中：
+- data-av-id: 数据库ID（可以从其他数据库操作中获取，或生成新的 ID）
+- data-av-type: 数据库类型，目前支持 "table"（表格视图）
+
+**创建新数据库完整示例:**
+1. 先调用 renderDatabase 确认数据库存在
+2. 在目标块中插入数据库引用：
+\`\`\`javascript
+siyuan_update_block({
+  dataType: "dom",
+  data: '<div data-type="NodeAttributeView" data-av-id="20260312111052-1n50yv2" data-av-type="table"></div>',
+  id: "目标块ID"
+})
+\`\`\`
+
+这样就会在指定块中渲染显示数据库视图。
 
 ### 4. addDetachedRows - 添加非绑定行
 向数据库添加非绑定的块和属性值。
@@ -1296,6 +1324,10 @@ siyuan_move_documents({
                     type: 'number',
                     description: '页码 (renderDatabase操作，默认1)',
                 },
+                createIfNotExist: {
+                    type: 'boolean',
+                    description: '如果不存在是否创建 (renderDatabase操作，默认true)',
+                },
                 blocksValues: {
                     type: 'array',
                     description: '二维数组，每个元素是一行的数据 (addDetachedRows操作)',
@@ -1424,6 +1456,172 @@ web_fetch({
                 },
             },
             required: ['url'],
+        }
+    ),
+
+    // 获取当前时间工具
+    createTool(
+        'siyuan_get_current_time',
+        `获取当前日期和时间的工具。
+
+## 何时使用
+- 需要获取当前日期时间用于记录或计算
+- 设置定时通知时需要知道今天的日期
+- 需要计算时间差或时间戳
+- 在笔记中插入当前日期时间
+
+## 参数说明
+
+### format (可选)
+返回的时间格式：
+- **"local"**（默认）：本地格式，如 "2026/3/12 10:30:00"
+- **"iso"**：ISO 8601 格式，如 "2026-03-12T10:30:00.000Z"
+- **"date"**：仅日期，如 "2026-03-12"
+- **"time"**：仅时间，如 "10:30:00"
+- **"timestamp"**：时间戳（毫秒），如 "1710234600000"
+
+## 使用示例
+
+\`\`\`javascript
+// 获取本地格式时间（默认）
+siyuan_get_current_time({})
+
+// 获取完整 ISO 格式时间
+siyuan_get_current_time({
+  format: "iso"
+})
+
+// 获取今天日期（用于设置定时通知）
+siyuan_get_current_time({
+  format: "date"
+})
+
+// 获取当前时间戳
+siyuan_get_current_time({
+  format: "timestamp"
+})
+
+// 拼接今天指定时间用于定时通知
+// 先获取日期，然后拼接具体时间
+const date = "2026-03-12";  // 从 format: "date" 获取
+const timeString = date + "T14:30:00";  // "2026-03-12T14:30:00"
+\`\`\`
+
+## 返回值
+根据 format 参数返回不同格式的时间字符串`,
+        {
+            type: 'object',
+            properties: {
+                format: {
+                    type: 'string',
+                    description: '返回格式：local(默认)、iso、date、time、timestamp',
+                    enum: ['iso', 'local', 'date', 'time', 'timestamp'],
+                    default: 'local',
+                },
+            },
+            required: [],
+        }
+    ),
+
+    // 系统通知工具
+    createTool(
+        'siyuan_send_notification',
+        `发送系统通知（桌面通知）到操作系统。
+
+## 何时使用
+- 需要向用户发送重要提醒或通知
+- 长时间操作完成后提醒用户
+- 定时任务到期提醒
+- 需要立即引起用户注意的消息
+
+## 参数说明
+
+### title (必填)
+通知标题，显示在通知的顶部。
+
+### body (可选)
+通知的详细内容，显示在标题下方。
+
+### delay (可选)
+延迟发送时间，支持三种格式：
+- **数字**：延迟秒数，如 60 表示 60 秒后发送
+- **时间字符串**：ISO 8601 格式的时间字符串
+  - **本地时间**（推荐）：\`"2026-03-12T11:50:00"\` - 表示本地时区的 11:50
+  - **UTC 时间**：\`"2026-03-12T11:50:00Z"\` - 表示 UTC 时区的 11:50，会自动转换为本地的对应时间
+- **0 或不传**：立即发送
+
+### timeoutType (可选)
+通知超时类型：
+- **"default"**（默认）：使用系统默认的超时时间
+- **"never"**：通知不会自动消失，直到用户点击
+
+## 使用示例
+
+\`\`\`javascript
+// 立即发送通知
+siyuan_send_notification({
+  title: "任务完成",
+  body: "文档已成功导出到指定位置。"
+})
+
+// 延迟 5 分钟后发送通知
+siyuan_send_notification({
+  title: "休息提醒",
+  body: "您已经工作了 25 分钟，该休息一下了！",
+  delay: 300
+})
+
+// 在本地时间 11:50 发送通知（推荐，无时区后缀表示本地时间）
+siyuan_send_notification({
+  title: "会议提醒",
+  body: "11:50 有团队会议，请做好准备。",
+  delay: "2026-03-12T11:50:00"
+})
+
+// 在 UTC 时间 11:50 发送通知（带 Z 后缀表示 UTC）
+// 系统会自动转换为本地对应时间
+siyuan_send_notification({
+  title: "国际会议",
+  body: "UTC 时间 11:50 的会议即将开始",
+  delay: "2026-03-12T11:50:00Z"
+})
+
+// 发送不会自动消失的重要通知
+siyuan_send_notification({
+  title: "重要提醒",
+  body: "请记得备份今天的笔记内容！",
+  timeoutType: "never"
+})
+\`\`\`
+
+## 注意事项
+- 通知会显示在操作系统的通知中心
+- 需要操作系统支持并允许思源笔记发送通知
+- 延迟通知会在后台等待，即使思源笔记最小化也能触发
+- **时区说明**：无时区标记（如T11:50:00）表示本地时间，带 Z标记（如 T11:50:00Z）表示 UTC 时间`,
+        {
+            type: 'object',
+            properties: {
+                title: {
+                    type: 'string',
+                    description: '通知标题（必填）',
+                },
+                body: {
+                    type: 'string',
+                    description: '通知内容（可选，默认为空）',
+                },
+                delay: {
+                    type: ['number', 'string'],
+                    description: '延迟时间：数字表示秒数，字符串表示具体时间。本地时间格式 "2026-03-12T11:50:00"，UTC 时间格式 "2026-03-12T11:50:00Z"',
+                },
+                timeoutType: {
+                    type: 'string',
+                    description: '超时类型："default"（默认）或 "never"（不自动消失）',
+                    enum: ['default', 'never'],
+                    default: 'default',
+                },
+            },
+            required: ['title'],
         }
     ),
 
@@ -1730,6 +1928,9 @@ siyuan_delete_block({
 **参数:**
 - id: string - 数据库ID
 - viewID: string - 视图ID
+-createIfNotExist
+:
+true
 - pageSize?: number - 每页数量（默认9999999）
 - page?: number - 页码（默认1）
 
@@ -2370,7 +2571,7 @@ export async function siyuan_database(params: any): Promise<any> {
             }
 
             case 'renderDatabase': {
-                const { avID, viewID, pageSize, page } = params;
+                const { avID, viewID, pageSize, page, createIfNotExist } = params;
                 if (!avID || !viewID) {
                     throw new Error('avID和viewID参数是必需的');
                 }
@@ -2378,7 +2579,8 @@ export async function siyuan_database(params: any): Promise<any> {
                     avID,
                     viewID,
                     pageSize || 9999999,
-                    page || 1
+                    page || 1,
+                    createIfNotExist ?? true
                 );
                 return result;
             }
@@ -2535,6 +2737,57 @@ export async function siyuan_fetch_sync_post(api: string, data: any): Promise<an
 }
 
 /**
+ * 发送系统通知
+ * @param title 通知标题
+ * @param body 通知内容
+ * @param delay 延迟时间（秒）或具体时间字符串/Date对象
+ * @param timeoutType 超时类型：'default' 或 'never'
+ */
+export async function siyuan_send_notification(
+    title: string,
+    body: string,
+    delay: number | string = 0,
+    timeoutType: 'default' | 'never' = 'default'
+): Promise<any> {
+    try {
+        if (!title) {
+            throw new Error('通知标题是必需的');
+        }
+        console.log(`siyuan_send_notification: title="${title}", delay=${delay}, type=${typeof delay}`);
+        const result = await sendNotification(title, body || '', delay, timeoutType);
+        return result;
+    } catch (error) {
+        console.error('Send notification error:', error);
+        throw new Error(`发送通知失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 获取当前日期和时间
+ * @param format 返回格式，'iso' | 'local' | 'date' | 'time' | 'timestamp'，默认为 'iso'
+ */
+export async function siyuan_get_current_time(
+    format: 'iso' | 'local' | 'date' | 'time' | 'timestamp' = 'local'
+): Promise<string> {
+    const now = new Date();
+    
+    switch (format) {
+        case 'iso':
+            return now.toISOString();
+        case 'local':
+            return now.toLocaleString('zh-CN');
+        case 'date':
+            return now.toISOString().split('T')[0];
+        case 'time':
+            return now.toTimeString().split(' ')[0];
+        case 'timestamp':
+            return now.getTime().toString();
+        default:
+            return now.toISOString();
+    }
+}
+
+/**
  * 获取网页内容并转换为 Markdown
  * @param url 要获取的网页 URL
  * @param useWebView 是否使用 WebView 模式，默认为 false
@@ -2657,6 +2910,19 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
             case 'siyuan_fetch_sync_post':
                 const apiResult = await siyuan_fetch_sync_post(args.api, args.data);
                 return JSON.stringify(apiResult, null, 2);
+
+            case 'siyuan_send_notification':
+                const notifyResult = await siyuan_send_notification(
+                    args.title,
+                    args.body,
+                    args.delay,
+                    args.timeoutType
+                );
+                return JSON.stringify(notifyResult, null, 2);
+
+            case 'siyuan_get_current_time':
+                const timeResult = await siyuan_get_current_time(args.format);
+                return timeResult;
 
             default:
                 throw new Error(`未知的工具: ${name}`);
