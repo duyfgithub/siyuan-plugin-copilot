@@ -1170,57 +1170,116 @@ async function chatClaudeFormat(
         typeof msg.content === 'string' ? msg.content : msg.content.map(c => c.text).join('\n')
     ).join('\n');
 
-    // 转换消息格式（只保留 user 和 assistant）
-    const formattedMessages = await Promise.all(
-        options.messages
-            .filter(msg => msg.role !== 'system')
-            .map(async msg => {
-                const formatted: any = {
-                    role: msg.role,
-                };
+    // 转换消息格式（只保留 user 和 assistant，tool 消息需要特殊处理）
+    const formattedMessages: any[] = [];
+    
+    for (const msg of options.messages) {
+        if (msg.role === 'system') continue;
+        
+        // 处理 tool 角色的消息（转换为 Claude 的 tool_result 格式）
+        if (msg.role === 'tool') {
+            // 将 tool 消息作为 user 消息的 tool_result 内容块
+            const toolResultContent = {
+                type: 'tool_result',
+                tool_use_id: msg.tool_call_id,
+                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+            };
+            
+            // 检查最后一条消息是否已经是 user 消息且包含 tool_results
+            const lastMsg = formattedMessages[formattedMessages.length - 1];
+            if (lastMsg && lastMsg.role === 'user' && Array.isArray(lastMsg.content)) {
+                // 添加到现有 user 消息的 content 数组中
+                lastMsg.content.push(toolResultContent);
+            } else {
+                // 创建新的 user 消息
+                formattedMessages.push({
+                    role: 'user',
+                    content: [toolResultContent]
+                });
+            }
+            continue;
+        }
+        
+        const formatted: any = {
+            role: msg.role,
+        };
 
-                // 处理多模态内容
-                if (typeof msg.content === 'string') {
-                    formatted.content = msg.content;
-                } else {
-                    // Claude 使用不同的格式
-                    const content: any[] = [];
-                    for (const part of msg.content) {
-                        if (part.type === 'text' && part.text) {
-                            content.push({ type: 'text', text: part.text });
-                        } else if (part.type === 'image_url' && part.image_url) {
-                            // Claude 使用 base64 格式
-                            let base64Data = '';
-                            let mediaType = 'image/jpeg';
-
-                            if (part.image_url.url.startsWith('data:')) {
-                                const match = part.image_url.url.match(/^data:(image\/\w+);base64,(.+)$/);
-                                if (match) {
-                                    mediaType = match[1];
-                                    base64Data = match[2];
-                                }
-                            } else if (part.image_url.url.startsWith('blob:')) {
-                                base64Data = await imageUrlToBase64(part.image_url.url);
-                            }
-
-                            if (base64Data) {
-                                content.push({
-                                    type: 'image',
-                                    source: {
-                                        type: 'base64',
-                                        media_type: mediaType,
-                                        data: base64Data
-                                    }
-                                });
-                            }
-                        }
-                    }
-                    formatted.content = content;
+        // 处理多模态内容和 tool_calls
+        if (typeof msg.content === 'string') {
+            // 如果有 tool_calls，需要将 content 转换为数组格式
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                const content: any[] = [];
+                
+                // 添加文本内容（如果有）
+                if (msg.content) {
+                    content.push({ type: 'text', text: msg.content });
                 }
+                
+                // 添加 tool_use 块
+                for (const toolCall of msg.tool_calls) {
+                    content.push({
+                        type: 'tool_use',
+                        id: toolCall.id,
+                        name: toolCall.function.name,
+                        input: JSON.parse(toolCall.function.arguments || '{}')
+                    });
+                }
+                
+                formatted.content = content;
+            } else {
+                formatted.content = msg.content;
+            }
+        } else {
+            // Claude 使用不同的格式
+            const content: any[] = [];
+            for (const part of msg.content) {
+                if (part.type === 'text' && part.text) {
+                    content.push({ type: 'text', text: part.text });
+                } else if (part.type === 'image_url' && part.image_url) {
+                    // Claude 使用 base64 格式
+                    let base64Data = '';
+                    let mediaType = 'image/jpeg';
 
-                return formatted;
-            })
-    );
+                    if (part.image_url.url.startsWith('data:')) {
+                        const match = part.image_url.url.match(/^data:(image\/\w+);base64,(.+)$/);
+                        if (match) {
+                            mediaType = match[1];
+                            base64Data = match[2];
+                        }
+                    } else if (part.image_url.url.startsWith('blob:')) {
+                        base64Data = await imageUrlToBase64(part.image_url.url);
+                    }
+
+                    if (base64Data) {
+                        content.push({
+                            type: 'image',
+                            source: {
+                                type: 'base64',
+                                media_type: mediaType,
+                                data: base64Data
+                            }
+                        });
+                    }
+                }
+            }
+            
+            // 添加 tool_use 块（如果有）
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                for (const toolCall of msg.tool_calls) {
+                    content.push({
+                        type: 'tool_use',
+                        id: toolCall.id,
+                        name: toolCall.function.name,
+                        input: JSON.parse(toolCall.function.arguments || '{}')
+                    });
+                }
+            }
+            
+            formatted.content = content;
+        }
+
+        formattedMessages.push(formatted);
+    }
 
     const requestBody: any = {
         model: options.model,
@@ -1236,9 +1295,16 @@ async function chatClaudeFormat(
         requestBody.system = systemPrompt;
     }
 
-    // 添加工具定义（包括联网搜索工具）
+    // 添加工具定义（Claude 原生格式）
     if (options.tools && options.tools.length > 0) {
-        requestBody.tools = options.tools;
+        // 将 OpenAI 格式的 tools 转换为 Claude 格式
+        // OpenAI: tools[].function.name/description/parameters
+        // Claude: tools[].name/description/input_schema
+        requestBody.tools = options.tools.map((tool: any) => ({
+            name: tool.function?.name || tool.name,
+            description: tool.function?.description || tool.description,
+            input_schema: tool.function?.parameters || tool.input_schema || { type: 'object', properties: {} }
+        }));
     }
 
     // 处理思考模式
@@ -1292,8 +1358,41 @@ async function chatClaudeFormat(
             await handleClaudeStreamResponse(response.body, options);
         } else {
             const data = await response.json();
-            const content = data.content?.[0]?.text || '';
-            options.onChunk?.(content);
+            // 处理 Claude 响应中的 content 数组
+            let content = '';
+            const toolCalls: ToolCall[] = [];
+            
+            if (data.content && Array.isArray(data.content)) {
+                for (const block of data.content) {
+                    if (block.type === 'text' && block.text) {
+                        content += block.text;
+                    } else if (block.type === 'tool_use') {
+                        // 处理 tool_use
+                        toolCalls.push({
+                            id: block.id,
+                            type: 'function',
+                            function: {
+                                name: block.name,
+                                arguments: JSON.stringify(block.input || {})
+                            }
+                        });
+                    }
+                }
+            }
+            
+            // 发送文本内容
+            if (content) {
+                options.onChunk?.(content);
+            }
+            
+            // 发送 tool calls
+            for (const toolCall of toolCalls) {
+                options.onToolCall?.(toolCall);
+            }
+            if (toolCalls.length > 0 && options.onToolCallComplete) {
+                options.onToolCallComplete(toolCalls);
+            }
+            
             options.onComplete?.(content);
         }
     } catch (error) {
@@ -1321,6 +1420,9 @@ async function handleClaudeStreamResponse(
     let thinkingText = '';
     let buffer = '';
     let isThinkingPhase = false;
+    let toolCalls: ToolCall[] = [];
+    let currentToolCall: Partial<ToolCall> | null = null;
+    let currentToolInput = '';
 
     try {
         while (true) {
@@ -1363,16 +1465,41 @@ async function handleClaudeStreamResponse(
                                 thinkingText += delta.thinking;
                                 options.onThinkingChunk?.(delta.thinking);
                             }
+
+                            // Tool use input JSON 片段
+                            if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
+                                currentToolInput += delta.partial_json;
+                            }
                         } else if (json.type === 'content_block_start') {
                             // 内容块开始
-                            if (json.content_block?.type === 'thinking') {
+                            const contentBlock = json.content_block;
+                            if (contentBlock?.type === 'thinking') {
                                 isThinkingPhase = true;
+                            } else if (contentBlock?.type === 'tool_use') {
+                                // Tool use 开始
+                                currentToolCall = {
+                                    id: contentBlock.id,
+                                    type: 'function',
+                                    function: {
+                                        name: contentBlock.name,
+                                        arguments: ''
+                                    }
+                                };
+                                currentToolInput = '';
                             }
                         } else if (json.type === 'content_block_stop') {
                             // 内容块结束
                             if (isThinkingPhase && options.onThinkingComplete) {
                                 options.onThinkingComplete(thinkingText);
                                 isThinkingPhase = false;
+                            }
+                            // Tool use 结束
+                            if (currentToolCall && currentToolCall.id && currentToolCall.function?.name) {
+                                currentToolCall.function.arguments = currentToolInput;
+                                toolCalls.push(currentToolCall as ToolCall);
+                                options.onToolCall?.(currentToolCall as ToolCall);
+                                currentToolCall = null;
+                                currentToolInput = '';
                             }
                         }
                     } catch (e) {
@@ -1385,6 +1512,11 @@ async function handleClaudeStreamResponse(
         // 如果结束时还在思考阶段，调用思考完成回调
         if (isThinkingPhase && options.onThinkingComplete) {
             options.onThinkingComplete(thinkingText);
+        }
+
+        // 如果有 tool calls，调用完成回调
+        if (toolCalls.length > 0 && options.onToolCallComplete) {
+            options.onToolCallComplete(toolCalls);
         }
 
         options.onComplete?.(fullText);
@@ -1445,7 +1577,8 @@ export async function chat(
     // 检测是否是 Claude 模型，使用原生 API
     if (isClaudeModel(options.model)) {
         await chatClaudeFormat(baseUrlForClaude, options.apiKey, options);
-    } else if (provider === 'gemini') {
+    } else
+    if (provider === 'gemini') {
         await chatGeminiFormat(baseUrlForGemini, options.apiKey, options.model, options);
     } else {
         await chatOpenAIFormat(url, options.apiKey, options);

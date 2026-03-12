@@ -934,3 +934,11 @@ export async function sendNotification(
         timeoutType: timeoutType,
     });
 }
+
+/**
+ * 取消指定 ID 的通知
+ * @param id 通知 ID（由 sendNotification 返回）
+ */
+export function cancelNotification(id: number): void {
+    return platformUtils.cancelNotification(id);
+}
