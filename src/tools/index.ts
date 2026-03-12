@@ -350,7 +350,7 @@ SELECT id,content FROM blocks WHERE tag LIKE '%标签名%';
 \`\`\`
 
 ## 注意事项
-- 避免查询过多数据，使用LIMIT限制结果数量，默认50，如用户有要求所有，则LIMIT为-1
+- 避免查询过多数据，使用LIMIT限制结果数量，默认50，如用户的要求出现“所有”等关键词，则LIMIT为-1
 - 如果没有必要，不要用select *，只查询需要的字段如id和content，避免上下文爆炸，对于数据库type=av，不能查询content字段，否则上下文会剧增
 - 查询之后的结果总结，使用思源笔记块链接的格式包裹，如\`[脑机接口](siyuan://blocks/20240519195512-ccrifu0)\`
 `,
@@ -1363,7 +1363,8 @@ siyuan_batch_set_database_cells({
   avID: "20250716235026-51p7441",
   values: [
     { "keyID": "20250716235026-njmx362", "rowID": "20250716235124-6qqlnpw", "value": { "block": { "content": "Test" } } },
-    { "keyID": "20250716235026-a0v1j35", "rowID": "20250716235124-6qqlnpw", "value": { "number": { "content": 111 } } }
+    { "keyID": "20250716235026-a0v1j35", "rowID": "20250716235124-6qqlnpw", "value": { "number": { "content": 111 } } },
+    { "keyID": "20250716235026-a0v1j35", "rowID": "20250716235124-6qqlnpw", "value": { "mSelect": [{ "content": "选项1", "color": "2" }] } }
   ]
 })
 \`\`\`
@@ -1373,7 +1374,8 @@ siyuan_batch_set_database_cells({
 - 失败时会抛出错误
 
 ## 注意事项
-- 对于 mSelect/select 类型的值，color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
+- 单选列和多选列都是用 mSelect 类型来设置值
+- 对于 mSelect 类型的值，color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
         {
             type: 'object',
             properties: {
