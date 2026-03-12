@@ -58,6 +58,24 @@
                 'siyuan_fetch_sync_post',
             ],
         },
+        database: {
+            name: t('tools.category.database'),
+            tools: [
+                    'siyuan_search_database',
+                    'siyuan_get_database_columns',
+                    'siyuan_render_database',
+                    'siyuan_add_database_rows',
+                    'siyuan_add_database_blocks',
+                    'siyuan_set_database_cell',
+                    'siyuan_batch_set_database_cells',
+                    'siyuan_get_block_databases',
+                    'siyuan_convert_blockid_to_itemid',
+                    'siyuan_convert_itemid_to_blockid',
+                    'siyuan_add_database_column',
+                    'siyuan_remove_database_column',
+                    'siyuan_remove_database_rows',
+            ],
+        },
         other: {
             name: t('tools.category.other'),
             tools: [

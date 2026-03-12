@@ -237,7 +237,20 @@ export const AVAILABLE_TOOLS: Tool[] = [
                             'siyuan_move_documents',
                             'siyuan_get_block_attrs',
                             'siyuan_set_block_attrs',
-                            'siyuan_database',
+                            // 数据库属性视图工具
+                            'siyuan_search_database',
+                            'siyuan_get_database_columns',
+                            'siyuan_render_database',
+                            'siyuan_add_database_rows',
+                            'siyuan_add_database_blocks',
+                            'siyuan_set_database_cell',
+                            'siyuan_batch_set_database_cells',
+                            'siyuan_get_block_databases',
+                            'siyuan_convert_blockid_to_itemid',
+                            'siyuan_convert_itemid_to_blockid',
+                            'siyuan_add_database_column',
+                            'siyuan_remove_database_column',
+                            'siyuan_remove_database_rows',
                             'web_fetch',
                             'siyuan_delete_block',
                             'siyuan_fetch_sync_post',
@@ -274,11 +287,11 @@ export const AVAILABLE_TOOLS: Tool[] = [
 | box       | 笔记本 ID| 20210808180117-czj9bvb   |
 | path       | 内容块所在文档路径| /20200812220555-lj3enxa/20210808180320-abz7w6k/20200825162036-4dx365o.sy   |
 | hpath       | 人类可读的内容块所在文档路径       | /0 请从这里开始/编辑器/排版元素   |
-| name       | 内容块名称| 一级标题命名   |
+| name       | 内容块命名| 一级标题命名   |
 | alias       | 内容块别名| 一级标题别名   |
 | memo       | 内容块备注| 一级标题备注   |
 | tag       | 非文档块为块内包含的标签，文档块为文档的标签       | #标签1# #标签2# #标签3#   |
-| content       | 去除了 Markdown 标记符的文本       | 一级标题   |
+| content       | 去除了 Markdown 标记符的文本,对于数据库type=av，不能查询content字段，否则上下文会剧增,请查询Markdown       | 一级标题   |
 | fcontent       | 第一个子块去除了 Markdown 标记符的文本(1.9.9 添加) | 第一个子块   |
 | markdown       | 包含完整 Markdown 标记符的文本     | # 一级标题   |
 | length       | fcontent 字段文本长度     | 6   |
@@ -324,20 +337,21 @@ export const AVAILABLE_TOOLS: Tool[] = [
 \`\`\`sql
 -- 搜索包含关键词的文档，为了查找更相关的结果，需要思考不同词，一起查询
 -- 假设用户要搜索“时间管理”相关文档，需要想到“任务管理”或“GTD”等相关词。
-SELECT * FROM blocks
+SELECT id,content FROM blocks
 WHERE (content LIKE '%时间管理%' OR content LIKE '%任务管理%' OR content LIKE '%GTD%')
 AND type='d'
 LIMIT 50;
 
 -- 获取最近更新的文档
-SELECT * FROM blocks WHERE type='d' ORDER BY updated DESC LIMIT 50;
+SELECT id,content FROM blocks WHERE type='d' ORDER BY updated DESC LIMIT 50;
 
 -- 查找带有特定标签的块
-SELECT * FROM blocks WHERE tag LIKE '%标签名%';
+SELECT id,content FROM blocks WHERE tag LIKE '%标签名%';
 \`\`\`
 
 ## 注意事项
 - 避免查询过多数据，使用LIMIT限制结果数量，默认50，如用户有要求所有，则LIMIT为-1
+- 如果没有必要，不要用select *，只查询需要的字段如id和content，避免上下文爆炸，对于数据库type=av，不能查询content字段，否则上下文会剧增
 - 查询之后的结果总结，使用思源笔记块链接的格式包裹，如\`[脑机接口](siyuan://blocks/20240519195512-ccrifu0)\`
 `,
         {
@@ -981,317 +995,66 @@ siyuan_move_documents({
             required: ['id', 'attrs'],
         }
     ),
-    // 数据库工具
+
+    // ==================== 数据库属性视图工具 ====================
+
+    // 搜索数据库
     createTool(
-        'siyuan_database',
-        `思源笔记数据库(AttributeView)操作工具。数据库由多个API组合使用，此工具整合了所有数据库相关操作。
+        'siyuan_search_database',
+        `搜索思源笔记数据库(AttributeView)。
 
 ## 何时使用
-- 需要搜索、查询或操作数据库
-- 向数据库添加行或设置属性
-- 获取数据库结构和内容信息
+- 需要查找特定的数据库
+- 获取数据库ID和视图信息
+- 列出系统中的所有数据库
 
-## 主要操作类型
-
-### 1. searchDatabase - 搜索数据库
-搜索数据库，可以通过关键词查找数据库。
-
-**参数:**
-- keyword: 搜索关键词
+## 参数说明
+- keyword: 搜索关键词（必填）
 - avID: (可选)数据库ID，用于精确搜索
 
-**返回:** 包含数据库ID、名称、视图信息等
+## 返回信息
+- 数据库ID、名称、视图信息等
 
-**示例:**
-\`\`\`json
-{
-  "operation": "searchDatabase",
-  "keyword": "示例数据库",
-  "avID": "20230804163730-1olpfp2"
-}
-\`\`\`
-
-### 2. getColumns - 获取数据库列信息
-获取数据库有几列，每列的id和类型是什么。
-
-**参数:**
-- avID: 数据库ID
-
-**返回:** 列信息数组，包含id、name、type等
-
-**示例:**
-\`\`\`json
-{
-  "operation": "getColumns",
-  "avID": "20241207205647-baw0ri8"
-}
-\`\`\`
-
-### 3. renderDatabase - 获取数据库内容/创建数据库
-渲染并获取数据库的完整内容，包括所有行和列的数据。也可以用于在指定块中创建新的数据库。
-
-**参数:**
-- avID: 数据库ID（已存在的数据库）或块ID（要在其中创建新数据库的块）
-- viewID: 视图ID
-- pageSize: (可选)每页数量，默认9999999
-- page: (可选)页码，默认1
-- createIfNotExist: (可选)如果不存在是否创建，默认true
-
-**返回:** 完整的数据库视图数据
-
-**获取已有数据库内容示例:**
-\`\`\`json
-{
-  "operation": "renderDatabase",
-  "avID": "20241017094451-2urncs9",
-  "viewID": "20241017094451-91wdu3a",
-  "pageSize": 9999999,
-  "page": 1
-}
-\`\`\`
-
-**在块中创建新数据库:**
-要在指定块中创建新数据库，需要先调用 renderDatabase 获取数据库视图，然后使用 siyuan_update_block 在块内容中插入以下 HTML：
-
-\`\`\`html
-<div data-type="NodeAttributeView" data-av-id="数据库ID" data-av-type="table"></div>
-\`\`\`
-
-其中：
-- data-av-id: 数据库ID（可以从其他数据库操作中获取，或生成新的 ID）
-- data-av-type: 数据库类型，目前支持 "table"（表格视图）
-
-**创建新数据库完整示例:**
-1. 先调用 renderDatabase 确认数据库存在
-2. 在目标块中插入数据库引用：
+## 使用示例
 \`\`\`javascript
-siyuan_update_block({
-  dataType: "dom",
-  data: '<div data-type="NodeAttributeView" data-av-id="20260312111052-1n50yv2" data-av-type="table"></div>',
-  id: "目标块ID"
+siyuan_search_database({
+  keyword: "项目管理",
+  avID: "20230804163730-1olpfp2"
 })
-\`\`\`
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                keyword: {
+                    type: 'string',
+                    description: '搜索关键词',
+                },
+                avID: {
+                    type: 'string',
+                    description: '数据库ID（可选，用于精确搜索）',
+                },
+            },
+            required: ['keyword'],
+        }
+    ),
 
-这样就会在指定块中渲染显示数据库视图。
+    // 获取数据库列信息
+    createTool(
+        'siyuan_get_database_columns',
+        `获取数据库的列信息（表头）。
 
-### 4. addDetachedRows - 添加非绑定行
-向数据库添加非绑定的块和属性值。
+## 何时使用
+- 需要了解数据库有哪些列
+- 获取列的ID和类型信息
+- 在添加/修改数据前确认列结构
 
-**参数:**
-- avID: 数据库ID
-- blocksValues: 二维数组，每个元素是一行的数据
-  - keyID: 列ID
-  - block/text/mSelect/number: 根据列类型设置值
+## 参数说明
+- avID: 数据库ID（必填）
 
-**示例:**
-\`\`\`json
-{
-  "operation": "addDetachedRows",
-  "avID": "20241017094451-2urncs9",
-  "blocksValues": [
-    [
-      {
-        "keyID": "20241017094451-jwfegvp",
-        "block": { "content": "Test block" }
-      },
-      {
-        "keyID": "20241017094451-fu1pv7s",
-        "mSelect": [{"content": "Fiction5", "color": "3"}]
-      },
-      {
-        "keyID": "20241017095436-2wlgb7o",
-        "number": { "content": 1234 }
-      }
-    ]
-  ]
-}
-\`\`\`
+## 返回信息
+- 列信息数组，包含id、name、type等
 
-### 5. addBoundBlocks - 添加绑定块
-向数据库添加绑定的文档块。
-
-**参数:**
-- avID: 数据库ID
-- blockIDs: 要绑定的块ID数组
-- itemIDs: (可选)指定itemID数组，与blockIDs一一对应
-
-**示例:**
-\`\`\`json
-{
-  "operation": "addBoundBlocks",
-  "avID": "20241017094451-2urncs9",
-  "blockIDs": ["20240107212802-727hsjv"],
-  "itemIDs": ["20240107212802-727hsjv"]
-}
-\`\`\`
-
-### 6. setAttribute - 设置单个属性
-设置数据库中某个单元格的属性值。
-
-**参数:**
-- avID: 数据库ID
-- keyID: 列ID
-- itemID: 行ID (v3.3.1+使用itemID)
-- valueType: 值类型 (text/number/select/mSelect等)
-- value: 属性值对象
-**返回值**
-
-为null
-**示例:**
-\`\`\`json
-{
-  "operation": "setAttribute",
-  "avID": "20241017094451-2urncs9",
-  "keyID": "20241102151935-gypad0k",
-  "itemID": "20251217205758-el6y4i3",
-  "valueType": "text",
-  "value": {
-    "text": { "content": "示例文本" }
-  }
-}
-\`\`\`
-
-### 7. batchSetAttributes - 批量设置属性
-批量设置多个单元格的属性值。
-
-**参数:**
-- avID: 数据库ID
-- values: 属性值数组
-  - keyID: 列ID
-  - rowID: 行ID
-  - value: 属性值对象
-
-**返回值**
-
-为null
-
-**示例:**
-\`\`\`json
-{
-  "operation": "batchSetAttributes",
-  "avID": "20250716235026-51p7441",
-  "values": [
-    {
-      "keyID": "20250716235026-njmx362",
-      "rowID": "20250716235124-6qqlnpw",
-      "value": { "block": { "content": "Test" } }
-    },
-    {
-      "keyID": "20250716235026-a0v1j35",
-      "rowID": "20250716235124-6qqlnpw",
-      "value": { "number": { "content": 111 } }
-    }
-  ]
-}
-\`\`\`
-
-### 8. getDatabasesForBlock - 查询块所在的数据库
-查询哪些数据库包含了指定的块。
-
-**参数:**
-- blockID: 块ID
-
-**返回:** 包含该块的所有数据库信息
-
-**示例:**
-\`\`\`json
-{
-  "operation": "getDatabasesForBlock",
-  "blockID": "20220719202005-e3bn8ks"
-}
-\`\`\`
-
-### 9. getItemIDsByBlockIDs - 根据块ID获取ItemID
-根据绑定块ID获取对应的ItemID (v3.3.1+)。
-
-**参数:**
-- avID: 数据库ID
-- blockIDs: 块ID数组
-
-**示例:**
-\`\`\`json
-{
-  "operation": "getItemIDsByBlockIDs",
-  "avID": "20250829105223-fk06kth",
-  "blockIDs": ["20250829105224-mh7mtd2", "20250829105226-8o6pfqb"]
-}
-\`\`\`
-
-### 10. getBlockIDsByItemIDs - 根据ItemID获取块ID
-根据ItemID获取对应的绑定块ID (v3.3.1+)。
-
-**参数:**
-- avID: 数据库ID
-- itemIDs: ItemID数组
-
-**示例:**
-\`\`\`json
-{
-  "operation": "getBlockIDsByItemIDs",
-  "avID": "20250829105223-fk06kth",
-  "itemIDs": ["20250830173630-y0h4nrx", "20250830185837-4ww0kcq"]
-}
-\`\`\`
-
-### 11. addColumn - 添加数据库列
-向数据库添加新的列。
-
-**参数:**
-- avID: 数据库ID
-- keyName: 列名称
-- keyType: 列类型 (text/number/select/mSelect/block/date/url/email/phone等)
-- previousKeyID: 前一列的ID，用于指定新列的位置
-- keyIcon: 可选，列图标，默认为空字符串，unicode字符，比如2728，1f4cc
-**返回值**
-
-为null
-**示例:**
-\`\`\`json
-{
-  "operation": "addColumn",
-  "avID": "20241017094451-2urncs9",
-  "keyName": "新列名",
-  "keyType": "text",
-  "keyIcon": "",
-  "previousKeyID": "20251217230203-rm3hnkr"
-}
-\`\`\`
-
-### 12. removeColumn - 删除数据库列
-删除数据库中的指定列。
-
-**参数:**
-- avID: 数据库ID
-- keyID: 要删除的列ID
-
-**示例:**
-\`\`\`json
-{
-  "operation": "removeColumn",
-  "avID": "20241017094451-2urncs9",
-  "keyID": "20241102151935-gypad0k"
-}
-\`\`\`
-
-### 13. removeRows - 删除数据库行
-删除数据库中的指定行。
-
-**参数:**
-- avID: 数据库ID
-- srcIDs: 要删除的行ID数组
-
-**示例:**
-\`\`\`json
-{
-  "operation": "removeRows",
-  "avID": "20241017094451-2urncs9",
-  "srcIDs": ["20251217205758-el6y4i3", "20220719202005-e3bn8ks"]
-}
-\`\`\`
-
-## 数据类型说明
-
-### 列类型 (type)
+## 列类型说明
 - block: 块引用
 - text: 文本
 - number: 数字
@@ -1302,7 +1065,224 @@ siyuan_update_block({
 - email: 邮箱
 - phone: 电话
 
-### 值格式示例
+## 使用示例
+\`\`\`javascript
+siyuan_get_database_columns({
+  avID: "20241207205647-baw0ri8"
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
+            },
+            required: ['avID'],
+        }
+    ),
+
+    // 渲染/获取数据库内容
+    createTool(
+        'siyuan_render_database',
+        `渲染并获取数据库的完整内容，包括所有行和列的数据。
+
+## 何时使用
+- 查看数据库的所有数据
+- 获取数据库的行信息
+- 在指定块中创建新的数据库视图
+
+## 参数说明
+- avID: 数据库ID（已存在的数据库）或块ID（要在其中创建新数据库的块）（必填）
+- viewID: 视图ID（必填）
+- pageSize: (可选)每页数量，默认9999999
+- page: (可选)页码，默认1
+- createIfNotExist: (可选)如果不存在是否创建，默认true
+
+## 在块中创建新数据库
+要在指定块中创建新数据库，需要先调用此工具获取数据库视图，然后使用 siyuan_update_block 在块内容中插入以下 HTML：
+
+\`\`\`html
+<div data-type="NodeAttributeView" data-av-id="数据库ID" data-av-type="table"></div>
+\`\`\`
+
+## 使用示例
+\`\`\`javascript
+siyuan_render_database({
+  avID: "20241017094451-2urncs9",
+  viewID: "20241017094451-91wdu3a",
+  pageSize: 9999999,
+  page: 1
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID或块ID',
+                },
+                viewID: {
+                    type: 'string',
+                    description: '视图ID',
+                },
+                pageSize: {
+                    type: 'number',
+                    description: '每页数量，默认9999999',
+                },
+                page: {
+                    type: 'number',
+                    description: '页码，默认1',
+                },
+                createIfNotExist: {
+                    type: 'boolean',
+                    description: '如果不存在是否创建，默认true',
+                },
+            },
+            required: ['avID', 'viewID'],
+        }
+    ),
+
+    // 添加数据库行（非绑定行）
+    createTool(
+        'siyuan_add_database_rows',
+        `向数据库添加非绑定行（独立数据行）。
+
+## 何时使用
+- 向数据库添加新的数据行
+- 添加不绑定到具体块的数据
+
+## 参数说明
+- avID: 数据库ID（必填）
+- blocksValues: 二维数组，每个元素是一行的数据（必填）
+  - keyID: 列ID
+  - 根据列类型设置值: block/text/mSelect/number/date/url/email/phone等
+
+## 值格式示例
+
+**文本:**
+\`\`\`json
+{ "keyID": "列ID", "text": { "content": "文本内容" } }
+\`\`\`
+
+**数字:**
+\`\`\`json
+{ "keyID": "列ID", "number": { "content": 123 } }
+\`\`\`
+
+**单选/多选:**
+\`\`\`json
+{ "keyID": "列ID", "mSelect": [{ "content": "选项名", "color": "1" }] }
+\`\`\`
+
+**块引用:**
+\`\`\`json
+{ "keyID": "列ID", "block": { "content": "块标题" } }
+\`\`\`
+
+## 使用示例
+\`\`\`javascript
+siyuan_add_database_rows({
+  avID: "20241017094451-2urncs9",
+  blocksValues: [
+    [
+      { "keyID": "20241017094451-jwfegvp", "block": { "content": "Test block" } },
+      { "keyID": "20241017094451-fu1pv7s", "mSelect": [{"content": "Fiction", "color": "3"}] },
+      { "keyID": "20241017095436-2wlgb7o", "number": { "content": 1234 } }
+    ]
+  ]
+})
+\`\`\`
+
+## 注意事项
+- 单选设置值也使用mSelect类型来设置
+- 添加非绑定行时不关联到具体文档块
+- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
+                blocksValues: {
+                    type: 'array',
+                    description: '二维数组，每个元素是一行的数据',
+                },
+            },
+            required: ['avID', 'blocksValues'],
+        }
+    ),
+
+    // 添加绑定块到数据库
+    createTool(
+        'siyuan_add_database_blocks',
+        `向数据库添加绑定的文档块。
+
+## 何时使用
+- 将已有文档块绑定到数据库
+- 在数据库中引用现有内容
+
+## 参数说明
+- avID: 数据库ID（必填）
+- blockIDs: 要绑定的块ID数组（必填）
+- itemIDs: (可选)指定itemID数组，与blockIDs一一对应
+
+## 使用示例
+\`\`\`javascript
+siyuan_add_database_blocks({
+  avID: "20241017094451-2urncs9",
+  blockIDs: ["20240107212802-727hsjv"],
+  itemIDs: ["20240107212802-727hsjv"]
+})
+\`\`\`
+
+## 注意事项
+- 绑定块会与文档块关联，文档内容变化时数据库中的显示也会更新
+- 绑定后可以通过块ID查询对应的ItemID`,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
+                blockIDs: {
+                    type: 'array',
+                    description: '要绑定的块ID数组',
+                    items: {
+                        type: 'string',
+                    },
+                },
+                itemIDs: {
+                    type: 'array',
+                    description: 'ItemID数组（可选，与blockIDs一一对应）',
+                    items: {
+                        type: 'string',
+                    },
+                },
+            },
+            required: ['avID', 'blockIDs'],
+        }
+    ),
+
+    // 设置数据库单元格值
+    createTool(
+        'siyuan_set_database_cell',
+        `设置数据库中某个单元格的属性值。
+
+## 何时使用
+- 修改数据库中特定行和列的值
+- 更新单个单元格数据
+
+## 参数说明
+- avID: 数据库ID（必填）
+- keyID: 列ID（必填）
+- itemID: 行ID/ItemID（必填）
+- value: 属性值对象（必填）
+
+## 值格式示例
 
 **文本:**
 \`\`\`json
@@ -1324,60 +1304,151 @@ siyuan_update_block({
 { "block": { "content": "块标题" } }
 \`\`\`
 
+## 使用示例
+\`\`\`javascript
+siyuan_set_database_cell({
+  avID: "20241017094451-2urncs9",
+  keyID: "20241102151935-gypad0k",
+  itemID: "20251217205758-el6y4i3",
+  value: { "text": { "content": "示例文本" } }
+})
+\`\`\`
+
 ## 注意事项
 - 单选设置值也使用mSelect类型来设置
-- 添加绑定块时，isDetached设为false
-- 添加非绑定块时，使用addDetachedRows操作
-`,
+- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
         {
             type: 'object',
             properties: {
-                operation: {
-                    type: 'string',
-                    description: '操作类型',
-                    enum: [
-                        'searchDatabase',
-                        'getColumns',
-                        'renderDatabase',
-                        'addDetachedRows',
-                        'addBoundBlocks',
-                        'setAttribute',
-                        'batchSetAttributes',
-                        'getDatabasesForBlock',
-                        'getItemIDsByBlockIDs',
-                        'getBlockIDsByItemIDs',
-                        'addColumn',
-                        'removeColumn',
-                        'removeRows'
-                    ],
-                },
-                keyword: {
-                    type: 'string',
-                    description: '搜索关键词 (searchDatabase操作)',
-                },
                 avID: {
                     type: 'string',
                     description: '数据库ID',
                 },
-                viewID: {
+                keyID: {
                     type: 'string',
-                    description: '视图ID (renderDatabase操作)',
+                    description: '列ID',
                 },
-                pageSize: {
-                    type: 'number',
-                    description: '每页数量 (renderDatabase操作，默认9999999)',
+                itemID: {
+                    type: 'string',
+                    description: '行ID/ItemID',
                 },
-                page: {
-                    type: 'number',
-                    description: '页码 (renderDatabase操作，默认1)',
+                value: {
+                    type: 'object',
+                    description: '属性值对象',
                 },
-                createIfNotExist: {
-                    type: 'boolean',
-                    description: '如果不存在是否创建 (renderDatabase操作，默认true)',
+            },
+            required: ['avID', 'keyID', 'itemID', 'value'],
+        }
+    ),
+
+    // 批量设置数据库单元格
+    createTool(
+        'siyuan_batch_set_database_cells',
+        `批量设置数据库多个单元格的属性值。
+
+## 何时使用
+- 同时修改多个单元格的值
+- 批量更新数据行
+
+## 参数说明
+- avID: 数据库ID（必填）
+- values: 属性值数组（必填）
+  - keyID: 列ID
+  - rowID: 行ID
+  - value: 属性值对象
+
+## 使用示例
+\`\`\`javascript
+siyuan_batch_set_database_cells({
+  avID: "20250716235026-51p7441",
+  values: [
+    { "keyID": "20250716235026-njmx362", "rowID": "20250716235124-6qqlnpw", "value": { "block": { "content": "Test" } } },
+    { "keyID": "20250716235026-a0v1j35", "rowID": "20250716235124-6qqlnpw", "value": { "number": { "content": 111 } } }
+  ]
+})
+\`\`\`
+
+## 返回值
+- 成功时返回 null，这是正常行为
+- 失败时会抛出错误
+
+## 注意事项
+- 对于 mSelect/select 类型的值，color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
                 },
-                blocksValues: {
+                values: {
                     type: 'array',
-                    description: '二维数组，每个元素是一行的数据 (addDetachedRows操作)',
+                    description: '属性值数组',
+                },
+            },
+            required: ['avID', 'values'],
+        }
+    ),
+
+    // 获取块所在的数据库
+    createTool(
+        'siyuan_get_block_databases',
+        `查询指定块被哪些数据库包含。
+
+## 何时使用
+- 查找块所属的数据库
+- 了解块被哪些数据库引用
+
+## 参数说明
+- blockID: 块ID（必填）
+
+## 返回信息
+- 包含该块的所有数据库信息
+
+## 使用示例
+\`\`\`javascript
+siyuan_get_block_databases({
+  blockID: "20220719202005-e3bn8ks"
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                blockID: {
+                    type: 'string',
+                    description: '块ID',
+                },
+            },
+            required: ['blockID'],
+        }
+    ),
+
+    // 块ID转ItemID
+    createTool(
+        'siyuan_convert_blockid_to_itemid',
+        `根据绑定块ID获取对应的ItemID（v3.3.1+）。
+
+## 何时使用
+- 需要通过块ID查询数据库中的行ID
+- 块ID与ItemID的转换
+
+## 参数说明
+- avID: 数据库ID（必填）
+- blockIDs: 块ID数组（必填）
+
+## 使用示例
+\`\`\`javascript
+siyuan_convert_blockid_to_itemid({
+  avID: "20250829105223-fk06kth",
+  blockIDs: ["20250829105224-mh7mtd2", "20250829105226-8o6pfqb"]
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
                 },
                 blockIDs: {
                     type: 'array',
@@ -1386,6 +1457,38 @@ siyuan_update_block({
                         type: 'string',
                     },
                 },
+            },
+            required: ['avID', 'blockIDs'],
+        }
+    ),
+
+    // ItemID转块ID
+    createTool(
+        'siyuan_convert_itemid_to_blockid',
+        `根据ItemID获取对应的绑定块ID（v3.3.1+）。
+
+## 何时使用
+- 需要通过数据库行ID查询对应的块ID
+- ItemID与块ID的转换
+
+## 参数说明
+- avID: 数据库ID（必填）
+- itemIDs: ItemID数组（必填）
+
+## 使用示例
+\`\`\`javascript
+siyuan_convert_itemid_to_blockid({
+  avID: "20250829105223-fk06kth",
+  itemIDs: ["20250830173630-y0h4nrx", "20250830185837-4ww0kcq"]
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
                 itemIDs: {
                     type: 'array',
                     description: 'ItemID数组',
@@ -1393,57 +1496,153 @@ siyuan_update_block({
                         type: 'string',
                     },
                 },
-                keyID: {
+            },
+            required: ['avID', 'itemIDs'],
+        }
+    ),
+
+    // 添加数据库列
+    createTool(
+        'siyuan_add_database_column',
+        `向数据库添加新的列。
+
+## 何时使用
+- 扩展数据库结构，添加新字段
+- 创建新的属性列
+
+## 参数说明
+- avID: 数据库ID（必填）
+- keyName: 列名称（必填）
+- keyType: 列类型（必填）
+  - text: 文本
+  - number: 数字
+  - select: 单选
+  - mSelect: 多选
+  - block: 块引用
+  - date: 日期
+  - url: 链接
+  - email: 邮箱
+  - phone: 电话
+- previousKeyID: 前一列的ID，用于指定新列的位置（必填）
+- keyIcon: 列图标（可选，unicode字符，如2728、1f4cc）
+
+## 使用示例
+\`\`\`javascript
+siyuan_add_database_column({
+  avID: "20241017094451-2urncs9",
+  keyName: "优先级",
+  keyType: "select",
+  previousKeyID: "20251217230203-rm3hnkr",
+  keyIcon: "1f4cc"
+})
+\`\`\``,
+        {
+            type: 'object',
+            properties: {
+                avID: {
                     type: 'string',
-                    description: '列ID (setAttribute/removeColumn操作)',
-                },
-                itemID: {
-                    type: 'string',
-                    description: '行ID/ItemID (setAttribute操作)',
-                },
-                valueType: {
-                    type: 'string',
-                    description: '值类型 (setAttribute操作)',
-                    enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
-                },
-                value: {
-                    type: 'object',
-                    description: '属性值对象 (setAttribute操作)',
-                },
-                values: {
-                    type: 'array',
-                    description: '属性值数组 (batchSetAttributes操作)',
-                },
-                blockID: {
-                    type: 'string',
-                    description: '块ID (getDatabasesForBlock操作)',
+                    description: '数据库ID',
                 },
                 keyName: {
                     type: 'string',
-                    description: '列名称 (addColumn操作)',
+                    description: '列名称',
                 },
                 keyType: {
                     type: 'string',
-                    description: '列类型 (addColumn操作)',
+                    description: '列类型',
                     enum: ['text', 'number', 'select', 'mSelect', 'block', 'date', 'url', 'email', 'phone'],
-                },
-                keyIcon: {
-                    type: 'string',
-                    description: '列图标 (addColumn操作，可选，默认为空字符串)',
                 },
                 previousKeyID: {
                     type: 'string',
-                    description: '前一列ID (addColumn操作，用于指定新列的位置)',
+                    description: '前一列ID（用于指定新列的位置）',
+                },
+                keyIcon: {
+                    type: 'string',
+                    description: '列图标（可选，unicode字符）',
+                },
+            },
+            required: ['avID', 'keyName', 'keyType', 'previousKeyID'],
+        }
+    ),
+
+    // 删除数据库列
+    createTool(
+        'siyuan_remove_database_column',
+        `删除数据库中的指定列。
+
+## 何时使用
+- 移除不再需要的列
+- 调整数据库结构
+
+## 参数说明
+- avID: 数据库ID（必填）
+- keyID: 要删除的列ID（必填）
+
+## 使用示例
+\`\`\`javascript
+siyuan_remove_database_column({
+  avID: "20241017094451-2urncs9",
+  keyID: "20241102151935-gypad0k"
+})
+\`\`\`
+
+## 注意事项
+- 删除列会同时删除该列的所有数据，请谨慎操作`,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
+                },
+                keyID: {
+                    type: 'string',
+                    description: '要删除的列ID',
+                },
+            },
+            required: ['avID', 'keyID'],
+        }
+    ),
+
+    // 删除数据库行
+    createTool(
+        'siyuan_remove_database_rows',
+        `删除数据库中的指定行。
+
+## 何时使用
+- 移除不再需要的数据行
+- 清理数据库数据
+
+## 参数说明
+- avID: 数据库ID（必填）
+- srcIDs: 要删除的行ID数组（必填）
+
+## 使用示例
+\`\`\`javascript
+siyuan_remove_database_rows({
+  avID: "20241017094451-2urncs9",
+  srcIDs: ["20251217205758-el6y4i3", "20220719202005-e3bn8ks"]
+})
+\`\`\`
+
+## 注意事项
+- 删除操作不可恢复，请谨慎操作`,
+        {
+            type: 'object',
+            properties: {
+                avID: {
+                    type: 'string',
+                    description: '数据库ID',
                 },
                 srcIDs: {
                     type: 'array',
-                    description: '要删除的行ID数组 (removeRows操作)',
+                    description: '要删除的行ID数组',
                     items: {
                         type: 'string',
                     },
                 },
             },
-            required: ['operation'],
+            required: ['avID', 'srcIDs'],
         }
     ),
 
@@ -2814,157 +3013,315 @@ export async function siyuan_set_block_attrs(id: string, attrs: { [key: string]:
     }
 }
 
+// ==================== 数据库属性视图工具实现 ====================
+
 /**
- * 数据库操作工具
+ * 规范化 mSelect 值中的 color 字段
+ * 如果 color > 13，则取余数保证范围在 1-13
  */
-export async function siyuan_database(params: any): Promise<any> {
+function normalizeMSelectColor(value: any): any {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
+
+    // 处理 mSelect 类型
+    if (value.mSelect && Array.isArray(value.mSelect)) {
+        value.mSelect = value.mSelect.map((item: any) => {
+            if (item && item.color !== undefined) {
+                const colorNum = parseInt(item.color, 10);
+                if (!isNaN(colorNum)) {
+                    // 取余数，范围为 1-13
+                    const normalizedColor = ((colorNum - 1) % 13) + 1;
+                    item.color = String(normalizedColor);
+                }
+            }
+            return item;
+        });
+    }
+
+    // 处理 select 类型（与 mSelect 类似）
+    if (value.select && Array.isArray(value.select)) {
+        value.select = value.select.map((item: any) => {
+            if (item && item.color !== undefined) {
+                const colorNum = parseInt(item.color, 10);
+                if (!isNaN(colorNum)) {
+                    const normalizedColor = ((colorNum - 1) % 13) + 1;
+                    item.color = String(normalizedColor);
+                }
+            }
+            return item;
+        });
+    }
+
+    return value;
+}
+
+/**
+ * 搜索数据库
+ */
+export async function siyuan_search_database(keyword: string, avID?: string): Promise<any> {
     try {
-        const { operation } = params;
-
-        switch (operation) {
-            case 'searchDatabase': {
-                const { keyword, avID } = params;
-                if (!keyword) {
-                    throw new Error('keyword参数是必需的');
-                }
-                const result = await searchAttributeView(keyword, avID);
-                return result;
-            }
-
-            case 'getColumns': {
-                const { avID } = params;
-                if (!avID) {
-                    throw new Error('avID参数是必需的');
-                }
-                const result = await getAttributeViewKeysByAvID(avID);
-                return result;
-            }
-
-            case 'renderDatabase': {
-                const { avID, viewID, pageSize, page, createIfNotExist } = params;
-                if (!avID || !viewID) {
-                    throw new Error('avID和viewID参数是必需的');
-                }
-                const result = await renderAttributeView(
-                    avID,
-                    viewID,
-                    pageSize || 9999999,
-                    page || 1,
-                    createIfNotExist ?? true
-                );
-                return result;
-            }
-
-            case 'addDetachedRows': {
-                const { avID, blocksValues } = params;
-                if (!avID || !blocksValues) {
-                    throw new Error('avID和blocksValues参数是必需的');
-                }
-                const result = await appendAttributeViewDetachedBlocksWithValues(avID, blocksValues);
-                return result;
-            }
-
-            case 'addBoundBlocks': {
-                const { avID, blockIDs, itemIDs } = params;
-                if (!avID || !blockIDs) {
-                    throw new Error('avID和blockIDs参数是必需的');
-                }
-                const srcs = blockIDs.map((id: string, index: number) => ({
-                    id: id,
-                    isDetached: false,
-                    itemID: itemIDs ? itemIDs[index] : id
-                }));
-                const result = await addAttributeViewBlocks(avID, srcs);
-                return result;
-            }
-
-            case 'setAttribute': {
-                const { avID, keyID, itemID, value } = params;
-                if (!avID || !keyID || !itemID || !value) {
-                    throw new Error('avID、keyID、itemID和value参数是必需的');
-                }
-                const result = await setAttributeViewBlockAttr(avID, keyID, itemID, value);
-                return result;
-            }
-
-            case 'batchSetAttributes': {
-                const { avID, values } = params;
-                if (!avID || !values) {
-                    throw new Error('avID和values参数是必需的');
-                }
-                const result = await batchSetAttributeViewBlockAttrs(avID, values);
-                return result;
-            }
-
-            case 'getDatabasesForBlock': {
-                const { blockID } = params;
-                if (!blockID) {
-                    throw new Error('blockID参数是必需的');
-                }
-                const result = await getAttributeViewKeys(blockID);
-                return result;
-            }
-
-            case 'getItemIDsByBlockIDs': {
-                const { avID, blockIDs } = params;
-                if (!avID || !blockIDs) {
-                    throw new Error('avID和blockIDs参数是必需的');
-                }
-                const result = await getAttributeViewItemIDsByBoundIDs(avID, blockIDs);
-                return result;
-            }
-
-
-            case 'getBlockIDsByItemIDs': {
-                const { avID, itemIDs } = params;
-                if (!avID || !itemIDs) {
-                    throw new Error('avID和itemIDs参数是必需的');
-                }
-                const result = await getAttributeViewBoundBlockIDsByItemIDs(avID, itemIDs);
-                return result;
-            }
-
-            case 'addColumn': {
-                const { avID, keyName, keyType, keyIcon, previousKeyID } = params;
-                if (!avID || !keyName || !keyType || !previousKeyID) {
-                    throw new Error('avID、keyName、keyType和previousKeyID参数是必需的');
-                }
-                // addAttributeViewKey 会自动生成 keyID，keyIcon 默认为空字符串
-                const result = await addAttributeViewKey(
-                    avID,
-                    keyName,
-                    keyType,
-                    previousKeyID, // previousKeyID 必选
-                    undefined, // keyID 自动生成
-                    keyIcon || "" // keyIcon 默认为空字符串
-                );
-                return result;
-            }
-
-            case 'removeColumn': {
-                const { avID, keyID } = params;
-                if (!avID || !keyID) {
-                    throw new Error('avID和keyID参数是必需的');
-                }
-                const result = await removeAttributeViewKey(avID, keyID);
-                return result;
-            }
-
-            case 'removeRows': {
-                const { avID, srcIDs } = params;
-                if (!avID || !srcIDs) {
-                    throw new Error('avID和srcIDs参数是必需的');
-                }
-                const result = await removeAttributeViewBlocks(avID, srcIDs);
-                return result;
-            }
-
-            default:
-                throw new Error(`未知的操作类型: ${operation}`);
+        if (!keyword) {
+            throw new Error('keyword参数是必需的');
         }
+        const result = await searchAttributeView(keyword, avID);
+        return result;
     } catch (error) {
-        console.error('Database operation error:', error);
-        throw new Error(`数据库操作失败: ${(error as Error).message}`);
+        console.error('Search database error:', error);
+        throw new Error(`搜索数据库失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 获取数据库列信息
+ */
+export async function siyuan_get_database_columns(avID: string): Promise<any> {
+    try {
+        if (!avID) {
+            throw new Error('avID参数是必需的');
+        }
+        const result = await getAttributeViewKeysByAvID(avID);
+        return result;
+    } catch (error) {
+        console.error('Get database columns error:', error);
+        throw new Error(`获取数据库列信息失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 渲染/获取数据库内容
+ */
+export async function siyuan_render_database(
+    avID: string,
+    viewID: string,
+    pageSize: number = 9999999,
+    page: number = 1,
+    createIfNotExist: boolean = true
+): Promise<any> {
+    try {
+        if (!avID || !viewID) {
+            throw new Error('avID和viewID参数是必需的');
+        }
+        const result = await renderAttributeView(avID, viewID, pageSize, page, createIfNotExist);
+        return result;
+    } catch (error) {
+        console.error('Render database error:', error);
+        throw new Error(`渲染数据库失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 添加数据库行（非绑定行）
+ */
+export async function siyuan_add_database_rows(avID: string, blocksValues: any[][]): Promise<any> {
+    try {
+        if (!avID || !blocksValues) {
+            throw new Error('avID和blocksValues参数是必需的');
+        }
+        // 规范化所有值中的 mSelect/select color
+        const normalizedBlocksValues = blocksValues.map((row: any[]) => {
+            return row.map((cell: any) => {
+                if (cell && (cell.mSelect || cell.select)) {
+                    return normalizeMSelectColor(cell);
+                }
+                return cell;
+            });
+        });
+        const result = await appendAttributeViewDetachedBlocksWithValues(avID, normalizedBlocksValues);
+        return result;
+    } catch (error) {
+        console.error('Add database rows error:', error);
+        throw new Error(`添加数据库行失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 添加绑定块到数据库
+ */
+export async function siyuan_add_database_blocks(
+    avID: string,
+    blockIDs: string[],
+    itemIDs?: string[]
+): Promise<any> {
+    try {
+        if (!avID || !blockIDs) {
+            throw new Error('avID和blockIDs参数是必需的');
+        }
+        const srcs = blockIDs.map((id: string, index: number) => ({
+            id: id,
+            isDetached: false,
+            itemID: itemIDs ? itemIDs[index] : id
+        }));
+        const result = await addAttributeViewBlocks(avID, srcs);
+        return result;
+    } catch (error) {
+        console.error('Add database blocks error:', error);
+        throw new Error(`添加数据库绑定块失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 设置数据库单元格值
+ */
+export async function siyuan_set_database_cell(
+    avID: string,
+    keyID: string,
+    itemID: string,
+    value: any
+): Promise<any> {
+    try {
+        if (!avID || !keyID || !itemID || !value) {
+            throw new Error('avID、keyID、itemID和value参数是必需的');
+        }
+        // 规范化 mSelect/select 的 color 值
+        const normalizedValue = normalizeMSelectColor(value);
+        const result = await setAttributeViewBlockAttr(avID, keyID, itemID, normalizedValue);
+        return result;
+    } catch (error) {
+        console.error('Set database cell error:', error);
+        throw new Error(`设置数据库单元格失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 批量设置数据库单元格
+ */
+export async function siyuan_batch_set_database_cells(
+    avID: string,
+    values: any[]
+): Promise<any> {
+    try {
+        if (!avID || !values) {
+            throw new Error('avID和values参数是必需的');
+        }
+        // 规范化每个值中的 mSelect/select color
+        const normalizedValues = values.map((item: any) => {
+            if (item && item.value) {
+                item.value = normalizeMSelectColor(item.value);
+            }
+            return item;
+        });
+        const result = await batchSetAttributeViewBlockAttrs(avID, normalizedValues);
+        return result;
+    } catch (error) {
+        console.error('Batch set database cells error:', error);
+        throw new Error(`批量设置数据库单元格失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 获取块所在的数据库
+ */
+export async function siyuan_get_block_databases(blockID: string): Promise<any> {
+    try {
+        if (!blockID) {
+            throw new Error('blockID参数是必需的');
+        }
+        const result = await getAttributeViewKeys(blockID);
+        return result;
+    } catch (error) {
+        console.error('Get block databases error:', error);
+        throw new Error(`获取块所在数据库失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 块ID转ItemID
+ */
+export async function siyuan_convert_blockid_to_itemid(
+    avID: string,
+    blockIDs: string[]
+): Promise<any> {
+    try {
+        if (!avID || !blockIDs) {
+            throw new Error('avID和blockIDs参数是必需的');
+        }
+        const result = await getAttributeViewItemIDsByBoundIDs(avID, blockIDs);
+        return result;
+    } catch (error) {
+        console.error('Convert blockID to itemID error:', error);
+        throw new Error(`块ID转ItemID失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * ItemID转块ID
+ */
+export async function siyuan_convert_itemid_to_blockid(
+    avID: string,
+    itemIDs: string[]
+): Promise<any> {
+    try {
+        if (!avID || !itemIDs) {
+            throw new Error('avID和itemIDs参数是必需的');
+        }
+        const result = await getAttributeViewBoundBlockIDsByItemIDs(avID, itemIDs);
+        return result;
+    } catch (error) {
+        console.error('Convert itemID to blockID error:', error);
+        throw new Error(`ItemID转块ID失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 添加数据库列
+ */
+export async function siyuan_add_database_column(
+    avID: string,
+    keyName: string,
+    keyType: string,
+    previousKeyID: string,
+    keyIcon?: string
+): Promise<any> {
+    try {
+        if (!avID || !keyName || !keyType || !previousKeyID) {
+            throw new Error('avID、keyName、keyType和previousKeyID参数是必需的');
+        }
+        // addAttributeViewKey 会自动生成 keyID，keyIcon 默认为空字符串
+        const result = await addAttributeViewKey(
+            avID,
+            keyName,
+            keyType,
+            previousKeyID,
+            undefined, // keyID 自动生成
+            keyIcon || "" // keyIcon 默认为空字符串
+        );
+        return result;
+    } catch (error) {
+        console.error('Add database column error:', error);
+        throw new Error(`添加数据库列失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 删除数据库列
+ */
+export async function siyuan_remove_database_column(avID: string, keyID: string): Promise<any> {
+    try {
+        if (!avID || !keyID) {
+            throw new Error('avID和keyID参数是必需的');
+        }
+        const result = await removeAttributeViewKey(avID, keyID);
+        return result;
+    } catch (error) {
+        console.error('Remove database column error:', error);
+        throw new Error(`删除数据库列失败: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * 删除数据库行
+ */
+export async function siyuan_remove_database_rows(avID: string, srcIDs: string[]): Promise<any> {
+    try {
+        if (!avID || !srcIDs) {
+            throw new Error('avID和srcIDs参数是必需的');
+        }
+        const result = await removeAttributeViewBlocks(avID, srcIDs);
+        return result;
+    } catch (error) {
+        console.error('Remove database rows error:', error);
+        throw new Error(`删除数据库行失败: ${(error as Error).message}`);
     }
 }
 
@@ -3417,9 +3774,85 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 const moveResult = await siyuan_move_documents(args.fromIDs, args.toID);
                 return JSON.stringify(moveResult, null, 2);
 
-            case 'siyuan_database':
-                const dbResult = await siyuan_database(args);
-                return JSON.stringify(dbResult, null, 2);
+            // 数据库属性视图工具
+            case 'siyuan_search_database':
+                const searchDbResult = await siyuan_search_database(args.keyword, args.avID);
+                return JSON.stringify(searchDbResult, null, 2);
+
+            case 'siyuan_get_database_columns':
+                const columnsResult = await siyuan_get_database_columns(args.avID);
+                return JSON.stringify(columnsResult, null, 2);
+
+            case 'siyuan_render_database':
+                const renderResult = await siyuan_render_database(
+                    args.avID,
+                    args.viewID,
+                    args.pageSize,
+                    args.page,
+                    args.createIfNotExist
+                );
+                return JSON.stringify(renderResult, null, 2);
+
+            case 'siyuan_add_database_rows':
+                const addRowsResult = await siyuan_add_database_rows(args.avID, args.blocksValues);
+                return JSON.stringify(addRowsResult, null, 2);
+
+            case 'siyuan_add_database_blocks':
+                const addBlocksResult = await siyuan_add_database_blocks(
+                    args.avID,
+                    args.blockIDs,
+                    args.itemIDs
+                );
+                return JSON.stringify(addBlocksResult, null, 2);
+
+            case 'siyuan_set_database_cell':
+                const setCellResult = await siyuan_set_database_cell(
+                    args.avID,
+                    args.keyID,
+                    args.itemID,
+                    args.value
+                );
+                return JSON.stringify(setCellResult, null, 2);
+
+            case 'siyuan_batch_set_database_cells':
+                const batchSetResult = await siyuan_batch_set_database_cells(args.avID, args.values);
+                return JSON.stringify(batchSetResult, null, 2);
+
+            case 'siyuan_get_block_databases':
+                const blockDbsResult = await siyuan_get_block_databases(args.blockID);
+                return JSON.stringify(blockDbsResult, null, 2);
+
+            case 'siyuan_convert_blockid_to_itemid':
+                const blockToItemResult = await siyuan_convert_blockid_to_itemid(
+                    args.avID,
+                    args.blockIDs
+                );
+                return JSON.stringify(blockToItemResult, null, 2);
+
+            case 'siyuan_convert_itemid_to_blockid':
+                const itemToBlockResult = await siyuan_convert_itemid_to_blockid(
+                    args.avID,
+                    args.itemIDs
+                );
+                return JSON.stringify(itemToBlockResult, null, 2);
+
+            case 'siyuan_add_database_column':
+                const addColumnResult = await siyuan_add_database_column(
+                    args.avID,
+                    args.keyName,
+                    args.keyType,
+                    args.previousKeyID,
+                    args.keyIcon
+                );
+                return JSON.stringify(addColumnResult, null, 2);
+
+            case 'siyuan_remove_database_column':
+                const removeColumnResult = await siyuan_remove_database_column(args.avID, args.keyID);
+                return JSON.stringify(removeColumnResult, null, 2);
+
+            case 'siyuan_remove_database_rows':
+                const removeRowsResult = await siyuan_remove_database_rows(args.avID, args.srcIDs);
+                return JSON.stringify(removeRowsResult, null, 2);
 
             case 'web_fetch':
                 const webResult = await web_fetch(args.url, args.useWebView);

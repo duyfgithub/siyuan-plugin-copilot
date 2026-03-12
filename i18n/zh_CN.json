@@ -569,7 +569,8 @@
     "tools": {
         "category": {
             "web": "网页工具",
-            "siyuan": "思源笔记",
+            "siyuan": "思源笔记常规工具",
+            "database": "数据库",
             "other": "其他"
         },
         "selector": {
