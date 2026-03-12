@@ -1198,7 +1198,7 @@ siyuan_add_database_rows({
 ## 注意事项
 - 单选设置值也使用mSelect类型来设置
 - 添加非绑定行时不关联到具体文档块
-- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数
+- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
         {
             type: 'object',
             properties: {
@@ -1218,7 +1218,7 @@ siyuan_add_database_rows({
     // 添加绑定块到数据库
     createTool(
         'siyuan_add_database_blocks',
-        `向数据库添加绑定的文档块。
+        `向数据库添加绑定的文档块
 
 ## 何时使用
 - 将已有文档块绑定到数据库

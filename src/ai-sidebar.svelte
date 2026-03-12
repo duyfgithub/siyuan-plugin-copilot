@@ -8751,6 +8751,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
     // 重新生成AI回复
     async function regenerateMessage(index: number) {
+        const providerConfig = getCurrentProviderConfig();
+        const modelConfig = getCurrentModelConfig();
+
         if (isLoading) {
             pushErrMsg(t('aiSidebar.errors.generating'));
             return;
@@ -8885,6 +8888,12 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         isThinkingPhase = false;
         autoScroll = true; // 重新生成时启用自动滚动
 
+        if (!providerConfig || !modelConfig) {
+            pushErrMsg(t('aiSidebar.errors.noProvider'));
+            isLoading = false;
+            return;
+        }
+
         await scrollToBottom(true);
 
         // 获取最后一条用户消息关联的上下文文档，并获取最新内容
@@ -8927,15 +8936,67 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             }
         }
 
+        // DeepSeek 思考模式：开启新一轮对话前清理历史消息中的 reasoning_content，保留工具调用链
+        if (chatMode === 'agent' && currentProvider === 'deepseek') {
+            messages = messages.map(msg => {
+                if (msg.role === 'assistant' && msg.reasoning_content) {
+                    const { reasoning_content, ...rest } = msg as any;
+                    return rest as Message;
+                }
+                return msg;
+            });
+        }
+
+        const isDeepseekThinkingAgent =
+            chatMode === 'agent' &&
+            modelConfig &&
+            modelConfig.capabilities?.thinking &&
+            (modelConfig.thinkingEnabled || false);
+
         // 准备发送给AI的消息（包含系统提示词和上下文文档）
         // 深拷贝消息数组，避免修改原始消息
-        const messagesToSend = messages
-            .filter(msg => msg.role !== 'system')
+        let messagesToSend = messages
+            .filter(msg => {
+                if (msg.role === 'system') return false;
+                if (msg.role === 'assistant') {
+                    const text =
+                        typeof msg.content === 'string'
+                            ? msg.content
+                            : getMessageText(msg.content || []);
+                    const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0;
+                    const hasReasoning = !!msg.reasoning_content;
+                    // 保留有 tool_calls 或 reasoning_content 的 assistant 消息，即便正文为空
+                    return (text && text.toString().trim() !== '') || hasToolCalls || hasReasoning;
+                }
+                return true;
+            })
             .map((msg, index, array) => {
                 const baseMsg: any = {
                     role: msg.role,
                     content: msg.content,
                 };
+
+                // 只在字段存在时才包含，避免传递 undefined 字段给 API
+                if (msg.tool_calls) {
+                    baseMsg.tool_calls = msg.tool_calls;
+                }
+                if (msg.tool_call_id) {
+                    baseMsg.tool_call_id = msg.tool_call_id;
+                    baseMsg.name = msg.name;
+                }
+
+                // 只有在启用 thinking 模式时才保留 reasoning_content
+                // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                if (isDeepseekThinkingAgent && msg.reasoning_content !== undefined) {
+                    baseMsg.reasoning_content = msg.reasoning_content;
+                }
+
+                // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+                if (isDeepseekThinkingAgent && msg.tool_calls && msg.tool_calls.length > 0) {
+                    if (baseMsg.reasoning_content === undefined) {
+                        baseMsg.reasoning_content = '';
+                    }
+                }
 
                 // 只处理历史用户消息的上下文（不是最后一条消息）
                 // 最后一条消息将在后面用最新内容处理
@@ -8961,6 +9022,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                     : doc.type === 'webpage'
                                       ? '网页'
                                       : '块';
+                            // agent模式：文档块只传递ID，不传递内容
+                            if (chatMode === 'agent' && doc.type === 'doc') {
+                                return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
+                            }
                             return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
                         })
                         .join('\n\n---\n\n');
@@ -9218,26 +9283,30 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             }
         }
 
-        if (settings.aiSystemPrompt) {
-            messagesToSend.unshift({ role: 'system', content: settings.aiSystemPrompt });
+        // 使用临时系统提示词（如果设置了）- 优先使用临时系统提示词作为基础
+        let baseSystemPrompt = settings.aiSystemPrompt || '';
+        if (tempModelSettings.systemPrompt.trim()) {
+            baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
-        // 使用临时系统提示词（如果设置了）
-        if (tempModelSettings.systemPrompt.trim()) {
-            // 如果已有系统提示词，替换它；否则添加新的
-            const systemMsgIndex = messagesToSend.findIndex(msg => msg.role === 'system');
-            if (systemMsgIndex !== -1) {
-                messagesToSend[systemMsgIndex].content = tempModelSettings.systemPrompt;
+        // Agent 模式下添加工具使用强制规则
+        let hasToolInstruction = false;
+        if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
+            if (baseSystemPrompt.trim()) {
+                baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
-                messagesToSend.unshift({ role: 'system', content: tempModelSettings.systemPrompt });
+                baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
+            hasToolInstruction = true;
+        }
+
+        // 添加最终的系统提示词
+        if (baseSystemPrompt.trim() || hasToolInstruction) {
+            messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
         }
 
         // 创建新的 AbortController
         abortController = new AbortController();
-
-        const providerConfig = getCurrentProviderConfig();
-        const modelConfig = getCurrentModelConfig();
 
         if (!providerConfig || !modelConfig) {
             pushErrMsg(t('aiSidebar.errors.noProvider'));
@@ -9262,136 +9331,517 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
             const enableThinking =
                 modelConfig.capabilities?.thinking && (modelConfig.thinkingEnabled || false);
 
-            // 检查是否启用图片生成
-            const enableImageGeneration = modelConfig.capabilities?.imageGeneration || false;
+            // 准备 Agent 模式的工具列表
+            let toolsForAgent: any[] | undefined = undefined;
+            if (chatMode === 'agent' && userToolCount > 0) {
+                // 根据选中的工具名称筛选出对应的工具定义
+                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                    selectedTools.some(t => t.name === tool.function.name)
+                );
+                // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
+                // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
+                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                if (descTool) {
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills'
+                    );
+                    toolsForAgent = [descTool, ...filteredToolDefs];
+                } else {
+                    toolsForAgent = selectedToolDefs;
+                }
+            }
 
             // 用于保存生成的图片
             let generatedImages: any[] = [];
 
-            await chat(
-                currentProvider,
-                {
-                    apiKey: providerConfig.apiKey,
-                    model: modelConfig.id,
-                    messages: messagesToSend,
-                    temperature: tempModelSettings.temperatureEnabled
-                        ? tempModelSettings.temperature
-                        : modelConfig.temperature,
-                    maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
-                    stream: true,
-                    signal: abortController.signal,
-                    customBody,
-                    enableThinking,
-                    reasoningEffort: modelConfig.thinkingEffort || 'low',
-                    enableImageGeneration,
-                    onThinkingChunk: enableThinking
-                        ? async (chunk: string) => {
-                              isThinkingPhase = true;
-                              streamingThinking += chunk;
-                              await scrollToBottom();
-                          }
-                        : undefined,
-                    onThinkingComplete: enableThinking
-                        ? (thinking: string) => {
-                              isThinkingPhase = false;
-                              thinkingCollapsed[messages.length] = true;
-                          }
-                        : undefined,
-                    onImageGenerated: async (images: any[]) => {
-                        // 立即保存生成的图片到 SiYuan 资源文件夹并转换为 blob URL
-                        generatedImages = await Promise.all(
-                            images.map(async (img, idx) => {
-                                const blob = base64ToBlob(img.data, img.mimeType || 'image/png');
-                                const name = `generated-image-${Date.now()}-${idx + 1}.${
-                                    img.mimeType?.split('/')[1] || 'png'
-                                }`;
-                                const assetPath = await saveAsset(blob, name);
-                                return {
-                                    ...img,
-                                    path: assetPath,
-                                    // 给前端显示用的 blob url
-                                    previewUrl: URL.createObjectURL(blob),
-                                };
-                            })
-                        );
-                    },
-                    onChunk: async (chunk: string) => {
-                        streamingMessage += chunk;
-                        await scrollToBottom();
-                    },
-                    onComplete: async (fullText: string) => {
-                        // 如果已经中断，不再添加消息（避免重复）
-                        if (isAborted) {
-                            return;
-                        }
+            // Agent 模式使用循环调用
+            if (chatMode === 'agent' && toolsForAgent && toolsForAgent.length > 0) {
+                let shouldContinue = true;
+                // 记录第一次工具调用后创建的assistant消息索引
+                let firstToolCallMessageIndex: number | null = null;
 
-                        // 转换 LaTeX 数学公式格式为 Markdown 格式
-                        const convertedText = convertLatexToMarkdown(fullText);
+                while (shouldContinue && !abortController.signal.aborted) {
+                    // 标记是否收到工具调用
+                    let receivedToolCalls = false;
+                    // 用于等待工具执行完成的 Promise
+                    let toolExecutionComplete: (() => void) | null = null;
+                    const toolExecutionPromise = new Promise<void>(resolve => {
+                        toolExecutionComplete = resolve;
+                    });
 
-                        // 处理content中的base64图片，保存为assets文件
-                        const processedContent = await saveBase64ImagesInContent(convertedText);
+                    await chat(
+                        currentProvider,
+                        {
+                            apiKey: providerConfig.apiKey,
+                            model: modelConfig.id,
+                            messages: messagesToSend,
+                            temperature: tempModelSettings.temperatureEnabled
+                                ? tempModelSettings.temperature
+                                : modelConfig.temperature,
+                            maxTokens:
+                                modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
+                            stream: true,
+                            signal: abortController.signal,
+                            enableThinking,
+                            reasoningEffort: modelConfig.thinkingEffort || 'low',
+                            tools: toolsForAgent,
+                            customBody, // 传递自定义参数
+                            onThinkingChunk: enableThinking
+                                ? async (chunk: string) => {
+                                      isThinkingPhase = true;
+                                      streamingThinking += chunk;
+                                      await scrollToBottom();
+                                  }
+                                : undefined,
+                            onThinkingComplete: enableThinking
+                                ? (thinking: string) => {
+                                      isThinkingPhase = false;
+                                      thinkingCollapsed = {
+                                          ...thinkingCollapsed,
+                                          [messages.length]: true,
+                                      };
+                                  }
+                                : undefined,
+                            onToolCallComplete: async (toolCalls: ToolCall[]) => {
+                                console.log('Tool calls received:', toolCalls);
+                                receivedToolCalls = true;
 
-                        const assistantMessage: Message = {
-                            role: 'assistant',
-                            content: processedContent,
-                        };
+                                // 如果是第一次工具调用，创建新的assistant消息
+                                if (firstToolCallMessageIndex === null) {
+                                    const assistantMessage: Message = {
+                                        role: 'assistant',
+                                        content: streamingMessage || '',
+                                        tool_calls: toolCalls,
+                                    };
 
-                        if (enableThinking && streamingThinking) {
-                            assistantMessage.thinking = streamingThinking;
-                        }
+                                    // 只有在启用 thinking 模式时才添加 reasoning_content
+                                    // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                                    if (isDeepseekThinkingAgent) {
+                                        assistantMessage.reasoning_content =
+                                            streamingThinking || '';
+                                        if (streamingThinking) {
+                                            assistantMessage.thinking = streamingThinking;
+                                        }
+                                    }
 
-                        // 如果有生成的图片，保存到消息中
-                        if (generatedImages.length > 0) {
-                            // 保存图片信息（不包含base64数据，只保存路径）
-                            assistantMessage.generatedImages = generatedImages.map(img => ({
-                                mimeType: img.mimeType,
-                                data: '', // 不保存base64数据，节省空间
-                                path: img.path,
-                            }));
+                                    messages = [...messages, assistantMessage];
+                                    firstToolCallMessageIndex = messages.length - 1;
+                                } else {
+                                    // 如果不是第一次，更新现有消息的tool_calls（合并工具调用）
+                                    const existingMessage = messages[firstToolCallMessageIndex];
+                                    existingMessage.tool_calls = [
+                                        ...(existingMessage.tool_calls || []),
+                                        ...toolCalls,
+                                    ];
 
-                            // 添加为附件以便显示（使用blob URL）
-                            assistantMessage.attachments = generatedImages.map((img, idx) => ({
-                                type: 'image' as const,
-                                name: `generated-image-${idx + 1}.${
-                                    img.mimeType?.split('/')[1] || 'png'
-                                }`,
-                                data: img.previewUrl, // 使用 blob URL 显示
-                                path: img.path, // 保存路径用于持久化
-                                mimeType: img.mimeType || 'image/png',
-                            }));
-                        }
+                                    // 只有在启用 thinking 模式时才更新 reasoning_content
+                                    if (isDeepseekThinkingAgent) {
+                                        existingMessage.reasoning_content = streamingThinking || '';
+                                        if (streamingThinking) {
+                                            existingMessage.thinking = streamingThinking;
+                                        }
+                                    }
 
-                        messages = [...messages, assistantMessage];
-                        streamingMessage = '';
-                        streamingThinking = '';
-                        isThinkingPhase = false;
-                        isLoading = false;
-                        abortController = null;
-                        hasUnsavedChanges = true;
+                                    messages = [...messages];
+                                }
+                                streamingMessage = '';
 
-                        // AI 回复完成后，自动保存当前会话
-                        await saveCurrentSession(true);
-                    },
-                    onError: (error: Error) => {
-                        if (error.message !== 'Request aborted') {
-                            // 将错误消息作为一条 assistant 消息添加
-                            const errorMessage: Message = {
+                                // 处理每个工具调用
+                                for (const toolCall of toolCalls) {
+                                    const toolConfig = selectedTools.find(
+                                        t => t.name === toolCall.function.name
+                                    );
+                                    // get_siyuan_skills 是系统工具，默认自动批准
+                                    const isSystemTool =
+                                        toolCall.function.name === 'get_siyuan_skills';
+                                    const autoApprove =
+                                        isSystemTool || toolConfig?.autoApprove || false;
+
+                                    try {
+                                        let toolResult: string;
+
+                                        if (autoApprove) {
+                                            // 自动批准：直接执行工具
+                                            console.log(
+                                                `Auto-approving tool call: ${toolCall.function.name}`
+                                            );
+                                            toolResult = await executeToolCall(toolCall);
+
+                                            // 添加工具结果消息
+                                            const toolResultMessage: Message = {
+                                                role: 'tool',
+                                                tool_call_id: toolCall.id,
+                                                name: toolCall.function.name,
+                                                content: toolResult,
+                                            };
+                                            messages = [...messages, toolResultMessage];
+                                        } else {
+                                            // 需要手动批准：显示批准对话框
+                                            console.log(
+                                                `Tool call requires approval: ${toolCall.function.name}`
+                                            );
+
+                                            // 显示批准对话框
+                                            pendingToolCall = toolCall;
+                                            isToolApprovalDialogOpen = true;
+
+                                            // 等待用户批准或拒绝
+                                            const approved = await new Promise<boolean>(resolve => {
+                                                // 临时保存 resolve 函数
+                                                (window as any).__toolApprovalResolve = resolve;
+                                            });
+
+                                            if (approved) {
+                                                toolResult = await executeToolCall(toolCall);
+
+                                                // 添加工具结果消息
+                                                const toolResultMessage: Message = {
+                                                    role: 'tool',
+                                                    tool_call_id: toolCall.id,
+                                                    name: toolCall.function.name,
+                                                    content: toolResult,
+                                                };
+                                                messages = [...messages, toolResultMessage];
+                                            } else {
+                                                // 用户拒绝
+                                                const toolResultMessage: Message = {
+                                                    role: 'tool',
+                                                    tool_call_id: toolCall.id,
+                                                    name: toolCall.function.name,
+                                                    content: `用户拒绝执行工具 ${toolCall.function.name}`,
+                                                };
+                                                messages = [...messages, toolResultMessage];
+                                            }
+                                        }
+                                    } catch (error) {
+                                        console.error(
+                                            `Tool execution failed: ${toolCall.function.name}`,
+                                            error
+                                        );
+                                        const errorMessage: Message = {
+                                            role: 'tool',
+                                            tool_call_id: toolCall.id,
+                                            name: toolCall.function.name,
+                                            content: `工具执行失败: ${(error as Error).message}`,
+                                        };
+                                        messages = [...messages, errorMessage];
+                                    }
+                                }
+
+                                hasUnsavedChanges = true;
+
+                                // 更新 messagesToSend，准备下一次循环
+                                // 只在字段存在时才包含，避免传递 undefined 字段给 API
+                                messagesToSend = messages
+                                    .filter(msg => msg.role !== 'system') // 过滤掉旧的系统消息
+                                    .map(msg => {
+                                        const baseMsg: any = {
+                                            role: msg.role,
+                                            content: msg.content,
+                                        };
+
+                                        // 只在有工具调用相关字段时才包含
+                                        if (msg.tool_calls) {
+                                            baseMsg.tool_calls = msg.tool_calls;
+                                        }
+                                        if (msg.tool_call_id) {
+                                            baseMsg.tool_call_id = msg.tool_call_id;
+                                            baseMsg.name = msg.name;
+                                        }
+
+                                        // 只有在启用 thinking 模式时才保留 reasoning_content
+                                        // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                                        if (
+                                            isDeepseekThinkingAgent &&
+                                            msg.reasoning_content !== undefined
+                                        ) {
+                                            baseMsg.reasoning_content = msg.reasoning_content;
+                                        }
+
+                                        // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+                                        if (
+                                            isDeepseekThinkingAgent &&
+                                            msg.tool_calls &&
+                                            msg.tool_calls.length > 0
+                                        ) {
+                                            if (baseMsg.reasoning_content === undefined) {
+                                                baseMsg.reasoning_content = '';
+                                            }
+                                        }
+
+                                        // 对于用户消息，如果有上下文文档，需要重新注入上下文内容
+                                        // 因为 msg.content 只存储了原始输入，不包含上下文
+                                        if (
+                                            msg.role === 'user' &&
+                                            msg.contextDocuments &&
+                                            msg.contextDocuments.length > 0
+                                        ) {
+                                            const contextText = msg.contextDocuments
+                                                .map(doc => {
+                                                    const label =
+                                                        doc.type === 'doc'
+                                                            ? '文档'
+                                                            : doc.type === 'webpage'
+                                                              ? '网页'
+                                                              : '块';
+                                                    if (doc.type === 'doc') {
+                                                        return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
+                                                    } else {
+                                                        return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
+                                                    }
+                                                })
+                                                .join('\n\n---\n\n');
+                                            baseMsg.content += `\n\n---\n\n以下是相关内容作为上下文：\n\n${contextText}`;
+                                        }
+
+                                        return baseMsg;
+                                    });
+
+                                // 添加系统提示词到消息列表开头（工具使用说明已在一开始的 messagesToSend 构建中决定好了，这里直接追加）
+                                if (baseSystemPrompt.trim() || hasToolInstruction) {
+                                    messagesToSend.unshift({
+                                        role: 'system',
+                                        content: baseSystemPrompt,
+                                    });
+                                }
+
+                                // 通知工具执行完成
+                                toolExecutionComplete?.();
+                            },
+                            onChunk: async (chunk: string) => {
+                                streamingMessage += chunk;
+                                await scrollToBottom();
+                            },
+                            onComplete: async (fullText: string) => {
+                                // 如果已经中断，不再添加消息（避免重复）
+                                if (isAborted) {
+                                    shouldContinue = false;
+                                    toolExecutionComplete?.();
+                                    return;
+                                }
+
+                                // 如果没有收到工具调用，说明对话结束
+                                if (!receivedToolCalls) {
+                                    shouldContinue = false;
+
+                                    const convertedText = convertLatexToMarkdown(fullText);
+
+                                    // 处理content中的base64图片，保存为assets文件
+                                    const processedContent =
+                                        await saveBase64ImagesInContent(convertedText);
+
+                                    // 如果之前有工具调用，将最终回复存储到 finalReply 字段
+                                    if (
+                                        firstToolCallMessageIndex !== null &&
+                                        processedContent.trim()
+                                    ) {
+                                        const existingMessage = messages[firstToolCallMessageIndex];
+                                        // 将AI的最终回复存储到 finalReply 字段
+                                        existingMessage.finalReply = processedContent;
+
+                                        // 只有在启用 thinking 模式时才更新 reasoning_content
+                                        if (isDeepseekThinkingAgent) {
+                                            existingMessage.reasoning_content =
+                                                streamingThinking || '';
+                                        }
+
+                                        // 添加思考内容（如果有）
+                                        if (enableThinking && streamingThinking) {
+                                            existingMessage.thinking = streamingThinking;
+                                        }
+
+                                        messages = [...messages];
+                                    } else {
+                                        // 如果没有工具调用，创建新的assistant消息
+                                        const assistantMessage: Message = {
+                                            role: 'assistant',
+                                            content: convertedText,
+                                        };
+
+                                        if (enableThinking && streamingThinking) {
+                                            assistantMessage.thinking = streamingThinking;
+                                            if (isDeepseekThinkingAgent) {
+                                                assistantMessage.reasoning_content =
+                                                    streamingThinking;
+                                            }
+                                        }
+
+                                        messages = [...messages, assistantMessage];
+                                    }
+
+                                    streamingMessage = '';
+                                    streamingThinking = '';
+                                    isThinkingPhase = false;
+                                    isLoading = false;
+                                    abortController = null;
+                                    hasUnsavedChanges = true;
+
+                                    await saveCurrentSession(true);
+
+                                    // 通知完成（即使没有工具调用）
+                                    toolExecutionComplete?.();
+                                } else {
+                                    // 如果有工具调用，onComplete 不做任何事，等待 onToolCallComplete 完成
+                                    // 不调用 toolExecutionComplete，因为工具还在执行中
+                                }
+                            },
+                            onError: (error: Error) => {
+                                shouldContinue = false;
+                                if (error.message !== 'Request aborted') {
+                                    const errorMessage: Message = {
+                                        role: 'assistant',
+                                        content: `❌ **${t('aiSidebar.errors.requestFailed')}**\n\n${error.message}`,
+                                    };
+                                    messages = [...messages, errorMessage];
+                                    hasUnsavedChanges = true;
+                                }
+                                isLoading = false;
+                                streamingMessage = '';
+                                streamingThinking = '';
+                                isThinkingPhase = false;
+                                abortController = null;
+
+                                // 通知完成（错误时也要结束等待）
+                                toolExecutionComplete?.();
+                            },
+                        },
+                        providerConfig.customApiUrl,
+                        providerConfig.advancedConfig
+                    );
+
+                    // 等待工具执行完成后再继续循环
+                    await toolExecutionPromise;
+                }
+            } else {
+                // 非 Agent 模式或没有工具，使用原来的逻辑
+                // 检查是否启用图片生成
+                const enableImageGeneration = modelConfig.capabilities?.imageGeneration || false;
+
+                await chat(
+                    currentProvider,
+                    {
+                        apiKey: providerConfig.apiKey,
+                        model: modelConfig.id,
+                        messages: messagesToSend,
+                        temperature: tempModelSettings.temperatureEnabled
+                            ? tempModelSettings.temperature
+                            : modelConfig.temperature,
+                        maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
+                        stream: true,
+                        signal: abortController.signal,
+                        customBody,
+                        enableThinking,
+                        reasoningEffort: modelConfig.thinkingEffort || 'low',
+                        enableImageGeneration,
+                        onThinkingChunk: enableThinking
+                            ? async (chunk: string) => {
+                                  isThinkingPhase = true;
+                                  streamingThinking += chunk;
+                                  await scrollToBottom();
+                              }
+                            : undefined,
+                        onThinkingComplete: enableThinking
+                            ? (thinking: string) => {
+                                  isThinkingPhase = false;
+                                  thinkingCollapsed[messages.length] = true;
+                              }
+                            : undefined,
+                        onImageGenerated: async (images: any[]) => {
+                            // 立即保存生成的图片到 SiYuan 资源文件夹并转换为 blob URL
+                            generatedImages = await Promise.all(
+                                images.map(async (img, idx) => {
+                                    const blob = base64ToBlob(img.data, img.mimeType || 'image/png');
+                                    const name = `generated-image-${Date.now()}-${idx + 1}.${
+                                        img.mimeType?.split('/')[1] || 'png'
+                                    }`;
+                                    const assetPath = await saveAsset(blob, name);
+                                    return {
+                                        ...img,
+                                        path: assetPath,
+                                        // 给前端显示用的 blob url
+                                        previewUrl: URL.createObjectURL(blob),
+                                    };
+                                })
+                            );
+                        },
+                        onChunk: async (chunk: string) => {
+                            streamingMessage += chunk;
+                            await scrollToBottom();
+                        },
+                        onComplete: async (fullText: string) => {
+                            // 如果已经中断，不再添加消息（避免重复）
+                            if (isAborted) {
+                                return;
+                            }
+
+                            // 转换 LaTeX 数学公式格式为 Markdown 格式
+                            const convertedText = convertLatexToMarkdown(fullText);
+
+                            // 处理content中的base64图片，保存为assets文件
+                            const processedContent = await saveBase64ImagesInContent(convertedText);
+
+                            const assistantMessage: Message = {
                                 role: 'assistant',
-                                content: `❌ **${t('aiSidebar.errors.requestFailed')}**\n\n${error.message}`,
+                                content: processedContent,
                             };
-                            messages = [...messages, errorMessage];
+
+                            if (enableThinking && streamingThinking) {
+                                assistantMessage.thinking = streamingThinking;
+                            }
+
+                            // 如果有生成的图片，保存到消息中
+                            if (generatedImages.length > 0) {
+                                // 保存图片信息（不包含base64数据，只保存路径）
+                                assistantMessage.generatedImages = generatedImages.map(img => ({
+                                    mimeType: img.mimeType,
+                                    data: '', // 不保存base64数据，节省空间
+                                    path: img.path,
+                                }));
+
+                                // 添加为附件以便显示（使用blob URL）
+                                assistantMessage.attachments = generatedImages.map((img, idx) => ({
+                                    type: 'image' as const,
+                                    name: `generated-image-${idx + 1}.${
+                                        img.mimeType?.split('/')[1] || 'png'
+                                    }`,
+                                    data: img.previewUrl, // 使用 blob URL 显示
+                                    path: img.path, // 保存路径用于持久化
+                                    mimeType: img.mimeType || 'image/png',
+                                }));
+                            }
+
+                            messages = [...messages, assistantMessage];
+                            streamingMessage = '';
+                            streamingThinking = '';
+                            isThinkingPhase = false;
+                            isLoading = false;
+                            abortController = null;
                             hasUnsavedChanges = true;
-                        }
-                        isLoading = false;
-                        streamingMessage = '';
-                        streamingThinking = '';
-                        isThinkingPhase = false;
-                        abortController = null;
+
+                            // AI 回复完成后，自动保存当前会话
+                            await saveCurrentSession(true);
+                        },
+                        onError: (error: Error) => {
+                            if (error.message !== 'Request aborted') {
+                                // 将错误消息作为一条 assistant 消息添加
+                                const errorMessage: Message = {
+                                    role: 'assistant',
+                                    content: `❌ **${t('aiSidebar.errors.requestFailed')}**\n\n${error.message}`,
+                                };
+                                messages = [...messages, errorMessage];
+                                hasUnsavedChanges = true;
+                            }
+                            isLoading = false;
+                            streamingMessage = '';
+                            streamingThinking = '';
+                            isThinkingPhase = false;
+                            abortController = null;
+                        },
                     },
-                },
-                providerConfig.customApiUrl,
-                providerConfig.advancedConfig
-            );
+                    providerConfig.customApiUrl,
+                    providerConfig.advancedConfig
+                );
+            }
         } catch (error) {
             console.error('Regenerate message error:', error);
             // onError 回调已经处理了错误消息的添加，这里不需要重复添加
