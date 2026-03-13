@@ -37,12 +37,6 @@ export interface CustomProviderConfig extends ProviderConfig {
 }
 
 export const getDefaultSettings = () => ({
-    textinput: t('settings.textinput.value'),
-    slider: 0.5,
-    checkbox: false,
-    textarea: t('settings.textarea.value'),
-    select: 'option1',
-
     // AI 设置 - 新的多平台多模型结构
     aiProviders: {
         Achuan: {
