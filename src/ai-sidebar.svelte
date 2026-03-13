@@ -1320,15 +1320,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         currentProvider = settings.currentProvider || '';
         currentModelId = settings.currentModelId || '';
 
-        // 确保必要的存储目录存在
-        try {
-            const emptyBlob = new Blob([''], { type: 'text/plain' });
-            await putFile('/data/storage/petal/siyuan-plugin-copilot/sessions', true, emptyBlob);
-            await putFile('/data/storage/petal/siyuan-plugin-copilot/assets', true, emptyBlob);
-            await putFile('/data/storage/petal/siyuan-plugin-copilot/webappIcon', true, emptyBlob);
-        } catch (e) {
-            // 目录可能已存在
-        }
+
 
         // 初始化多模型选择，过滤掉无效的模型
         selectedMultiModels = (settings.selectedMultiModels || []).filter(model => {
