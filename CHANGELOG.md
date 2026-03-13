@@ -34,8 +34,6 @@
 - 🎨 不支持webview的平台使用iframe加载网页
 - 🎨 链接添加右键菜单，在页签打开链接
 
-## v1.6.14 / 20260303
-
 
 ## v1.6.13 / 20260228
 - 🐛 Fix Nano Banana image generation compatibility issues，感谢[altairwei](https://github.com/Achuan-2/siyuan-plugin-copilot/pull/112)贡献
