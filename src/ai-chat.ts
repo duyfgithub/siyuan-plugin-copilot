@@ -214,6 +214,14 @@ export function isGemini3Model(modelId: string): boolean {
     return baseModelId.includes('gemini-3');
 }
 
+/**
+ * 检测模型是否是 Minimax 模型
+ */
+export function isMinimaxModel(modelId: string): boolean {
+    const baseModelId = getLowerBaseModelName(modelId, '/');
+    return baseModelId.includes('minimax');
+}
+
 
 
 /**
@@ -553,6 +561,9 @@ async function chatOpenAIFormat(
         delete requestBody.temperature;
     }
 
+    // 检测是否是 Minimax 模型
+    const isMinimax = isMinimaxModel(options.model);
+
     // 处理思考模式：界面控制优先
     // 如果界面未启用思考模式，删除自定义参数中可能存在的思考模式设置
     if (!options.enableThinking) {
@@ -591,6 +602,13 @@ async function chatOpenAIFormat(
         // Kimi K2.5 启用 thinking 时需要设置 thinking: {type: "enabled"}
         else if (isKimiK25) {
             requestBody.thinking = { type: 'enabled' };
+        }
+        // Minimax 模型启用 thinking 时需要设置 reasoning_split: true
+        else if (isMinimax) {
+            requestBody.extra_body = {
+                ...requestBody.extra_body,
+                reasoning_split: true
+            };
         }
         // 检查是否是通过 OpenAI 兼容 API 调用的 Gemini 模型
         else if (isSupportedThinkingGeminiModel(options.model)) {
@@ -947,10 +965,19 @@ async function handleStreamResponse(
                         // 检查是否有思考内容
                         // DeepSeek 使用 reasoning_content
                         // Gemini OpenAI 兼容模式使用 reasoning（或 thought/thinking）
-                        const reasoningContent = delta?.reasoning_content
+                        // Minimax 使用 reasoning_details（数组，每个元素有 text 字段）
+                        let reasoningContent = delta?.reasoning_content
                             || delta?.reasoning
                             || delta?.thought
                             || delta?.thinking;
+                        
+                        // 处理 Minimax 的 reasoning_details 格式
+                        if (!reasoningContent && delta?.reasoning_details && Array.isArray(delta.reasoning_details)) {
+                            reasoningContent = delta.reasoning_details
+                                .map((detail: any) => detail.text || '')
+                                .join('');
+                        }
+                        
                         if (options.enableThinking && reasoningContent) {
                             isThinkingPhase = true;
                             thinkingText += reasoningContent;
