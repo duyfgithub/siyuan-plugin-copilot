@@ -13310,6 +13310,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         gap: 8px;
         padding: 4px 0;
         flex-wrap: wrap;
+        min-width: 0;
     }
 
     .ai-sidebar__mode-label {
@@ -13321,7 +13322,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
 
     .ai-sidebar__mode-select {
         flex: 0 0 auto;
-        min-width: 120px;
         font-size: 13px;
     }
 
@@ -13347,6 +13347,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         padding: 4px 8px;
         border-radius: 4px;
         transition: all 0.2s;
+        flex-shrink: 0;
 
         &:hover {
             background: var(--b3-theme-primary-lightest);
@@ -13359,10 +13360,12 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     }
 
     .ai-sidebar__multi-model-selector-wrapper {
-        margin-left: auto;
         display: flex;
         align-items: center;
         gap: 8px;
+        flex: 1;
+        justify-content: flex-end;
+        min-width: 0;
     }
 
     .ai-sidebar__input-row {
@@ -13510,7 +13513,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         justify-content: flex-end;
         gap: 8px;
         /* 保证在 flex 布局中可以缩小，避免在窄宽度下溢出 */
-        min-width: 0;
+        min-width: 120px;
         max-width: 100%;
 
         /* 只对模型选择器按钮内的文本应用省略处理，避免影响弹窗显示 */
