@@ -11520,19 +11520,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 <div class="ai-sidebar__multi-model-selector-wrapper">
                     {#if !enableMultiModel && (showThinkingToggle || showWebSearchToggle)}
                         <div class="ai-sidebar__thinking-toggle-container">
-                            {#if showThinkingToggle}
-                                <button
-                                    class="ai-sidebar__thinking-toggle b3-button b3-button--text"
-                                    class:ai-sidebar__thinking-toggle--active={isThinkingModeEnabled}
-                                    on:click={toggleThinkingMode}
-                                    title={isThinkingModeEnabled
-                                        ? t('thinking.enabled')
-                                        : t('thinking.disabled')}
-                                    disabled={!currentProvider || !currentModelId}
-                                >
-                                    {t('thinking.toggle')}
-                                </button>
-                            {/if}
                             {#if showWebSearchToggle}
                                 <button
                                     class="ai-sidebar__thinking-toggle b3-button b3-button--text"
@@ -11544,6 +11531,19 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                     disabled={!currentProvider || !currentModelId}
                                 >
                                     🌐
+                                </button>
+                            {/if}
+                            {#if showThinkingToggle}
+                                <button
+                                    class="ai-sidebar__thinking-toggle b3-button b3-button--text"
+                                    class:ai-sidebar__thinking-toggle--active={isThinkingModeEnabled}
+                                    on:click={toggleThinkingMode}
+                                    title={isThinkingModeEnabled
+                                        ? t('thinking.enabled')
+                                        : t('thinking.disabled')}
+                                    disabled={!currentProvider || !currentModelId}
+                                >
+                                    {t('thinking.toggle')}
                                 </button>
                             {/if}
                             {#if showThinkingEffortSelector}
@@ -11584,19 +11584,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 <div class="ai-sidebar__model-selector-container">
                     {#if showThinkingToggle || showWebSearchToggle}
                         <div class="ai-sidebar__thinking-toggle-container">
-                            {#if showThinkingToggle}
-                                <button
-                                    class="ai-sidebar__thinking-toggle b3-button b3-button--text"
-                                    class:ai-sidebar__thinking-toggle--active={isThinkingModeEnabled}
-                                    on:click={toggleThinkingMode}
-                                    title={isThinkingModeEnabled
-                                        ? t('thinking.enabled')
-                                        : t('thinking.disabled')}
-                                    disabled={!currentProvider || !currentModelId}
-                                >
-                                    {t('thinking.toggle')}
-                                </button>
-                            {/if}
                             {#if showWebSearchToggle}
                                 <button
                                     class="ai-sidebar__thinking-toggle b3-button b3-button--text"
@@ -11608,6 +11595,19 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                     disabled={!currentProvider || !currentModelId}
                                 >
                                     🌐
+                                </button>
+                            {/if}
+                            {#if showThinkingToggle}
+                                <button
+                                    class="ai-sidebar__thinking-toggle b3-button b3-button--text"
+                                    class:ai-sidebar__thinking-toggle--active={isThinkingModeEnabled}
+                                    on:click={toggleThinkingMode}
+                                    title={isThinkingModeEnabled
+                                        ? t('thinking.enabled')
+                                        : t('thinking.disabled')}
+                                    disabled={!currentProvider || !currentModelId}
+                                >
+                                    {t('thinking.toggle')}
                                 </button>
                             {/if}
                             {#if showThinkingEffortSelector}
@@ -13505,7 +13505,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         justify-content: flex-end;
         gap: 8px;
         /* 保证在 flex 布局中可以缩小，避免在窄宽度下溢出 */
-        min-width: 120px;
         max-width: 100%;
 
         /* 只对模型选择器按钮内的文本应用省略处理，避免影响弹窗显示 */
