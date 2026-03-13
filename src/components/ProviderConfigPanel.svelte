@@ -365,9 +365,9 @@
             <div class="provider-header-content">
                 <div class="provider-title-row">
                     <h4>{providerName}</h4>
-                    {#if websiteUrl}
+                    {#if config.customWebsiteUrl || websiteUrl}
                         <a
-                            href={websiteUrl}
+                            href={config.customWebsiteUrl || websiteUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             class="platform-link"
@@ -416,6 +416,31 @@
 
     <div class="provider-config__section">
         <div>
+            <div class="b3-label__text">
+                {t('platform.apiUrl')}
+            </div>
+            <input
+                class="b3-text-field fn__flex-1"
+                type="text"
+                style="width: 100%"
+                value={config.customApiUrl || defaultApiUrl || ''}
+                on:input={(e) => {
+                    config.customApiUrl = e.currentTarget.value;
+                    dispatch('change');
+                }}
+                placeholder={t('platform.apiUrlPlaceholder')}
+            />
+            {#if apiPreview}
+                <div class="api-preview">
+                    <div class="api-preview__url">{apiPreview}</div>
+                </div>
+            {/if}
+            <div class="b3-label__text label-description">
+                {t('platform.apiUrlHint')}
+            </div>
+        </div>
+
+        <div>
             <div class="b3-label__text">API Key</div>
             <div class="api-key-input-wrapper">
                 {#if showApiKey}
@@ -448,24 +473,33 @@
 
         {#if isCustomProvider}
             <div>
-                <div class="b3-label__text">
-                    {t('platform.apiUrl')}
+                <div class="b3-label__text">{t('platform.websiteUrl')}</div>
+                <div class="website-url-input-wrapper">
+                    <input
+                        class="b3-text-field fn__flex-1"
+                        type="text"
+                        bind:value={config.customWebsiteUrl}
+                        on:change={() => dispatch('change')}
+                        placeholder={t('platform.websiteUrlPlaceholder')}
+                    />
+                    <button
+                        class="b3-button b3-button--text website-url-open"
+                        on:click={() => {
+                            const url = config.customWebsiteUrl?.trim();
+                            if (url) {
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                            }
+                        }}
+                        disabled={!config.customWebsiteUrl?.trim()}
+                        title="打开官网"
+                    >
+                        <svg class="b3-button__icon">
+                            <use xlink:href="#iconOpenWindow"></use>
+                        </svg>
+                    </button>
                 </div>
-                <input
-                    class="b3-text-field fn__flex-1"
-                    type="text"
-                    style="width: 100%"
-                    bind:value={config.customApiUrl}
-                    on:change={() => dispatch('change')}
-                    placeholder={t('platform.apiUrlPlaceholder')}
-                />
-                {#if apiPreview}
-                    <div class="api-preview">
-                        <div class="api-preview__url">{apiPreview}</div>
-                    </div>
-                {/if}
                 <div class="b3-label__text label-description">
-                    {t('platform.apiUrlHint')}
+                    {t('platform.websiteUrlHint')}
                 </div>
             </div>
         {/if}
@@ -961,6 +995,28 @@
         align-items: center;
         gap: 4px;
         width: 100%;
+    }
+
+    .website-url-input-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+    }
+
+    .website-url-open {
+        flex-shrink: 0;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+
+        &:hover:not(:disabled) {
+            opacity: 1;
+        }
+
+        &:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
     }
 
     .api-key-toggle {

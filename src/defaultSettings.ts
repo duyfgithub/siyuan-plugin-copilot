@@ -24,6 +24,7 @@ export interface ProviderConfig {
     apiKey: string;
     customApiUrl: string;
     models: ModelConfig[];
+    customWebsiteUrl?: string; // 自定义官网链接
     advancedConfig?: {
         customModelsUrl?: string; // 自定义模型列表 URL
         customChatUrl?: string;   // 自定义对话 URL
