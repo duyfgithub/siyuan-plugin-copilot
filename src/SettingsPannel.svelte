@@ -140,20 +140,18 @@
                 // 只有当删除的平台是当前正在使用的平台时才清空模型选择
                 const shouldClearModel = settings.currentProvider === providerId;
 
-                // 如果是内置平台，删除其所有配置
+                // 如果是内置平台，将其添加到禁用列表
                 if (builtInProviderNames[providerId]) {
-                    // 使用响应式更新确保 Svelte 检测到变化
-                    settings = {
-                        ...settings,
-                        aiProviders: {
-                            ...settings.aiProviders,
-                            [providerId]: {
-                                apiKey: '',
-                                customApiUrl: '',
-                                models: [],
+                    const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
+                    if (!disabledBuiltIn.includes(providerId)) {
+                        settings = {
+                            ...settings,
+                            aiProviders: {
+                                ...settings.aiProviders,
+                                disabledBuiltInProviders: [...disabledBuiltIn, providerId],
                             },
-                        },
-                    };
+                        };
+                    }
                 } else {
                     // 如果是自定义平台，从列表中移除
                     // 使用响应式更新确保 Svelte 检测到变化
@@ -192,11 +190,16 @@
 
     // 获取所有平台选项（内置+自定义） - 使用响应式语句
     $: allProviderOptions = (() => {
-        const builtIn = Object.keys(builtInProviderNames).map(id => ({
-            id,
-            name: builtInProviderNames[id],
-            type: 'built-in' as const,
-        }));
+        // 获取被禁用的内置平台列表
+        const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
+        
+        const builtIn = Object.keys(builtInProviderNames)
+            .filter(id => !disabledBuiltIn.includes(id))  // 过滤掉被禁用的内置平台
+            .map(id => ({
+                id,
+                name: builtInProviderNames[id],
+                type: 'built-in' as const,
+            }));
 
         const custom = (settings.aiProviders?.customProviders || []).map(
             (p: CustomProviderConfig) => ({
@@ -501,10 +504,12 @@
                 volcano: { apiKey: '', customApiUrl: '', models: [] },
                 Achuan: { apiKey: '', customApiUrl: '', models: [] },
                 customProviders: [],
+                disabledBuiltInProviders: [],
             };
         }
 
         // 确保每个内置平台都存在（支持旧配置升级）
+        // 但被用户删除（禁用）的内置平台除外
         const builtInPlatformIds = [
             'Achuan',
             'gemini',
@@ -513,8 +518,9 @@
             'moonshot',
             'volcano',
         ];
+        const disabledBuiltIn = settings.aiProviders.disabledBuiltInProviders || [];
         for (const platformId of builtInPlatformIds) {
-            if (!settings.aiProviders[platformId]) {
+            if (!settings.aiProviders[platformId] && !disabledBuiltIn.includes(platformId)) {
                 settings.aiProviders[platformId] = { apiKey: '', customApiUrl: '', models: [] };
             }
         }
@@ -522,6 +528,11 @@
         // 确保 customProviders 数组存在
         if (!settings.aiProviders.customProviders) {
             settings.aiProviders.customProviders = [];
+        }
+
+        // 确保 disabledBuiltInProviders 数组存在
+        if (!settings.aiProviders.disabledBuiltInProviders) {
+            settings.aiProviders.disabledBuiltInProviders = [];
         }
 
         // 恢复选中的平台ID（仅用于设置面板显示）

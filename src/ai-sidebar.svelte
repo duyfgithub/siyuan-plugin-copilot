@@ -1489,6 +1489,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     openai: { apiKey: '', customApiUrl: '', models: [] },
                     volcano: { apiKey: '', customApiUrl: '', models: [] },
                     customProviders: [],
+                    disabledBuiltInProviders: [],
                 };
             }
 
@@ -1520,6 +1521,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         // 确保 customProviders 数组存在
         if (settings.aiProviders && !settings.aiProviders.customProviders) {
             settings.aiProviders.customProviders = [];
+        }
+
+        // 确保 disabledBuiltInProviders 数组存在
+        if (settings.aiProviders && !settings.aiProviders.disabledBuiltInProviders) {
+            settings.aiProviders.disabledBuiltInProviders = [];
         }
     }
 
