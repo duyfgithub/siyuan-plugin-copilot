@@ -1734,8 +1734,7 @@ export interface ImageGenerationResult {
 export async function generateImage(
     provider: string,
     options: ImageGenerationOptions,
-    customApiUrl?: string,
-    advancedConfig?: { customModelsUrl?: string; customChatUrl?: string }
+    customApiUrl?: string
 ): Promise<ImageGenerationResult> {
     const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
@@ -1852,7 +1851,7 @@ export async function generateImage(
 /**
  * 检查模型是否支持图片生成
  */
-export function isImageGenerationSupported(provider: string, modelId: string): boolean {
+export function isImageGenerationSupported(_provider: string, modelId: string): boolean {
     // 常见的生图模型
     const supportedModels = [
         'dall-e',

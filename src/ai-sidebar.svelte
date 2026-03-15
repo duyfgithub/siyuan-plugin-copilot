@@ -83,6 +83,7 @@
     let textareaElement: HTMLTextAreaElement;
     let inputContainer: HTMLElement;
     let fileInputElement: HTMLInputElement;
+    let isInitialLoading = true;
 
     // 思考过程折叠状态管理
     let thinkingCollapsed: Record<number, boolean> = {};
@@ -1253,6 +1254,18 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置（包括未选中的）
     // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
     $: userToolCount = (selectedTools || []).filter(t => t.name !== 'get_siyuan_skills').length;
+
+    // 记忆当前选择的模式
+    $: if (chatMode && settings && !isInitialLoading) {
+        // 同步到临时设置以便在预设按钮中正确显示
+        if (tempModelSettings.chatMode !== chatMode) {
+            tempModelSettings.chatMode = chatMode;
+        }
+        if (settings.lastUsedChatMode !== chatMode) {
+            settings.lastUsedChatMode = chatMode;
+            plugin.saveSettings(settings);
+        }
+    }
     let toolCallsInProgress: Set<string> = new Set(); // 正在执行的工具调用ID
     let toolCallsExpanded: Record<string, boolean> = {}; // 工具调用是否展开，默认折叠
     let toolCallResultsExpanded: Record<string, boolean> = {}; // 工具结果是否展开，默认折叠
@@ -1319,6 +1332,11 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         providers = settings.aiProviders || {};
         currentProvider = settings.currentProvider || '';
         currentModelId = settings.currentModelId || '';
+
+        // 初始化模式
+        if (!settings.selectedModelPresetId && settings.lastUsedChatMode) {
+            chatMode = settings.lastUsedChatMode;
+        }
 
 
 
@@ -1442,6 +1460,8 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         document.addEventListener('copy', handleCopyEvent);
         // 监听文档总结事件
         window.addEventListener('copilot-summarize-doc', handleSummarizeDoc as EventListener);
+
+        isInitialLoading = false;
     });
 
     onDestroy(async () => {
