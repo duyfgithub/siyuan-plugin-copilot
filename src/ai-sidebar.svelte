@@ -850,6 +850,15 @@
 
                             // 2. 执行工具并添加结果
                             for (const tc of toolCalls) {
+                                // 更新 UI 显示正在调用
+                                if (multiModelResponses[index]) {
+                                    multiModelResponses[index].toolCalls = [
+                                        ...(multiModelResponses[index].toolCalls || []),
+                                        { ...tc, status: 'calling' }
+                                    ];
+                                    multiModelResponses = [...multiModelResponses];
+                                }
+
                                 // 检查是否自动批准
                                 const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                                 const toolConfig = currentSelectedTools.find(
@@ -873,6 +882,16 @@
                                     name: tc.function.name,
                                     content: toolResult
                                 });
+
+                                // 更新 UI 显示结果
+                                if (multiModelResponses[index]) {
+                                    const callIndex = multiModelResponses[index].toolCalls.findIndex(c => c.id === tc.id);
+                                    if (callIndex !== -1) {
+                                        multiModelResponses[index].toolCalls[callIndex].status = 'completed';
+                                        multiModelResponses[index].toolCalls[callIndex].result = toolResult;
+                                        multiModelResponses = [...multiModelResponses];
+                                    }
+                                }
                             }
 
                             lastAssistantContent = '';
