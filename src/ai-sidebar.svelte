@@ -3703,14 +3703,18 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     baseMsg.name = msg.name;
                 }
 
-                // 只有在启用 thinking 模式时才保留 reasoning_content
+                // 检测是否是 DeepSeek 推理模型
+                const isDeepSeekReasonerModel = /deepseek-(reasoner|r1)/i.test(modelConfig.id);
+
+                // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                 // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
-                if (isDeepseekThinkingAgent && msg.reasoning_content !== undefined) {
+                const shouldKeepReasoning = isDeepseekThinkingAgent || isDeepSeekReasonerModel;
+                if (shouldKeepReasoning && msg.reasoning_content !== undefined) {
                     baseMsg.reasoning_content = msg.reasoning_content;
                 }
 
-                // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
-                if (isDeepseekThinkingAgent && msg.tool_calls && msg.tool_calls.length > 0) {
+                // 在启用 thinking 模式或是 DeepSeek 推理模型且有 tool_calls 时，确保 reasoning_content 字段存在
+                if (shouldKeepReasoning && msg.tool_calls && msg.tool_calls.length > 0) {
                     if (baseMsg.reasoning_content === undefined) {
                         baseMsg.reasoning_content = '';
                     }
@@ -4507,18 +4511,22 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                             baseMsg.name = msg.name;
                                         }
 
-                                        // 只有在启用 thinking 模式时才保留 reasoning_content
+                                        // 检测是否是 DeepSeek 推理模型
+                                        const isDeepSeekReasonerModel2 = /deepseek-(reasoner|r1)/i.test(modelConfig.id);
+
+                                        // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                                         // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                                        const shouldKeepReasoning2 = isDeepseekThinkingAgent || isDeepSeekReasonerModel2;
                                         if (
-                                            isDeepseekThinkingAgent &&
+                                            shouldKeepReasoning2 &&
                                             msg.reasoning_content !== undefined
                                         ) {
                                             baseMsg.reasoning_content = msg.reasoning_content;
                                         }
 
-                                        // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+                                        // 在启用 thinking 模式或是 DeepSeek 推理模型且有 tool_calls 时，确保 reasoning_content 字段存在
                                         if (
-                                            isDeepseekThinkingAgent &&
+                                            shouldKeepReasoning2 &&
                                             msg.tool_calls &&
                                             msg.tool_calls.length > 0
                                         ) {
@@ -9043,14 +9051,18 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                     baseMsg.name = msg.name;
                 }
 
-                // 只有在启用 thinking 模式时才保留 reasoning_content
+                // 检测是否是 DeepSeek 推理模型
+                const isDeepSeekReasonerModel3 = modelConfig ? /deepseek-(reasoner|r1)/i.test(modelConfig.id) : false;
+
+                // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                 // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
-                if (isDeepseekThinkingAgent && msg.reasoning_content !== undefined) {
+                const shouldKeepReasoning3 = isDeepseekThinkingAgent || isDeepSeekReasonerModel3;
+                if (shouldKeepReasoning3 && msg.reasoning_content !== undefined) {
                     baseMsg.reasoning_content = msg.reasoning_content;
                 }
 
-                // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
-                if (isDeepseekThinkingAgent && msg.tool_calls && msg.tool_calls.length > 0) {
+                // 在启用 thinking 模式或是 DeepSeek 推理模型且有 tool_calls 时，确保 reasoning_content 字段存在
+                if (shouldKeepReasoning3 && msg.tool_calls && msg.tool_calls.length > 0) {
                     if (baseMsg.reasoning_content === undefined) {
                         baseMsg.reasoning_content = '';
                     }
@@ -9607,18 +9619,22 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                                             baseMsg.name = msg.name;
                                         }
 
-                                        // 只有在启用 thinking 模式时才保留 reasoning_content
+                                        // 检测是否是 DeepSeek 推理模型
+                                        const isDeepSeekReasonerModel4 = modelConfig ? /deepseek-(reasoner|r1)/i.test(modelConfig.id) : false;
+
+                                        // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                                         // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
+                                        const shouldKeepReasoning4 = isDeepseekThinkingAgent || isDeepSeekReasonerModel4;
                                         if (
-                                            isDeepseekThinkingAgent &&
+                                            shouldKeepReasoning4 &&
                                             msg.reasoning_content !== undefined
                                         ) {
                                             baseMsg.reasoning_content = msg.reasoning_content;
                                         }
 
-                                        // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+                                        // 在启用 thinking 模式或是 DeepSeek 推理模型且有 tool_calls 时，确保 reasoning_content 字段存在
                                         if (
-                                            isDeepseekThinkingAgent &&
+                                            shouldKeepReasoning4 &&
                                             msg.tool_calls &&
                                             msg.tool_calls.length > 0
                                         ) {

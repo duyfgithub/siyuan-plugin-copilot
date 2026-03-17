@@ -511,15 +511,27 @@ async function chatOpenAIFormat(
             formatted.content = newContent;
         }
 
+        // 检测是否是 DeepSeek 推理模型（deepseek-reasoner 或 deepseek-r1）
+        // 这些模型总是需要 reasoning_content 字段，即使没有启用 thinking 模式
+        const isDeepSeekReasoner = /deepseek-(reasoner|r1)/i.test(options.model);
+
         // 深度思考模式下需要回传的思维链内容（如 DeepSeek reasoning_content）
         // 注意：只有在启用 thinking 模式时才传递 reasoning_content
         if (options.enableThinking && (msg as any).reasoning_content !== undefined) {
             formatted.reasoning_content = (msg as any).reasoning_content;
         }
 
-        // 只有在启用 thinking 模式且有 tool_calls 时，才确保 reasoning_content 字段存在
+        // 对于 DeepSeek 推理模型，即使没有启用 thinking 模式，也需要保留 reasoning_content
+        // 因为这些模型总是会输出思考内容，API 要求该字段必须存在
+        if (!options.enableThinking && isDeepSeekReasoner && (msg as any).reasoning_content !== undefined) {
+            formatted.reasoning_content = (msg as any).reasoning_content;
+        }
+
+        // 只有在启用 thinking 模式或有 tool_calls 时，才确保 reasoning_content 字段存在
         // Kimi K2.5 等模型在启用 thinking 且有 tool_calls 时要求必须提供 reasoning_content
-        if (options.enableThinking && msg.tool_calls && msg.tool_calls.length > 0) {
+        // DeepSeek 推理模型在调用工具时也需要 reasoning_content 字段
+        const needReasoningContent = options.enableThinking || isDeepSeekReasoner;
+        if (needReasoningContent && msg.tool_calls && msg.tool_calls.length > 0) {
             if (formatted.reasoning_content === undefined) {
                 formatted.reasoning_content = '';
             }
