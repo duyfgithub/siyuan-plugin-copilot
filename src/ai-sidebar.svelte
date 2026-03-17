@@ -52,10 +52,20 @@
     import { settingsStore } from './stores/settings';
     import { confirm, Constants, platformUtils } from 'siyuan';
     import { t } from './utils/i18n';
-    import { AVAILABLE_TOOLS, executeToolCall, TOOL_CATEGORIES, QA_TOOL_CATEGORIES } from './tools';
+    import { AVAILABLE_TOOLS, executeToolCall, TOOL_CATEGORIES, QA_TOOL_CATEGORIES, soul } from './tools';
 
     // Agent 模式工具使用强制规则（统一常量）
-    const AGENT_TOOL_USAGE_INSTRUCTION = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
+    const AGENT_TOOL_USAGE_INSTRUCTION = `=== 工具使用强制规则 ===
+如果启用了SOUL工具，系统会自动将SOUL文档内容添加到系统提示词中。当用户说记住、下达风格更改要求等情况时，你需要调用soul工具来记录用户要求。
+**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**
+**必须遵守的使用流程：**
+1. 分析用户需求，确定需要使用的工具
+2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档
+3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）
+4. 根据文档正确构造参数，调用目标工具
+5. 根据工具返回结果继续后续操作
+**为什么要这样做？**
+- 每个工具都有复杂的参数和特定的使用场景，直接使用而不看文档极有可能导致错误操作`;
 
     export let plugin: any;
     export let initialMessage: string = ''; // 初始消息
@@ -3336,6 +3346,7 @@
 
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
+        let hasSoulEnabled = false;
         if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
             if (baseSystemPrompt.trim()) {
@@ -3344,6 +3355,24 @@
                 baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
             hasToolInstruction = true;
+            
+            // 检查是否启用了SOUL工具
+            const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+            hasSoulEnabled = currentSelectedTools.some(t => t.name === 'soul');
+        }
+        
+        // 如果启用了SOUL工具，自动获取SOUL文档内容并追加到系统提示词
+        if (hasSoulEnabled) {
+            try {
+                const soulResult = await soul({ operation: 'getDoc' });
+                if (soulResult.success && soulResult.content) {
+                    const soulContent = `\n\n=== SOUL记忆 ===\n\n以下是用户设置的SOUL文档内容，包含用户的偏好设置和要求，请在回复时遵循这些要求：\n\n${soulResult.content}`;
+                    baseSystemPrompt += soulContent;
+                }
+            } catch (error) {
+                console.error('[SOUL] 自动获取文档内容失败:', error);
+                // 获取失败时不阻止对话继续进行
+            }
         }
 
         // 添加最终的系统提示词（只要基础提示词或工具说明不为空就添加）
