@@ -7756,6 +7756,45 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
         );
     }
 
+    // 处理保存会话到笔记
+    async function handleSaveSessionToNote(sessionId: string) {
+        try {
+            // 加载会话消息
+            const path = `/data/storage/petal/siyuan-plugin-copilot/sessions/${sessionId}.json`;
+            const blob = await getFileBlob(path);
+            if (!blob) {
+                pushErrMsg('会话文件不存在');
+                return;
+            }
+            const text = await blob.text();
+            const sessionData = JSON.parse(text);
+            const sessionMessages = sessionData?.messages || [];
+
+            if (sessionMessages.length === 0) {
+                pushErrMsg(t('aiSidebar.errors.emptySession'));
+                return;
+            }
+
+            // 临时保存当前消息
+            const originalMessages = messages;
+            const originalSessionId = currentSessionId;
+
+            // 临时设置会话消息
+            messages = sessionMessages;
+            currentSessionId = sessionId;
+
+            // 打开保存对话框（传入 null 表示保存整个会话）
+            await openSaveToNoteDialog(null);
+
+            // 恢复原来的消息和会话ID
+            messages = originalMessages;
+            currentSessionId = originalSessionId;
+        } catch (error) {
+            console.error('Save session to note error:', error);
+            pushErrMsg('加载会话失败: ' + error.message);
+        }
+    }
+
     // 处理会话更新（如钉住状态变化）
     async function handleSessionUpdate(updatedSessions: ChatSession[]) {
         // 【修复】更新前重新加载最新的会话列表，避免多页签覆盖问题
@@ -10149,6 +10188,7 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 on:batchDelete={e => batchDeleteSessions(e.detail.sessionIds)}
                 on:new={newSession}
                 on:update={e => handleSessionUpdate(e.detail.sessions)}
+                on:saveToNote={e => handleSaveSessionToNote(e.detail.sessionId)}
             />
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"

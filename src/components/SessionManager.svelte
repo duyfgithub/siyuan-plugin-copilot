@@ -239,6 +239,14 @@
         // 不关闭右键菜单，让用户可以继续操作
     }
 
+    // 导出会话到笔记
+    function exportSessionToNote() {
+        if (!contextMenuSession) return;
+
+        dispatch('saveToNote', { sessionId: contextMenuSession.id });
+        closeContextMenu();
+    }
+
     // 导出会话到文件
     function exportSessionToFile() {
         if (!contextMenuSession) return;
@@ -506,6 +514,18 @@
                     <use xlink:href="#iconEdit"></use>
                 </svg>
                 <span>{t('aiSidebar.session.rename') || '重命名'}</span>
+            </div>
+            <div
+                class="session-context-menu__item"
+                role="button"
+                tabindex="0"
+                on:click={exportSessionToNote}
+                on:keydown={e => e.key === 'Enter' && exportSessionToNote()}
+            >
+                <svg class="b3-menu__icon">
+                    <use xlink:href="#iconDownload"></use>
+                </svg>
+                <span>{t('aiSidebar.actions.saveToNote') || '保存为笔记'}</span>
             </div>
             <div
                 class="session-context-menu__item"
