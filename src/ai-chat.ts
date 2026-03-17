@@ -56,13 +56,20 @@ export interface Message {
     content: string | MessageContent[];
     attachments?: MessageAttachment[];
     contextDocuments?: ContextDocument[]; // 关联的上下文文档
-    thinking?: string; // 思考过程内容
+    thinking?: string; // 思考过程内容（兼容旧数据）
+    thinkingBeforeToolCalls?: string; // 工具调用前的思考过程（兼容旧数据）
+    thinkingAfterToolCalls?: string; // 工具调用后的思考过程（兼容旧数据）
     reasoning_content?: string; // DeepSeek 思考模式下的思维链内容
     editOperations?: EditOperation[]; // 编辑操作
     tool_calls?: ToolCall[]; // Tool Calls
     tool_call_id?: string; // Tool 结果的 call_id
     name?: string; // Tool 的名称
     finalReply?: string; // Agent模式：工具调用后的最终回复
+    toolCallThinkings?: Array<{
+        toolCallIndex: number; // 对应的工具调用起始索引
+        thinkingBefore: string; // 该轮工具调用前的思考
+        thinkingAfter?: string; // 该轮工具调用后的思考（如果有的话）
+    }>;
     multiModelResponses?: Array<{
         provider: string;
         modelId: string;
