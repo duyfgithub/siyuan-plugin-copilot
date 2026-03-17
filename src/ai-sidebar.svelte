@@ -2584,22 +2584,33 @@
                                 }
                                 multiModelResponses = [...multiModelResponses];
 
-                                // 【修复】第一个模型完成时立即保存会话
+                                // 【修复】首个模型完成时，尝试更新已有的多模型助手消息，或者创建新消息
                                 if (!assistantMessageCreated) {
+                                    // 先标记已创建，防止并发的 onComplete 也进入此分支
                                     assistantMessageCreated = true;
-                                    // 创建包含多模型响应的助手消息
-                                    const assistantMessage: Message = {
-                                        role: 'assistant',
-                                        content: '', // 暂时为空，等用户选择后填充
-                                        multiModelResponses: [...multiModelResponses],
-                                    };
-                                    messages = [...messages, assistantMessage];
-                                    assistantMessageIndex = messages.length - 1;
+                                    
+                                    const lastMessage = messages[messages.length - 1];
+                                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                                        // 如果已经存在（例如因为 abortMessage 已经提前创建了），则直接更新
+                                        lastMessage.multiModelResponses = [...multiModelResponses];
+                                        // 保持 content 为空，等用户选择后填充
+                                        assistantMessageIndex = messages.length - 1;
+                                        messages = [...messages];
+                                    } else {
+                                        // 创建包含多模型响应的助手消息
+                                        const assistantMessage: Message = {
+                                            role: 'assistant',
+                                            content: '', // 暂时为空，等用户选择后填充
+                                            multiModelResponses: [...multiModelResponses],
+                                        };
+                                        messages = [...messages, assistantMessage];
+                                        assistantMessageIndex = messages.length - 1;
+                                    }
                                     hasUnsavedChanges = true;
 
                                     // 立即保存会话文件
                                     await saveCurrentSession(true);
-                                } else if (assistantMessageIndex >= 0) {
+                                } else if (assistantMessageIndex >= 0 && messages[assistantMessageIndex]) {
                                     // 后续模型完成时更新助手消息的 multiModelResponses
                                     messages[assistantMessageIndex].multiModelResponses = [
                                         ...multiModelResponses,
@@ -2622,19 +2633,26 @@
                                 multiModelResponses[index].isLoading = false;
                                 multiModelResponses = [...multiModelResponses];
 
-                                // 【修复】模型出错时也保存会话
+                                // 【修复】模型出错时也尝试更新或创建助手消息
                                 if (!assistantMessageCreated) {
                                     assistantMessageCreated = true;
-                                    const assistantMessage: Message = {
-                                        role: 'assistant',
-                                        content: '',
-                                        multiModelResponses: [...multiModelResponses],
-                                    };
-                                    messages = [...messages, assistantMessage];
-                                    assistantMessageIndex = messages.length - 1;
+                                    const lastMessage = messages[messages.length - 1];
+                                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                                        lastMessage.multiModelResponses = [...multiModelResponses];
+                                        assistantMessageIndex = messages.length - 1;
+                                        messages = [...messages];
+                                    } else {
+                                        const assistantMessage: Message = {
+                                            role: 'assistant',
+                                            content: '',
+                                            multiModelResponses: [...multiModelResponses],
+                                        };
+                                        messages = [...messages, assistantMessage];
+                                        assistantMessageIndex = messages.length - 1;
+                                    }
                                     hasUnsavedChanges = true;
                                     saveCurrentSession(true);
-                                } else if (assistantMessageIndex >= 0) {
+                                } else if (assistantMessageIndex >= 0 && messages[assistantMessageIndex]) {
                                     messages[assistantMessageIndex].multiModelResponses = [
                                         ...multiModelResponses,
                                     ];
@@ -2658,19 +2676,26 @@
                     multiModelResponses[index].isLoading = false;
                     multiModelResponses = [...multiModelResponses];
 
-                    // 【修复】catch 块中也保存会话
+                    // 【修复】catch 块中也尝试更新或创建助手消息
                     if (!assistantMessageCreated) {
                         assistantMessageCreated = true;
-                        const assistantMessage: Message = {
-                            role: 'assistant',
-                            content: '',
-                            multiModelResponses: [...multiModelResponses],
-                        };
-                        messages = [...messages, assistantMessage];
-                        assistantMessageIndex = messages.length - 1;
+                        const lastMessage = messages[messages.length - 1];
+                        if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                            lastMessage.multiModelResponses = [...multiModelResponses];
+                            assistantMessageIndex = messages.length - 1;
+                            messages = [...messages];
+                        } else {
+                            const assistantMessage: Message = {
+                                role: 'assistant',
+                                content: '',
+                                multiModelResponses: [...multiModelResponses],
+                            };
+                            messages = [...messages, assistantMessage];
+                            assistantMessageIndex = messages.length - 1;
+                        }
                         hasUnsavedChanges = true;
                         saveCurrentSession(true);
-                    } else if (assistantMessageIndex >= 0) {
+                    } else if (assistantMessageIndex >= 0 && messages[assistantMessageIndex]) {
                         messages[assistantMessageIndex].multiModelResponses = [
                             ...multiModelResponses,
                         ];
@@ -3242,12 +3267,20 @@
     async function sendMessage() {
         if ((!currentInput.trim() && currentAttachments.length === 0) || isLoading) return;
 
+        // 【修复】立即设置加载状态，防止并发点击触发多次发送
+        isLoading = true;
+
         // 等待拖拽后仍在后台落盘的附件，保证会话里有稳定的 path
-        await waitForPendingAttachmentSaves();
+        try {
+            await waitForPendingAttachmentSaves();
+        } catch (e) {
+            console.error('Failed to wait for attachments:', e);
+        }
 
         // 如果处于等待选择答案状态，阻止发送
         if (isWaitingForAnswerSelection) {
             pushErrMsg(t('multiModel.waitingSelection'));
+            isLoading = false;
             return;
         }
 
@@ -3283,7 +3316,11 @@
 
         // 如果启用了多模型模式且在问答模式
         if (enableMultiModel && chatMode === 'ask' && selectedMultiModels.length > 0) {
-            await sendMultiModelMessage();
+            try {
+                await sendMultiModelMessage();
+            } finally {
+                // sendMultiModelMessage 内部会处理 isLoading，但为了安全这里也检查
+            }
             return;
         }
 
@@ -3363,7 +3400,7 @@
         currentInput = '';
         currentAttachments = [];
         contextDocuments = []; // 发送后清空全局上下文
-        isLoading = true;
+        // isLoading 已经在函数开始时设置为 true
         isAborted = false; // 重置中断标志
         streamingMessage = '';
         streamingThinking = '';
@@ -4697,21 +4734,31 @@
 
                 if (firstSuccessIndex !== -1) {
                     const selectedResponse = multiModelResponses[firstSuccessIndex];
-                    const assistantMessage: Message = {
-                        role: 'assistant',
-                        content: selectedResponse.content || '',
-                        thinking: selectedResponse.thinking,
-                        multiModelResponses: multiModelResponses.map((response, i) => ({
-                            ...response,
-                            isSelected: i === firstSuccessIndex,
-                            modelName:
-                                i === firstSuccessIndex
-                                    ? ' ✅' + response.modelName
-                                    : response.modelName, // 选择的模型名添加✅
-                        })),
-                    };
+                    const updatedMultiModelResponses = multiModelResponses.map((response, i) => ({
+                        ...response,
+                        isSelected: i === firstSuccessIndex,
+                        modelName:
+                            i === firstSuccessIndex
+                                ? ' ✅' + response.modelName
+                                : response.modelName, // 选择的模型名添加✅
+                    }));
 
-                    messages = [...messages, assistantMessage];
+                    // 【修复】检查是否已经存在该 turns 的助手消息，避免重复添加
+                    const lastMessage = messages[messages.length - 1];
+                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                        lastMessage.content = selectedResponse.content || '';
+                        lastMessage.thinking = selectedResponse.thinking || '';
+                        lastMessage.multiModelResponses = updatedMultiModelResponses;
+                        messages = [...messages];
+                    } else {
+                        const assistantMessage: Message = {
+                            role: 'assistant',
+                            content: selectedResponse.content || '',
+                            thinking: selectedResponse.thinking,
+                            multiModelResponses: updatedMultiModelResponses,
+                        };
+                        messages = [...messages, assistantMessage];
+                    }
                     hasUnsavedChanges = true;
                 }
 
@@ -4795,21 +4842,30 @@
 
             if (firstSuccessIndex !== -1) {
                 const selectedResponse = multiModelResponses[firstSuccessIndex];
-                const assistantMessage: Message = {
-                    role: 'assistant',
-                    content: selectedResponse.content || '',
-                    thinking: selectedResponse.thinking,
-                    multiModelResponses: multiModelResponses.map((response, i) => ({
-                        ...response,
-                        isSelected: i === firstSuccessIndex,
-                        modelName:
-                            i === firstSuccessIndex
-                                ? ' ✅' + response.modelName
-                                : response.modelName, // 选择的模型名添加✅
-                    })),
-                };
+                const updatedMultiModelResponses = multiModelResponses.map((response, i) => ({
+                    ...response,
+                    isSelected: i === firstSuccessIndex,
+                    modelName:
+                        i === firstSuccessIndex
+                            ? ' ✅' + response.modelName
+                            : response.modelName, // 选择的模型名添加✅
+                }));
 
-                messages = [...messages, assistantMessage];
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                    lastMessage.content = selectedResponse.content || '';
+                    lastMessage.thinking = selectedResponse.thinking || '';
+                    lastMessage.multiModelResponses = updatedMultiModelResponses;
+                    messages = [...messages];
+                } else {
+                    const assistantMessage: Message = {
+                        role: 'assistant',
+                        content: selectedResponse.content || '',
+                        thinking: selectedResponse.thinking,
+                        multiModelResponses: updatedMultiModelResponses,
+                    };
+                    messages = [...messages, assistantMessage];
+                }
                 hasUnsavedChanges = true;
             }
         }
@@ -7088,21 +7144,30 @@
 
             if (firstSuccessIndex !== -1) {
                 const selectedResponse = multiModelResponses[firstSuccessIndex];
-                const assistantMessage: Message = {
-                    role: 'assistant',
-                    content: selectedResponse.content || '',
-                    thinking: selectedResponse.thinking,
-                    multiModelResponses: multiModelResponses.map((response, i) => ({
-                        ...response,
-                        isSelected: i === firstSuccessIndex,
-                        modelName:
-                            i === firstSuccessIndex
-                                ? '✅' + response.modelName
-                                : response.modelName,
-                    })),
-                };
+                const updatedMultiModelResponses = multiModelResponses.map((response, i) => ({
+                    ...response,
+                    isSelected: i === firstSuccessIndex,
+                    modelName:
+                        i === firstSuccessIndex
+                            ? ' ✅' + response.modelName
+                            : response.modelName,
+                }));
 
-                messages = [...messages, assistantMessage];
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                    lastMessage.content = selectedResponse.content || '';
+                    lastMessage.thinking = selectedResponse.thinking || '';
+                    lastMessage.multiModelResponses = updatedMultiModelResponses;
+                    messages = [...messages];
+                } else {
+                    const assistantMessage: Message = {
+                        role: 'assistant',
+                        content: selectedResponse.content || '',
+                        thinking: selectedResponse.thinking,
+                        multiModelResponses: updatedMultiModelResponses,
+                    };
+                    messages = [...messages, assistantMessage];
+                }
                 hasUnsavedChanges = true;
             }
         }
@@ -7390,21 +7455,31 @@
             const firstSuccessIndex = multiModelResponses.findIndex(r => !r.error && !r.isLoading);
 
             if (firstSuccessIndex !== -1) {
-                // 创建assistant消息，保存所有多模型响应
-                const assistantMessage: Message = {
-                    role: 'assistant',
-                    content: '', // 不显示单独的内容
-                    multiModelResponses: multiModelResponses.map((response, i) => ({
-                        ...response,
-                        isSelected: i === firstSuccessIndex, // 标记第一个成功的为默认选择
-                        modelName:
-                            i === firstSuccessIndex
-                                ? '✅' + response.modelName
-                                : response.modelName,
-                    })),
-                };
+                const selectedResponse = multiModelResponses[firstSuccessIndex];
+                const updatedMultiModelResponses = multiModelResponses.map((response, i) => ({
+                    ...response,
+                    isSelected: i === firstSuccessIndex, // 标记第一个成功的为默认选择
+                    modelName:
+                        i === firstSuccessIndex
+                            ? ' ✅' + response.modelName
+                            : response.modelName,
+                }));
 
-                messages = [...messages, assistantMessage];
+                const lastMessage = messages[messages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                    lastMessage.content = selectedResponse.content || '';
+                    lastMessage.thinking = selectedResponse.thinking || '';
+                    lastMessage.multiModelResponses = updatedMultiModelResponses;
+                    messages = [...messages];
+                } else {
+                    // 创建assistant消息，保存所有多模型响应
+                    const assistantMessage: Message = {
+                        role: 'assistant',
+                        content: '', // 不显示单独的内容
+                        multiModelResponses: updatedMultiModelResponses,
+                    };
+                    messages = [...messages, assistantMessage];
+                }
                 hasUnsavedChanges = true;
             }
         }
@@ -8630,6 +8705,9 @@
             return;
         }
 
+        // 【修复】立即设置加载状态，防止并发点击
+        isLoading = true;
+
         const targetMessage = messages[index];
         if (!targetMessage) {
             pushErrMsg(t('aiSidebar.errors.noMessage'));
@@ -8741,18 +8819,20 @@
                 enableMultiModel = true;
 
                 // 调用多模型发送
-                await sendMultiModelMessage();
-
-                // 恢复原来的设置
-                selectedMultiModels = originalMultiModels;
-                enableMultiModel = originalEnableMultiModel;
+                try {
+                    await sendMultiModelMessage();
+                } finally {
+                    // 恢复原来的设置
+                    selectedMultiModels = originalMultiModels;
+                    enableMultiModel = originalEnableMultiModel;
+                }
 
                 return; // 多模型发送完成，直接返回
             }
         }
 
         // 重新发送请求
-        isLoading = true;
+        // isLoading 已经在函数开始时设置为 true
         isAborted = false; // 重置中断标志
         streamingMessage = '';
         streamingThinking = '';
