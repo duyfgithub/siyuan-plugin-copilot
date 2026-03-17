@@ -8,6 +8,7 @@
         "settingsPanel": "设置面板",
         "settingsGroup": {
             "ai": "AI 设置",
+            "python": "Python 设置",
             "aiPlatform": "AI 平台配置",
             "systemPrompt": "系统提示词",
             "platformManagement": "平台管理",
@@ -93,6 +94,11 @@
             "title": "全局保存文档位置",
             "description": "设置保存会话的默认路径，支持sprig语法，如 /{{now | date \"2006/200601\"}}/",
             "placeholder": "留空则使用当前文档路径"
+        },
+        "pythonPath": {
+            "title": "Python 解释器路径",
+            "description": "设置 Python 可执行文件的路径，用于运行 Python 代码工具。留空则使用系统默认的 python 命令",
+            "placeholder": "例如：C:\\Python311\\python.exe 或 /usr/bin/python3"
         },
         "textinput": {
             "title": "文本输入",
@@ -650,6 +656,9 @@
         },
         "run_js": {
             "name": "运行 JavaScript"
+        },
+        "run_python": {
+            "name": "运行 Python"
         },
         "siyuan_create_child_document": {
             "name": "创建子文档"

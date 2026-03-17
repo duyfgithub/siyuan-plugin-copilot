@@ -102,6 +102,7 @@ export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
             'web_fetch',
             'soul',
             'run_js',
+            'run_python',
         ],
     },
 };
@@ -335,6 +336,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
                             'siyuan_get_current_time',
                             'soul',
                             'run_js',
+                            'run_python',
                         ],
                     },
                 },
@@ -2137,6 +2139,82 @@ run_js({
         }
     ),
 
+    // 运行 Python 代码工具
+    createTool(
+        'run_python',
+        `在本地 Python 解释器中运行 Python 代码并返回执行结果。
+
+## 何时使用
+- 需要使用 Python 进行数据分析、科学计算
+- 需要使用 Python 的丰富标准库和第三方库
+- 需要进行文件操作、文本处理、正则表达式
+- 需要使用 NumPy、Pandas 等数据处理库（如果已安装）
+- JavaScript 难以完成的复杂计算或算法
+
+## 可用功能
+- Python 标准库（math, json, re, datetime, collections, itertools 等）
+- print() 输出会捕获并显示
+- 将结果赋值给 _result 变量可以返回结果值
+- **自动安装依赖**：如果代码导入的第三方库未安装，会自动尝试 pip 安装
+
+## 注意事项
+- 需要先设置 Python 解释器路径（在设置中配置）
+- 代码执行超时时间为 30 秒，pip 安装超时为 120 秒
+- **不要在顶层使用 return 语句**，Python 脚本中 return 只能在函数内使用
+- 如需返回结果，请将结果赋值给 _result 变量
+- 无法访问网络（除非使用特定工具）
+- 无法访问思源笔记 API（请使用专用工具）
+- 每次执行都是独立的环境，变量不会保留
+- 自动安装仅尝试一次，如果安装后仍失败则返回错误
+
+## 使用示例
+
+\`\`\`python
+# 数学计算
+run_python({
+  code: "import math; _result = math.sqrt(16) + math.pow(2, 3)"
+})
+
+# 列表推导式
+run_python({
+  code: "_result = [x**2 for x in range(1, 6) if x % 2 == 0]"
+})
+
+# 字符串处理
+run_python({
+  code: "text = 'Hello World'; _result = '-'.join(text.upper().split())"
+})
+
+# 日期处理
+run_python({
+  code: "from datetime import datetime, timedelta; _result = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')"
+})
+
+# JSON 处理
+run_python({
+  code: "import json; data = {'a': 1, 'b': 2}; _result = json.dumps(data, indent=2)"
+})
+
+# 正则表达式
+run_python({
+  code: "import re; text = 'Contact us at test@example.com'; _result = re.findall(r'[\w.-]+@[\w.-]+', text)"
+})
+\`\`\`
+
+## 返回值
+返回代码执行的结果（_result 变量的值）`,
+        {
+            type: 'object',
+            properties: {
+                code: {
+                    type: 'string',
+                    description: '要执行的 Python 代码',
+                },
+            },
+            required: ['code'],
+        }
+    ),
+
     // 系统通知工具
     createTool(
         'siyuan_send_notification',
@@ -3843,6 +3921,291 @@ export async function run_js(code: string): Promise<string> {
 }
 
 /**
+ * 运行 Python 代码
+ * 调用本地 Python 解释器执行代码并返回结果
+ * @param code 要执行的 Python 代码
+ * @param pythonPath Python 解释器路径（可选，默认使用系统 python）
+ */
+export async function run_python(code: string, pythonPath?: string): Promise<string> {
+    try {
+        if (!code || code.trim() === '') {
+            throw new Error('代码内容是必需的');
+        }
+
+        // 检查是否在桌面环境
+        // @ts-ignore
+        if (!window?.require) {
+            throw new Error('当前环境不支持执行系统命令，请在思源笔记桌面版中使用此功能。');
+        }
+
+        // 动态引入 Node.js 模块
+        // @ts-ignore
+        const fs = window.require('fs');
+        // @ts-ignore
+        const path = window.require('path');
+        // @ts-ignore
+        const childProcess = window.require('child_process');
+        // @ts-ignore
+        const os = window.require('os');
+
+        if (!fs || !path || !childProcess || !os) {
+            throw new Error('所需的 Node.js 模块不可用');
+        }
+
+        // 使用用户配置的 Python 路径或默认命令
+        const pythonCmd = pythonPath && pythonPath.trim() ? pythonPath.trim() : 'python';
+
+        // 创建临时目录
+        const tempDir = path.join(os.tmpdir(), 'siyuan_copilot');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        // 创建临时 Python 文件
+        const timestamp = Date.now();
+        const scriptPath = path.join(tempDir, `python_${timestamp}.py`);
+
+        // 添加 UTF-8 编码处理和 print 捕获
+        const scriptContent = `# -*- coding: utf-8 -*-
+import sys
+import io
+import json
+
+# Set UTF-8 encoding for stdout/stderr
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+# Capture print output
+_print_buffer = []
+_original_print = print
+
+def _captured_print(*args, **kwargs):
+    sep = kwargs.get('sep', ' ')
+    end = kwargs.get('end', '\\n')
+    output = sep.join(str(arg) for arg in args) + end
+    _print_buffer.append(output)
+    _original_print(*args, **kwargs)
+
+# Replace print function (handle both dict and module form of __builtins__)
+import builtins
+builtins.print = _captured_print
+
+# User code starts here
+__exec_globals = {}
+
+# Get the user code
+__user_code = '''${code.replace(/\\/g, '\\\\').replace(/'''/g, "\\'\\'\\'").replace(/\n/g, '\\n')}'''.strip()
+
+# Execute the code
+exec(__user_code, __exec_globals)
+
+# Try to get the result from common patterns
+__result = None
+if '_result' in __exec_globals:
+    __result = __exec_globals['_result']
+elif '__return__' in __exec_globals:
+    __result = __exec_globals['__return__']
+
+# Build output
+__output = {}
+if _print_buffer:
+    __output['print'] = ''.join(_print_buffer).rstrip()
+
+if __result is not None:
+    try:
+        __output['result'] = repr(__result)
+    except Exception:
+        __output['result'] = str(__result)
+
+# Output as JSON for easy parsing
+print(json.dumps(__output, ensure_ascii=False))
+`;
+
+        // 写入临时文件
+        fs.writeFileSync(scriptPath, scriptContent, 'utf-8');
+
+        // 尝试执行 Python 代码，如果失败则自动安装依赖
+        const executePython = async (attemptInstall: boolean = true): Promise<{
+            stdout: string;
+            stderr: string;
+            exitCode: number;
+            success: boolean;
+            error?: string;
+        }> => {
+            return new Promise((resolve) => {
+                const execOptions = {
+                    timeout: 30000, // 30 秒超时
+                    encoding: 'utf8',
+                    env: { 
+                        ...process.env,
+                        PYTHONIOENCODING: 'utf-8',
+                        NO_COLOR: '1'
+                    }
+                };
+
+                childProcess.execFile(pythonCmd, [scriptPath], execOptions, (error: any, stdout: string, stderr: string) => {
+                    resolve({
+                        stdout: stdout?.trim() || '',
+                        stderr: stderr?.trim() || '',
+                        exitCode: error?.code || 0,
+                        success: !error,
+                        error: error?.message
+                    });
+                });
+            });
+        };
+
+        // 解析缺失的模块名
+        const parseMissingModule = (stderr: string): string | null => {
+            // 匹配 "No module named 'xxx'" 或 "ModuleNotFoundError: No module named 'xxx'"
+            const match = stderr.match(/No module named ['"]([^'"]+)['"]/);
+            if (match) {
+                return match[1];
+            }
+            // 匹配 "ImportError: cannot import name 'xxx' from"
+            const importMatch = stderr.match(/ImportError: cannot import name ['"]([^'"]+)['"]/);
+            if (importMatch) {
+                return importMatch[1];
+            }
+            return null;
+        };
+
+        // 安装单个模块
+        const installModule = async (moduleName: string): Promise<boolean> => {
+            return new Promise((resolve) => {
+                // 常见的包名映射（pip 安装名 vs 导入名）
+                const packageMap: Record<string, string> = {
+                    'PIL': 'Pillow',
+                    'sklearn': 'scikit-learn',
+                    'cv2': 'opencv-python',
+                    'bs4': 'beautifulsoup4',
+                    'yaml': 'PyYAML',
+                    'toml': 'toml',
+                    'docx': 'python-docx',
+                    'pptx': 'python-pptx',
+                    'xlsx': 'openpyxl',
+                    'xlrd': 'xlrd',
+                    'openpyxl': 'openpyxl',
+                    'numpy': 'numpy',
+                    'pandas': 'pandas',
+                    'requests': 'requests',
+                    'matplotlib': 'matplotlib',
+                    'seaborn': 'seaborn',
+                    'flask': 'Flask',
+                    'django': 'Django',
+                    'sqlalchemy': 'SQLAlchemy',
+                    'pytest': 'pytest',
+                    'black': 'black',
+                    'isort': 'isort',
+                    'mypy': 'mypy',
+                    'flake8': 'flake8',
+                    'jinja2': 'Jinja2',
+                    'markdown': 'Markdown',
+                    'pillow': 'Pillow',
+                };
+
+                // 获取正确的包名
+                const packageName = packageMap[moduleName] || moduleName;
+
+                const execOptions = {
+                    timeout: 120000, // pip 安装可能需要更长时间
+                    encoding: 'utf8',
+                    env: { ...process.env }
+                };
+
+                // 使用 -m pip 方式安装
+                childProcess.execFile(pythonCmd, ['-m', 'pip', 'install', packageName], execOptions, (error: any, stdout: string, stderr: string) => {
+                    if (error) {
+                        console.warn(`安装模块 ${packageName} 失败:`, stderr || error.message);
+                        resolve(false);
+                    } else {
+                        console.log(`安装模块 ${packageName} 成功:`, stdout);
+                        resolve(true);
+                    }
+                });
+            });
+        };
+
+        try {
+            let result = await executePython();
+
+            // 如果执行失败且是导入错误，尝试自动安装
+            if (!result.success) {
+                const missingModule = parseMissingModule(result.stderr);
+                if (missingModule) {
+                    console.log(`检测到缺失模块: ${missingModule}，尝试自动安装...`);
+                    const installed = await installModule(missingModule);
+                    if (installed) {
+                        // 重新执行代码
+                        console.log('模块安装成功，重新执行代码...');
+                        result = await executePython(); // 重新执行，但不再尝试安装
+                    }
+                }
+            }
+
+            // 处理执行结果
+            if (!result.success && result.exitCode !== 0) {
+                throw new Error(`Python 错误 (退出码 ${result.exitCode}): ${result.stderr || result.error || '未知错误'}`);
+            }
+
+            // 解析 JSON 输出
+            let output: { print?: string; result?: string } = {};
+            try {
+                const lastLine = result.stdout.split('\n').pop() || '';
+                if (lastLine) {
+                    output = JSON.parse(lastLine);
+                }
+            } catch (e) {
+                // 不是 JSON 格式，直接使用原始输出
+                output = { print: result.stdout };
+            }
+
+            // 构建返回结果
+            let finalResult = '';
+            if (output.print) {
+                finalResult += `[Print Output]:\n${output.print}`;
+            }
+            if (output.result) {
+                if (finalResult) finalResult += '\n\n';
+                finalResult += `[Return Value]:\n${output.result}`;
+            }
+            if (result.stderr) {
+                if (finalResult) finalResult += '\n\n';
+                finalResult += `[Stderr]:\n${result.stderr}`;
+            }
+            if (!finalResult) {
+                finalResult = '[执行成功，无输出]';
+            }
+
+            return finalResult;
+
+        } finally {
+            // 清理临时文件
+            try {
+                fs.unlinkSync(scriptPath);
+            } catch (e) {
+                // ignore
+            }
+        }
+
+    } catch (error) {
+        console.error('Run Python error:', error);
+        const errorMsg = (error as Error).message;
+        
+        if (errorMsg.includes('window.require is not a function')) {
+            throw new Error('当前环境不支持执行系统命令，请在思源笔记桌面版中使用此功能。');
+        }
+        if (errorMsg.includes('ENOENT') || errorMsg.includes('No such file')) {
+            throw new Error(`Python 解释器未找到。请在设置中配置正确的 Python 路径，或将 Python 添加到系统 PATH。`);
+        }
+        
+        throw new Error(`Python 执行失败: ${errorMsg}`);
+    }
+}
+
+/**
  * 获取网页内容并转换为 Markdown
  * @param url 要获取的网页 URL
  * @param useWebView 是否使用 WebView 模式，默认为 false
@@ -4310,6 +4673,13 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
             case 'run_js':
                 const jsResult = await run_js(args.code);
                 return jsResult;
+
+            case 'run_python':
+                // 获取 Python 路径设置
+                const settings = get(settingsStore);
+                const pythonPath = settings.pythonPath;
+                const pyResult = await run_python(args.code, pythonPath);
+                return pyResult;
 
             default:
                 throw new Error(`未知的工具: ${name}`);

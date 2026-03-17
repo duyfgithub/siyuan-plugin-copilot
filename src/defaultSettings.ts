@@ -198,6 +198,9 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     // WebApp 相关设置
     openLinksInWebView: false, // 是否在 webview 中打开外部链接
 
+    // Python 解释器路径设置
+    pythonPath: '' as string,  // Python 可执行文件路径，用于运行 Python 代码
+
     // SOUL 文档设置
     soulDocId: '' as string,  // SOUL 数据存储的文档ID
 

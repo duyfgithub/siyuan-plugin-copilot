@@ -8,6 +8,7 @@
         "settingsPanel": "Settings Panel",
         "settingsGroup": {
             "ai": "AI Settings",
+            "python": "Python Settings",
             "aiPlatform": "AI Platform Configuration",
             "systemPrompt": "System Prompt",
             "platformManagement": "Platform Management",
@@ -93,6 +94,11 @@
             "title": "Global Save Document Path",
             "description": "Set the default path for saving sessions, supports sprig syntax like /{{now | date \"2006/200601\"}}/",
             "placeholder": "Leave empty to use current document path"
+        },
+        "pythonPath": {
+            "title": "Python Interpreter Path",
+            "description": "Set the path to the Python executable for running Python code tool. Leave empty to use system default python command",
+            "placeholder": "e.g.: C:\\Python311\\python.exe or /usr/bin/python3"
         },
         "textinput": {
             "title": "Text Input",
@@ -634,6 +640,9 @@
         },
         "run_js": {
             "name": "Run JavaScript"
+        },
+        "run_python": {
+            "name": "Run Python"
         },
         "calling": "Calling Tool",
         "called": "Tool Called",

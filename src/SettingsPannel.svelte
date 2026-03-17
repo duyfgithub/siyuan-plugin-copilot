@@ -398,6 +398,21 @@
             ],
         },
         {
+            name: t('settings.settingsGroup.python') || 'Python 设置',
+            items: [
+                {
+                    key: 'pythonPath',
+                    value: settings.pythonPath,
+                    type: 'textinput',
+                    title: t('settings.pythonPath.title') || 'Python 解释器路径',
+                    description:
+                        t('settings.pythonPath.description') ||
+                        '设置 Python 可执行文件的路径，用于运行 Python 代码工具。留空则使用系统默认的 python 命令',
+                    placeholder: t('settings.pythonPath.placeholder') || '例如：C:\\Python311\\python.exe 或 /usr/bin/python3',
+                },
+            ],
+        },
+        {
             name: t('settings.settingsGroup.sessionManagement') || '会话管理',
             items: [
                 {
