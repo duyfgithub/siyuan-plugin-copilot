@@ -1,5 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
+    import { platformUtils } from 'siyuan';
     import { chat, type Message } from '../ai-chat';
     import { pushMsg, pushErrMsg, getFileBlob, putFile } from '../api';
     import { t } from '../utils/i18n';
@@ -216,7 +217,7 @@
             return;
         }
         try {
-            await navigator.clipboard.writeText(translateOutputText);
+            await platformUtils.writeText(translateOutputText);
             pushMsg('复制成功');
         } catch (error) {
             console.error('复制失败:', error);
