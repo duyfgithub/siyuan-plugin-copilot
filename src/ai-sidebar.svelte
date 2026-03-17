@@ -7166,125 +7166,11 @@
         try {
             const data = await plugin.loadData('chat-sessions.json');
             sessions = data?.sessions || [];
-
-            // 检查是否需要迁移
-            if (!settings.dataTransfer?.sessionData) {
-                await migrateSessions();
-            }
+            // 会话迁移已在 index.ts 的 loadSettings 中统一处理
         } catch (error) {
             console.error('Load sessions error:', error);
             sessions = [];
         }
-    }
-
-    // 迁移旧会话到独立文件
-    async function migrateSessions() {
-        console.log('Starting session storage migration...');
-        // 确保会话目录存在
-        try {
-            await putFile('/data/storage/petal/siyuan-plugin-copilot/sessions', true, null);
-        } catch (e) {
-            // 目录可能已存在
-        }
-        let migratedCount = 0;
-
-        for (let i = 0; i < sessions.length; i++) {
-            const session = sessions[i];
-            // 如果 messages 存在且不为空，说明是旧版全量存储，需要迁移
-            if (session.messages && session.messages.length > 0) {
-                try {
-                    // 先处理消息中的资源（提取 base64 到 SiYuan 存储）
-                    const processedMessages = await Promise.all(
-                        session.messages.map(async msg => {
-                            const newAttachments = msg.attachments
-                                ? await Promise.all(
-                                      msg.attachments.map(async att => {
-                                          // 如果有 data 且没有 path，尝试保存为资源
-                                          if (
-                                              att.data &&
-                                              att.data.startsWith('data:') &&
-                                              !att.path
-                                          ) {
-                                              try {
-                                                  const blob = base64ToBlob(
-                                                      att.data,
-                                                      att.mimeType || 'image/png'
-                                                  );
-                                                  const assetPath = await saveAsset(blob, att.name);
-                                                  return { ...att, data: '', path: assetPath };
-                                              } catch (e) {
-                                                  console.error('Failed to migrate attachment:', e);
-                                                  return att;
-                                              }
-                                          }
-                                          return att;
-                                      })
-                                  )
-                                : undefined;
-
-                            const newGeneratedImages = msg.generatedImages
-                                ? await Promise.all(
-                                      msg.generatedImages.map(async img => {
-                                          if (img.data && img.data.length > 50 && !img.path) {
-                                              try {
-                                                  const blob = base64ToBlob(
-                                                      img.data,
-                                                      img.mimeType || 'image/png'
-                                                  );
-                                                  const assetPath = await saveAsset(
-                                                      blob,
-                                                      'generated-image.png'
-                                                  );
-                                                  return { ...img, data: '', path: assetPath };
-                                              } catch (e) {
-                                                  console.error(
-                                                      'Failed to migrate generated image:',
-                                                      e
-                                                  );
-                                                  return img;
-                                              }
-                                          }
-                                          return img;
-                                      })
-                                  )
-                                : undefined;
-
-                            return {
-                                ...msg,
-                                attachments: newAttachments,
-                                generatedImages: newGeneratedImages,
-                            };
-                        })
-                    );
-
-                    // 保存完整内容到 individual 文件
-                    const path = `/data/storage/petal/siyuan-plugin-copilot/sessions/${session.id}.json`;
-                    const content = JSON.stringify({ messages: processedMessages }, null, 2);
-                    const blob = new Blob([content], { type: 'application/json' });
-                    await putFile(path, false, blob);
-
-                    // 更新 metadata
-                    session.messageCount = session.messages.filter(m => m.role !== 'system').length;
-                    delete session.messages;
-                    migratedCount++;
-                } catch (e) {
-                    console.error(`Failed to migrate session ${session.id}:`, e);
-                }
-            }
-        }
-
-        if (migratedCount > 0) {
-            await saveSessions();
-            console.log(`Successfully migrated ${migratedCount} sessions.`);
-        }
-
-        // 更新配置中的迁移标志
-        if (!settings.dataTransfer) {
-            settings.dataTransfer = { sessionData: true };
-        } else {
-            settings.dataTransfer.sessionData = true;
-        }
-        await plugin.saveSettings(settings);
     }
 
     async function saveSessions() {
@@ -7297,7 +7183,7 @@
                     ...rest,
                     messageCount:
                         s.messageCount ||
-                        (messages ? messages.filter(m => m.role !== 'system').length : 0),
+                        (s.messages ? s.messages.filter(m => m.role !== 'system').length : 0),
                 };
             });
             await plugin.saveData('chat-sessions.json', { sessions: metadata });

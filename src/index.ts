@@ -19,6 +19,7 @@ import {
 } from "siyuan";
 
 import { appendBlock, deleteBlock, setBlockAttrs, getBlockAttrs, pushMsg, pushErrMsg, sql, renderSprig, getChildBlocks, insertBlock, renameDocByID, prependBlock, updateBlock, createDocWithMd, getBlockKramdown, getBlockDOM, putFile, getFileBlob, readDir } from "./api";
+import { saveAsset, base64ToBlob } from "./utils/assets";
 import "@/index.scss";
 
 import SettingPanel from "./SettingsPannel.svelte";
@@ -2085,34 +2086,70 @@ export default class PluginSample extends Plugin {
             }
 
             if (settings.dataTransfer.autoSetModelCapabilities) {
+                // 已执行过，跳过
             } else if (settings.aiProviders) {
-                // 内置平台列表
+                // 检查是否真正有配置了模型的用户（排除首次安装的默认空配置）
+                let hasActualModels = false;
                 const builtInProviders = ['Achuan', 'gemini', 'deepseek', 'openai', 'moonshot', 'volcano'];
 
-                // 处理内置平台
+                // 检查内置平台是否有实际配置的模型
                 for (const providerId of builtInProviders) {
                     const providerConfig = settings.aiProviders[providerId];
-                    if (providerConfig && Array.isArray(providerConfig.models)) {
-                        for (const model of providerConfig.models) {
-                            model.capabilities = getModelCapabilities(model.id);
+                    if (providerConfig && Array.isArray(providerConfig.models) && providerConfig.models.length > 0) {
+                        // 检查是否有非空模型（有 id 和 name 的）
+                        if (providerConfig.models.some((m: any) => m.id && m.name)) {
+                            hasActualModels = true;
+                            break;
                         }
                     }
                 }
 
-                // 处理自定义平台
-                if (Array.isArray(settings.aiProviders.customProviders)) {
+                // 检查自定义平台是否有实际配置的模型
+                if (!hasActualModels && Array.isArray(settings.aiProviders.customProviders)) {
                     for (const customProvider of settings.aiProviders.customProviders) {
-                        if (Array.isArray(customProvider.models)) {
-                            for (const model of customProvider.models) {
-                                model.capabilities = getModelCapabilities(model.id);
+                        if (Array.isArray(customProvider.models) && customProvider.models.length > 0) {
+                            if (customProvider.models.some((m: any) => m.id && m.name)) {
+                                hasActualModels = true;
+                                break;
                             }
                         }
                     }
                 }
 
-                settings.dataTransfer.autoSetModelCapabilities = true;
-                await this.saveData(SETTINGS_FILE, settings);
-                pushMsg('已自动为现有模型设置能力');
+                // 只有真正有配置模型的用户才执行能力设置
+                if (hasActualModels) {
+                    // 处理内置平台
+                    for (const providerId of builtInProviders) {
+                        const providerConfig = settings.aiProviders[providerId];
+                        if (providerConfig && Array.isArray(providerConfig.models)) {
+                            for (const model of providerConfig.models) {
+                                if (model.id) {
+                                    model.capabilities = getModelCapabilities(model.id);
+                                }
+                            }
+                        }
+                    }
+
+                    // 处理自定义平台
+                    if (Array.isArray(settings.aiProviders.customProviders)) {
+                        for (const customProvider of settings.aiProviders.customProviders) {
+                            if (Array.isArray(customProvider.models)) {
+                                for (const model of customProvider.models) {
+                                    if (model.id) {
+                                        model.capabilities = getModelCapabilities(model.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    settings.dataTransfer.autoSetModelCapabilities = true;
+                    await this.saveData(SETTINGS_FILE, settings);
+                    pushMsg('已自动为现有模型设置能力');
+                } else {
+                    // 首次安装或没有实际模型的用户，直接标记为已完成，不显示消息
+                    settings.dataTransfer.autoSetModelCapabilities = true;
+                }
             }
         } catch (e) {
             console.error('Auto set model capabilities failed:', e);
@@ -2124,15 +2161,14 @@ export default class PluginSample extends Plugin {
         // 检测是否需要保存设置
         let needsSave = false;
 
-        // 如果是首次安装（settings.json 不存在或为空），不需要保存
-        const isFirstInstall = !settings || Object.keys(settings).length === 0;
-        if (isFirstInstall) {
-            needsSave = false;
-        }
+        // 如果是首次安装（settings.json 不存在或为空，或只有 dataTransfer 字段），不需要保存
+        // 注意：dataTransfer 是迁移标志，不计入用户实际配置
+        const settingsKeys = Object.keys(settings);
+        const isFirstInstall = !settings || settingsKeys.length === 0 || 
+            (settingsKeys.length === 1 && settingsKeys[0] === 'dataTransfer');
 
-        // 如果是升级场景：settings 存在但没有 webApps，或 webApps 为空
-        // 需要从默认设置中补充内置 webApps
-        if (settings && (!settings.webApps || !Array.isArray(settings.webApps) || settings.webApps.length === 0)) {
+        // 只有非首次安装且 webApps 为空时，才需要补充内置 webApps
+        if (!isFirstInstall && settings && (!settings.webApps || !Array.isArray(settings.webApps) || settings.webApps.length === 0)) {
             // 从默认设置中获取内置 webApps
             if (defaultSettings.webApps && Array.isArray(defaultSettings.webApps) && defaultSettings.webApps.length > 0) {
                 mergedSettings.webApps = defaultSettings.webApps;
@@ -2144,6 +2180,9 @@ export default class PluginSample extends Plugin {
         if (needsSave) {
             await this.saveData(SETTINGS_FILE, mergedSettings);
         }
+
+        // 迁移旧会话数据（如果存在）
+        await this.migrateSessions(mergedSettings);
 
         // 更新 store
         updateSettings(mergedSettings);
@@ -2157,6 +2196,133 @@ export default class PluginSample extends Plugin {
         await this.saveData(SETTINGS_FILE, settings);
         // 更新 store，通知所有订阅者
         updateSettings(settings);
+    }
+
+    /**
+     * 迁移旧会话存储到独立文件
+     */
+    async migrateSessions(settings: any) {
+        console.log('Starting session storage migration...');
+
+        // 加载会话数据
+        const data = await this.loadData('chat-sessions.json');
+        const sessions = data?.sessions || [];
+
+        // 如果没有会话数据或已迁移过，直接返回
+        if (sessions.length === 0 || settings.dataTransfer?.sessionData) {
+            return;
+        }
+
+        let migratedCount = 0;
+
+        for (let i = 0; i < sessions.length; i++) {
+            const session = sessions[i];
+            // 如果 messages 存在且不为空，说明是旧版全量存储，需要迁移
+            if (session.messages && session.messages.length > 0) {
+                try {
+                    // 先处理消息中的资源（提取 base64 到 SiYuan 存储）
+                    const processedMessages = await Promise.all(
+                        session.messages.map(async (msg: any) => {
+                            const newAttachments = msg.attachments
+                                ? await Promise.all(
+                                      msg.attachments.map(async (att: any) => {
+                                          // 如果有 data 且没有 path，尝试保存为资源
+                                          if (
+                                              att.data &&
+                                              att.data.startsWith('data:') &&
+                                              !att.path
+                                          ) {
+                                              try {
+                                                  const blob = base64ToBlob(
+                                                      att.data,
+                                                      att.mimeType || 'image/png'
+                                                  );
+                                                  const assetPath = await saveAsset(blob, att.name);
+                                                  return { ...att, data: '', path: assetPath };
+                                              } catch (e) {
+                                                  console.error('Failed to migrate attachment:', e);
+                                                  return att;
+                                              }
+                                          }
+                                          return att;
+                                      })
+                                  )
+                                : undefined;
+
+                            const newGeneratedImages = msg.generatedImages
+                                ? await Promise.all(
+                                      msg.generatedImages.map(async (img: any) => {
+                                          if (img.data && img.data.length > 50 && !img.path) {
+                                              try {
+                                                  const blob = base64ToBlob(
+                                                      img.data,
+                                                      img.mimeType || 'image/png'
+                                                  );
+                                                  const assetPath = await saveAsset(
+                                                      blob,
+                                                      'generated-image.png'
+                                                  );
+                                                  return { ...img, data: '', path: assetPath };
+                                              } catch (e) {
+                                                  console.error(
+                                                      'Failed to migrate generated image:',
+                                                      e
+                                                  );
+                                                  return img;
+                                              }
+                                          }
+                                          return img;
+                                      })
+                                  )
+                                : undefined;
+
+                            return {
+                                ...msg,
+                                attachments: newAttachments,
+                                generatedImages: newGeneratedImages,
+                            };
+                        })
+                    );
+
+                    // 保存完整内容到 individual 文件
+                    const path = `/data/storage/petal/siyuan-plugin-copilot/sessions/${session.id}.json`;
+                    const content = JSON.stringify({ messages: processedMessages }, null, 2);
+                    const blob = new Blob([content], { type: 'application/json' });
+                    await putFile(path, false, blob);
+
+                    // 更新 metadata
+                    session.messageCount = session.messages.filter((m: any) => m.role !== 'system').length;
+                    delete session.messages;
+                    migratedCount++;
+                } catch (e) {
+                    console.error(`Failed to migrate session ${session.id}:`, e);
+                }
+            }
+        }
+
+        // 只有在实际迁移了会话数据时才保存设置和更新迁移标志
+        if (migratedCount > 0) {
+            // 保存 metadata 到 chat-sessions.json
+            const metadata = sessions.map((s: any) => {
+                const { messages: _, ...rest } = s;
+                return {
+                    ...rest,
+                    messageCount:
+                        s.messageCount ||
+                        (s.messages ? s.messages.filter((m: any) => m.role !== 'system').length : 0),
+                };
+            });
+            await this.saveData('chat-sessions.json', { sessions: metadata });
+            console.log(`Successfully migrated ${migratedCount} sessions.`);
+
+            // 更新配置中的迁移标志
+            if (!settings.dataTransfer) {
+                settings.dataTransfer = { sessionData: true };
+            } else {
+                settings.dataTransfer.sessionData = true;
+            }
+            await this.saveSettings(settings);
+        }
     }
 
     /**
