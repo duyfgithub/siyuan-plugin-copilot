@@ -2074,20 +2074,28 @@ const timeString = date + "T14:30:00";  // "2026-03-12T14:30:00"
     // 运行 JavaScript 代码工具
     createTool(
         'run_js',
-        `在浏览器环境中运行 JavaScript 代码并返回执行结果。
+        `在浏览器环境中运行 JavaScript 代码并返回执行结果。需要进行复杂的计算或数据处理，或处理其他工具返回的输出时使用。支持通过 tool_input 参数直接运行其他工具，并将工具执行结果作为 input 传入 JavaScript 代码处理，可以大大节省token。
 
-## 何时使用
-- 需要进行复杂的计算或数据处理
-- 需要处理文本、数字、日期等数据转换
-- 需要使用 JavaScript 内置函数（如 Math、Date、JSON 等）
-- 需要格式化或解析数据
-- 需要执行逻辑判断或循环操作
 
 ## 可用 API
 代码在浏览器环境中运行，可以使用：
 - 所有 JavaScript 内置对象（Math, Date, JSON, Array, Object 等）
 - console.log() 用于调试（输出会包含在结果中）
 - 返回最终结果使用 return 语句
+- **input 变量：当使用 tool_input 时，工具执行结果会作为 input 变量传入（字符串类型）**
+
+## tool_input 参数说明
+tool_input 允许你在 run_js 内部直接调用其他工具，将工具的执行结果转为字符串后作为 input 变量传入 JavaScript 代码。
+
+**支持的 tool_input 类型：**
+- \`sql\`: 执行 SQL 查询，参数为 { query: "SQL语句" }
+- \`get_block_content\`: 获取块内容，参数为 { id: "块ID", format: "markdown" | "kramdown" }
+- \`fetch\`: 获取网页内容，参数为 { url: "网址", useWebView?: boolean }
+- \`get_doc_tree\`: 获取文档树，参数为 { notebook: "笔记本ID", path?: "/" }
+
+**注意：**
+- 如果同时提供 tool_input 和 input，tool_input 的执行结果会覆盖 input
+- 工具执行结果会被 JSON.stringify 转为字符串传入 input
 
 ## 注意事项
 - 代码必须使用 return 语句返回结果
@@ -2098,6 +2106,7 @@ const timeString = date + "T14:30:00";  // "2026-03-12T14:30:00"
 
 ## 使用示例
 
+### 基本使用（无输入）
 \`\`\`javascript
 // 计算数学表达式
 run_js({
@@ -2108,22 +2117,47 @@ run_js({
 run_js({
   code: "const text = 'Hello World'; return text.toUpperCase().split(' ').join('-');"
 })
+\`\`\`
 
-// 日期计算
-run_js({
-  code: "const now = new Date(); const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); return nextWeek.toISOString().split('T')[0];"
-})
+### 使用 tool_input 直接处理其他工具的输出（推荐用于大数据量处理）
 
-// JSON 数据处理
+**示例 1：处理 SQL 查询结果，只返回统计信息**
+\`\`\`javascript
+// 查询大量数据，但在 JS 中处理只返回统计结果，避免大量数据返回给 AI
 run_js({
-  code: "const data = {a: 1, b: 2, c: 3}; return Object.values(data).reduce((sum, v) => sum + v, 0);"
+  code: "const data = JSON.parse(input); return { count: data.length, firstId: data[0]?.id, lastId: data[data.length-1]?.id };",
+  tool_input: {
+    tool: "sql",
+    params: { query: "SELECT * FROM blocks WHERE type='d' LIMIT 1000" }
+  }
 })
+// 只返回统计信息，而不是 1000 条完整记录
+\`\`\`
 
-// 数组操作
+**示例 2：获取块内容并提取特定信息**
+\`\`\`javascript
 run_js({
-  code: "const arr = [3, 1, 4, 1, 5, 9, 2, 6]; return arr.filter(x => x > 3).sort((a, b) => a - b);"
+  code: "const lines = input.split('\\n'); const titles = lines.filter(l => l.startsWith('#')); return '包含 ' + titles.length + ' 个标题';",
+  tool_input: {
+    tool: "get_block_content",
+    params: { id: "20210104091228-d0rzbmm", format: "markdown" }
+  }
 })
-\`\`
+\`\`\`
+
+**示例 3：获取文档树并统计结构信息**
+\`\`\`javascript
+run_js({
+  code: "const tree = JSON.parse(input); function countDocs(nodes) { return nodes.reduce((sum, n) => sum + 1 + (n.children ? countDocs(n.children) : 0), 0); } return { docCount: countDocs(tree), topLevel: tree.map(n => n.name) };",
+  tool_input: {
+    tool: "get_doc_tree",
+    params: { notebook: "20210808180117-6v0mkxr", path: "/" }
+  }
+})
+\`\`\`
+
+
+\`\`\`
 
 ## 返回值
 返回代码执行的结果（必须是 return 语句返回的值）`,
@@ -2132,7 +2166,27 @@ run_js({
             properties: {
                 code: {
                     type: 'string',
-                    description: '要执行的 JavaScript 代码，必须使用 return 语句返回结果',
+                    description: '要执行的 JavaScript 代码，必须使用 return 语句返回结果。可通过 input 变量访问 tool_input 执行后的数据',
+                },
+                input: {
+                    type: 'string',
+                    description: '可选的输入数据，会作为 input 变量传入。如果同时提供 tool_input，此值会被覆盖',
+                },
+                tool_input: {
+                    type: 'object',
+                    description: '可选。指定要执行的工具及其参数，工具执行结果会转为字符串后作为 input 传入',
+                    properties: {
+                        tool: {
+                            type: 'string',
+                            description: '工具名称：sql、get_block_content、fetch、get_doc_tree',
+                            enum: ['sql', 'get_block_content', 'fetch', 'get_doc_tree'],
+                        },
+                        params: {
+                            type: 'object',
+                            description: '工具参数，根据 tool 类型传入对应的参数',
+                        },
+                    },
+                    required: ['tool', 'params'],
                 },
             },
             required: ['code'],
@@ -3801,15 +3855,87 @@ export async function siyuan_get_current_time(
 }
 
 /**
+ * 执行 tool_input 指定的工具并返回结果
+ */
+async function executeToolInput(toolInput: { tool: string; params: any }): Promise<string> {
+    const { tool, params } = toolInput;
+    let result: any;
+
+    switch (tool) {
+        case 'sql': {
+            if (!params?.query) {
+                throw new Error('sql 工具需要 query 参数');
+            }
+            result = await siyuan_sql_query(params.query);
+            break;
+        }
+        case 'get_block_content': {
+            if (!params?.id || !params?.format) {
+                throw new Error('get_block_content 工具需要 id 和 format 参数');
+            }
+            result = await siyuan_get_block_content(params.id, params.format, params.command);
+            break;
+        }
+        case 'fetch': {
+            if (!params?.url) {
+                throw new Error('fetch 工具需要 url 参数');
+            }
+            result = await web_fetch(params.url, params.useWebView);
+            break;
+        }
+        case 'get_doc_tree': {
+            if (!params?.notebook) {
+                throw new Error('get_doc_tree 工具需要 notebook 参数');
+            }
+            result = await siyuan_get_doc_tree(params.notebook, params.path || '/', params.sortMode);
+            break;
+        }
+        default:
+            throw new Error(`不支持的 tool_input 类型: ${tool}`);
+    }
+
+    // 将结果转为字符串
+    if (typeof result === 'string') {
+        return result;
+    } else if (result === null || result === undefined) {
+        return '';
+    } else {
+        try {
+            return JSON.stringify(result);
+        } catch (e) {
+            return String(result);
+        }
+    }
+}
+
+/**
  * 运行 JavaScript 代码
  * 在沙箱环境中执行 JS 代码并返回结果
  * @param code 要执行的 JavaScript 代码
+ * @param input 可选的输入数据（用于管道操作）
+ * @param tool_input 可选的工具输入，执行指定工具并将结果作为 input
  */
-export async function run_js(code: string): Promise<string> {
+export async function run_js(
+    code: string,
+    input?: string,
+    tool_input?: { tool: string; params: any }
+): Promise<string> {
     try {
         if (!code || code.trim() === '') {
             throw new Error('代码内容是必需的');
         }
+
+        // 如果提供了 tool_input，先执行工具获取结果
+        let actualInput = input || '';
+        if (tool_input) {
+            try {
+                actualInput = await executeToolInput(tool_input);
+            } catch (toolError) {
+                throw new Error(`执行 tool_input 失败: ${(toolError as Error).message}`);
+            }
+        }
+
+        const consoleLogs: string[] = [];
 
         // 创建沙箱环境，限制可访问的全局对象
         const sandbox = {
@@ -3828,6 +3954,8 @@ export async function run_js(code: string): Promise<string> {
             WeakMap: WeakMap,
             WeakSet: WeakSet,
             Promise: Promise,
+            // 管道输入变量
+            input: actualInput,
             console: {
                 log: (...args: any[]) => {
                     consoleLogs.push(args.map(arg => 
@@ -3857,8 +3985,6 @@ export async function run_js(code: string): Promise<string> {
             document: undefined,
             globalThis: undefined,
         };
-
-        const consoleLogs: string[] = [];
 
         // 使用 Function 构造函数创建沙箱函数
         // 将 sandbox 的键作为参数名，值作为参数传入
@@ -4671,7 +4797,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 return timeResult;
 
             case 'run_js':
-                const jsResult = await run_js(args.code);
+                const jsResult = await run_js(args.code, args.input, args.tool_input);
                 return jsResult;
 
             case 'run_python':
