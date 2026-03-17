@@ -62,7 +62,6 @@ export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
     siyuan: {
         tools: [
             'siyuan_sql_query',
-            'siyuan_database',
             'siyuan_get_block_content',
             'siyuan_get_block_attrs',
             'siyuan_set_block_attrs',
@@ -96,6 +95,28 @@ export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
             'siyuan_add_database_column',
             'siyuan_remove_database_column',
             'siyuan_remove_database_rows',
+        ],
+    },
+    other: {
+        tools: [
+            'web_fetch',
+            'soul',
+        ],
+    },
+};
+
+/**
+ * 问答模式工具分类配置
+ */
+export const QA_TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
+    siyuan: {
+        tools: [
+            'siyuan_sql_query',
+            'siyuan_get_block_content',
+            'siyuan_get_block_attrs',
+            'siyuan_get_doc_tree',
+            'siyuan_list_notebooks',
+            'siyuan_get_current_time',
         ],
     },
     other: {

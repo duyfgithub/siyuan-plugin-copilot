@@ -52,7 +52,7 @@
     import { settingsStore } from './stores/settings';
     import { confirm, Constants, platformUtils } from 'siyuan';
     import { t } from './utils/i18n';
-    import { AVAILABLE_TOOLS, executeToolCall } from './tools';
+    import { AVAILABLE_TOOLS, executeToolCall, TOOL_CATEGORIES, QA_TOOL_CATEGORIES } from './tools';
 
     // Agent 模式工具使用强制规则（统一常量）
     const AGENT_TOOL_USAGE_INSTRUCTION = `=== 工具使用强制规则 ===\n如果提供了SOUL工具，在对话之前直接加载SOUL，获取灵魂，再和用户交流。当用户说记住、下达风格更改要求等情况时，需要调用SOUL记忆用户要求。\n**绝对禁止：在未调用 get_siyuan_skills 获取文档的情况下。**\n\n**必须遵守的使用流程：**\n1. 分析用户需求，确定需要使用的工具\n2. **必须**先调用 get_siyuan_skills(toolName="目标工具名称") 获取完整文档\n3. 仔细阅读返回的文档（包含参数说明、使用示例、注意事项）\n4. 根据文档正确构造参数，调用目标工具\n5. 根据工具返回结果继续后续操作\n\n**为什么要这样做？**\n- 每个工具都有复杂的参数和特定的使用场景\n- SQL查询需要了解表结构、字段含义才能正确构造\n- 块操作需要理解 parentID/previousID/nextID 等位置参数的区别\n- 数据库操作需要掌握特定的值格式和操作步骤\n- 直接使用而不看文档极有可能导致错误操作`;
@@ -570,8 +570,8 @@
                 if (doc.type === 'webpage') {
                     // 网页类型：保持原内容不变（已经获取到内容）
                     content = doc.content;
-                } else if (chatMode === 'agent') {
-                    // agent模式：文档只保留ID，块获取kramdown
+                } else if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                    // agent模式或启用工具的问答模式：文档只保留ID，块获取kramdown
                     if (doc.type === 'doc') {
                         content = ''; // 文档不保存内容，只保留ID
                     } else {
@@ -644,7 +644,7 @@
             return;
         }
 
-        // 标记为加载中并清空内容/错误
+        // 标记为加载中并清空内容/错误/工具调用历史
         multiModelResponses[index] = {
             ...multiModelResponses[index],
             isLoading: true,
@@ -652,6 +652,7 @@
             content: '',
             thinking: '',
             thinkingCollapsed: false,
+            toolCalls: [], // 清空上次的工具调用记录
         };
         multiModelResponses = [...multiModelResponses];
 
@@ -669,7 +670,14 @@
         for (const doc of userContextDocs) {
             try {
                 let content: string;
-                if (chatMode === 'edit') {
+                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                    if (doc.type === 'doc') {
+                        content = '';
+                    } else {
+                        const blockData = await getBlockKramdown(doc.id);
+                        content = (blockData && blockData.kramdown) || doc.content;
+                    }
+                } else if (chatMode === 'edit') {
                     const blockData = await getBlockKramdown(doc.id);
                     content = (blockData && blockData.kramdown) || doc.content;
                 } else {
@@ -706,7 +714,9 @@
             messages,
             contextDocumentsWithLatestContent,
             userContent,
-            userMessage
+            userMessage,
+            // 传入当前模型的 thinking 状态，以便正确处理历史 assistant 消息中的 reasoning_content
+            !!(modelConfig.capabilities?.thinking && (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false))
         );
 
         // 本次请求的 AbortController（用于单个模型的中断）
@@ -727,53 +737,159 @@
         }
 
         try {
-            let fullText = '';
-            let thinking = '';
+            // 准备 Agent/Ask 模式的工具列表
+            let toolsForAgent: any[] | undefined = undefined;
+            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                    currentSelectedTools.some(t => t.name === tool.function.name)
+                );
+                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                if (descTool) {
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills'
+                    );
+                    toolsForAgent = [descTool, ...filteredToolDefs];
+                } else {
+                    toolsForAgent = selectedToolDefs;
+                }
+            }
 
-            await chat(
-                response.provider,
-                {
-                    apiKey: providerConfig.apiKey,
-                    model: modelConfig.id,
-                    messages: messagesToSend,
-                    temperature: tempModelSettings.temperatureEnabled
-                        ? tempModelSettings.temperature
-                        : modelConfig.temperature,
-                    maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
-                    stream: true,
-                    signal: localAbort.signal,
-                    customBody,
-                    enableThinking: modelConfig.capabilities?.thinking || false,
-                    reasoningEffort: modelConfig.thinkingEffort || 'low',
-                    onThinkingChunk: async (chunk: string) => {
-                        thinking += chunk;
-                        if (multiModelResponses[index]) {
-                            multiModelResponses[index].thinking = thinking;
-                            multiModelResponses = [...multiModelResponses];
-                        }
-                    },
-                    onThinkingComplete: () => {
-                        if (multiModelResponses[index] && multiModelResponses[index].thinking) {
-                            multiModelResponses[index].thinkingCollapsed = true;
-                            multiModelResponses = [...multiModelResponses];
-                        }
-                    },
-                    onChunk: async (chunk: string) => {
-                        fullText += chunk;
-                        if (multiModelResponses[index]) {
-                            multiModelResponses[index].content = fullText;
-                            multiModelResponses = [...multiModelResponses];
-                        }
-                    },
+            // 准备联网搜索工具（如果启用）
+            let webSearchTools: any[] | undefined = undefined;
+            if (modelConfig.capabilities?.webSearch && modelConfig.webSearchEnabled) {
+                const modelIdLower = modelConfig.id.toLowerCase();
+                if (modelIdLower.includes('gemini')) {
+                    webSearchTools = [
+                        {
+                            type: 'function',
+                            function: {
+                                name: 'googleSearch',
+                            },
+                        },
+                    ];
+                }
+            }
+
+            // 合并工具列表
+            const finalTools = [...(toolsForAgent || []), ...(webSearchTools || [])];
+            const toolsToPass = finalTools.length > 0 ? finalTools : undefined;
+
+            // 多模型工具调用循环
+            let modelMessagesToSend = [...messagesToSend];
+            let shouldContinue = true;
+            let fullText = '';
+            let totalThinking = '';
+
+            while (shouldContinue && !localAbort.signal.aborted) {
+                let hasNewToolCalls = false;
+                let lastAssistantContent = '';
+                let turnThinking = '';
+
+                await chat(
+                    response.provider,
+                    {
+                        apiKey: providerConfig.apiKey,
+                        model: modelConfig.id,
+                        messages: modelMessagesToSend,
+                        temperature: tempModelSettings.temperatureEnabled
+                            ? tempModelSettings.temperature
+                            : modelConfig.temperature,
+                        maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
+                        stream: true,
+                        signal: localAbort.signal,
+                        customBody,
+                        // 同时检查模型能力和用户是否启用，与 sendMultiModelMessage 保持一致
+                        enableThinking:
+                            modelConfig.capabilities?.thinking &&
+                            (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false),
+                        reasoningEffort: response.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
+                        tools: toolsToPass,
+                        onThinkingChunk: async (chunk: string) => {
+                            turnThinking += chunk;
+                            totalThinking += chunk;
+                            if (multiModelResponses[index]) {
+                                multiModelResponses[index].thinking = totalThinking;
+                                multiModelResponses = [...multiModelResponses];
+                            }
+                        },
+                        onThinkingComplete: () => {
+                            if (multiModelResponses[index] && multiModelResponses[index].thinking) {
+                                multiModelResponses[index].thinkingCollapsed = true;
+                                multiModelResponses = [...multiModelResponses];
+                            }
+                        },
+                        onChunk: async (chunk: string) => {
+                            fullText += chunk;
+                            lastAssistantContent += chunk;
+                            if (multiModelResponses[index]) {
+                                multiModelResponses[index].content = fullText;
+                                multiModelResponses = [...multiModelResponses];
+                            }
+                        },
+                        onToolCallComplete: async (toolCalls: ToolCall[]) => {
+                            console.log(`[RegenerateMultiModel-${response.modelId}] Tool calls received:`, toolCalls);
+                            hasNewToolCalls = true;
+                            
+                            // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
+                            const isReasoningEnabled = modelConfig.capabilities?.thinking &&
+                                (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false);
+                                
+                            const assistantMsg: any = {
+                                role: 'assistant',
+                                content: lastAssistantContent,
+                                tool_calls: toolCalls
+                            };
+
+                            // 特别是 Kimi 等模型，如果启用了 thinking，assistant 消息必须包含 reasoning_content
+                            if (isReasoningEnabled) {
+                                assistantMsg.reasoning_content = turnThinking;
+                            }
+
+                            modelMessagesToSend.push(assistantMsg);
+
+                            // 2. 执行工具并添加结果
+                            for (const tc of toolCalls) {
+                                // 检查是否自动批准
+                                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                const toolConfig = currentSelectedTools.find(
+                                    t => t.name === tc.function.name
+                                );
+                                const isSystemTool = tc.function.name === 'get_siyuan_skills';
+                                const autoApprove = isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
+
+                                let toolResult: string;
+                                if (autoApprove) {
+                                    console.log(`[RegenerateMultiModel] Auto-approving tool: ${tc.function.name}`);
+                                    toolResult = await executeToolCall(tc);
+                                } else {
+                                    console.log(`[RegenerateMultiModel] Skipping non-auto-approved tool: ${tc.function.name}`);
+                                    toolResult = `工具 ${tc.function.name} 需要手动批准。在多模型对比模式下，为了避免 UI 冲突，该工具未被自动执行。请在设置中将该工具设为“自动批准”。`;
+                                }
+
+                                modelMessagesToSend.push({
+                                    role: 'tool',
+                                    tool_call_id: tc.id,
+                                    name: tc.function.name,
+                                    content: toolResult
+                                });
+                            }
+
+                            lastAssistantContent = '';
+                            if (multiModelResponses[index]) {
+                                multiModelResponses[index].isLoading = true;
+                                multiModelResponses = [...multiModelResponses];
+                            }
+                        },
                     onComplete: async (text: string) => {
                         if (multiModelResponses[index]) {
                             const convertedText = convertLatexToMarkdown(text);
                             // 处理content中的base64图片，保存为assets文件
                             const processedContent = await saveBase64ImagesInContent(convertedText);
                             multiModelResponses[index].content = processedContent;
-                            multiModelResponses[index].thinking = thinking;
+                            multiModelResponses[index].thinking = totalThinking;
                             multiModelResponses[index].isLoading = false;
-                            if (thinking && !multiModelResponses[index].thinkingCollapsed) {
+                            if (totalThinking && !multiModelResponses[index].thinkingCollapsed) {
                                 multiModelResponses[index].thinkingCollapsed = true;
                             }
                             multiModelResponses = [...multiModelResponses];
@@ -790,6 +906,11 @@
                 providerConfig.customApiUrl,
                 providerConfig.advancedConfig
             );
+
+                if (!hasNewToolCalls) {
+                    shouldContinue = false;
+                }
+            }
         } catch (error) {
             if ((error as Error).message !== 'Request aborted' && multiModelResponses[index]) {
                 multiModelResponses[index].error = (error as Error).message;
@@ -991,9 +1112,14 @@
     // Agent 模式
     let isToolSelectorOpen = false;
     let selectedTools: ToolConfig[] = []; // 选中的工具配置列表
+    let selectedToolsAsk: ToolConfig[] = []; // 问答模式选中的工具配置列表
     let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置（包括未选中的）
+    let toolAutoApproveSettingsAsk: Record<string, boolean> = {}; // 问答模式所有工具的 autoApprove 配置
     // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
-    $: userToolCount = (selectedTools || []).filter(t => t.name !== 'get_siyuan_skills').length;
+    $: userToolCount =
+        (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
+            t => t.name !== 'get_siyuan_skills'
+        ).length;
 
     // 记忆当前选择的模式
     $: if (chatMode && settings && !isInitialLoading) {
@@ -1037,6 +1163,8 @@
         error?: string;
         thinkingCollapsed?: boolean;
         thinkingEnabled?: boolean; // 用户是否开启思考模式（从 provider 配置获取）
+        thinkingEffort?: ThinkingEffort; // 思考努力程度
+        toolCalls?: any[]; // 工具调用历史
     }> = []; // 多模型响应
     let isWaitingForAnswerSelection = false; // 是否在等待用户选择答案
     let selectedAnswerIndex: number | null = null; // 用户选择的答案索引
@@ -2326,22 +2454,32 @@
         const userAttachments = [...currentAttachments];
         const userContextDocuments = [...contextDocuments];
 
-        // 获取所有上下文文档的最新内容
         const contextDocumentsWithLatestContent: ContextDocument[] = [];
         if (userContextDocuments.length > 0) {
             for (const doc of userContextDocuments) {
                 try {
-                    const data = await exportMdContent(doc.id, false, false, 2, 0, false);
-                    if (data && data.content) {
-                        contextDocumentsWithLatestContent.push({
-                            id: doc.id,
-                            title: doc.title,
-                            content: data.content,
-                            type: doc.type,
-                        });
+                    let content: string;
+                    if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                        // agent模式或启用工具的问答模式：文档只保留ID，块获取kramdown
+                        if (doc.type === 'doc') {
+                            content = '';
+                        } else {
+                            const blockData = await getBlockKramdown(doc.id);
+                            content = (blockData && blockData.kramdown) || doc.content;
+                        }
+                    } else if (chatMode === 'edit') {
+                        const blockData = await getBlockKramdown(doc.id);
+                        content = (blockData && blockData.kramdown) || doc.content;
                     } else {
-                        contextDocumentsWithLatestContent.push(doc);
+                        const data = await exportMdContent(doc.id, false, false, 2, 0, false);
+                        content = (data && data.content) || doc.content;
                     }
+                    contextDocumentsWithLatestContent.push({
+                        id: doc.id,
+                        title: doc.title,
+                        content: content,
+                        type: doc.type,
+                    });
                 } catch (error) {
                     console.error(`Failed to get latest content for block ${doc.id}:`, error);
                     contextDocumentsWithLatestContent.push(doc);
@@ -2457,9 +2595,13 @@
                 thinking: '',
                 isLoading: true,
                 thinkingCollapsed: false,
+                toolCalls: [], // 存储工具调用历史
                 // 使用模型实例的 thinkingEnabled 值，如果没有则使用 modelConfig 中的默认值
                 thinkingEnabled:
                     model.thinkingEnabled ?? config?.modelConfig?.thinkingEnabled ?? false,
+                // 使用模型实例的 thinkingEffort 值，如果没有则使用 modelConfig 中的默认值
+                thinkingEffort:
+                    model.thinkingEffort ?? config?.modelConfig?.thinkingEffort ?? 'low',
             };
         });
 
@@ -2494,7 +2636,25 @@
 
             try {
                 let fullText = '';
-                let thinking = '';
+                let totalThinking = '';
+
+                // 准备 Agent/Ask 模式的工具列表
+                let toolsForAgent: any[] | undefined = undefined;
+                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                        currentSelectedTools.some(t => t.name === tool.function.name)
+                    );
+                    const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                    if (descTool) {
+                        const filteredToolDefs = selectedToolDefs.filter(
+                            tool => tool.function.name !== 'get_siyuan_skills'
+                        );
+                        toolsForAgent = [descTool, ...filteredToolDefs];
+                    } else {
+                        toolsForAgent = selectedToolDefs;
+                    }
+                }
 
                 // 准备联网搜索工具（如果启用）
                 let webSearchTools: any[] | undefined = undefined;
@@ -2510,58 +2670,140 @@
                                 },
                             },
                         ];
-                    } else if (modelIdLower.includes('claude')) {
-                        // webSearchTools = [
-                        //     {
-                        //         type: 'web_search_20250305',
-                        //         name: 'web_search',
-                        //         max_uses: modelConfig.webSearchMaxUses || 5,
-                        //     },
-                        // ];
                     }
                 }
 
-                await chat(
-                    model.provider,
-                    {
-                        apiKey: providerConfig.apiKey,
-                        model: modelConfig.id,
-                        messages: messagesToSend,
-                        temperature: tempModelSettings.temperatureEnabled
-                            ? tempModelSettings.temperature
-                            : modelConfig.temperature,
-                        maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
-                        stream: true,
-                        signal: abortController.signal,
-                        // 使用模型实例的 thinkingEnabled 值
-                        enableThinking:
-                            modelConfig.capabilities?.thinking &&
-                            (model.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false),
-                        // 使用模型实例的 thinkingEffort 值，如果没有则使用 modelConfig 中的默认值
-                        reasoningEffort:
-                            model.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
-                        tools: webSearchTools, // 传递联网搜索工具
-                        customBody, // 传递自定义参数
-                        onThinkingChunk: async (chunk: string) => {
-                            thinking += chunk;
-                            if (multiModelResponses[index]) {
-                                multiModelResponses[index].thinking = thinking;
-                                multiModelResponses = [...multiModelResponses];
-                            }
-                        },
-                        onThinkingComplete: () => {
-                            if (multiModelResponses[index] && multiModelResponses[index].thinking) {
-                                multiModelResponses[index].thinkingCollapsed = true;
-                                multiModelResponses = [...multiModelResponses];
-                            }
-                        },
-                        onChunk: async (chunk: string) => {
-                            fullText += chunk;
-                            if (multiModelResponses[index]) {
-                                multiModelResponses[index].content = fullText;
-                                multiModelResponses = [...multiModelResponses];
-                            }
-                        },
+                // 合并工具列表
+                const finalTools = [...(toolsForAgent || []), ...(webSearchTools || [])];
+                const toolsToPass = finalTools.length > 0 ? finalTools : undefined;
+
+                // 多模型工具调用循环
+                let modelMessagesToSend = [...messagesToSend];
+                let shouldContinue = true;
+
+                while (shouldContinue && !abortController.signal.aborted) {
+                    let hasNewToolCalls = false;
+                    let lastAssistantContent = '';
+                    let turnThinking = '';
+
+                    await chat(
+                        model.provider,
+                        {
+                            apiKey: providerConfig.apiKey,
+                            model: modelConfig.id,
+                            messages: modelMessagesToSend,
+                            temperature: tempModelSettings.temperatureEnabled
+                                ? tempModelSettings.temperature
+                                : modelConfig.temperature,
+                            maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
+                            stream: true,
+                            signal: abortController.signal,
+                            // 使用模型实例的 thinkingEnabled 值
+                            enableThinking:
+                                modelConfig.capabilities?.thinking &&
+                                (model.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false),
+                            // 使用模型实例的 thinkingEffort 值，如果没有则使用 modelConfig 中的默认值
+                            reasoningEffort:
+                                model.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
+                            tools: toolsToPass, 
+                            customBody, // 传递自定义参数
+                            onThinkingChunk: async (chunk: string) => {
+                                turnThinking += chunk;
+                                totalThinking += chunk;
+                                if (multiModelResponses[index]) {
+                                    multiModelResponses[index].thinking = totalThinking;
+                                    multiModelResponses = [...multiModelResponses];
+                                }
+                            },
+                            onThinkingComplete: () => {
+                                if (multiModelResponses[index] && multiModelResponses[index].thinking) {
+                                    multiModelResponses[index].thinkingCollapsed = true;
+                                    multiModelResponses = [...multiModelResponses];
+                                }
+                            },
+                            onChunk: async (chunk: string) => {
+                                fullText += chunk;
+                                lastAssistantContent += chunk;
+                                if (multiModelResponses[index]) {
+                                    multiModelResponses[index].content = fullText;
+                                    multiModelResponses = [...multiModelResponses];
+                                }
+                            },
+                            onToolCallComplete: async (toolCalls: ToolCall[]) => {
+                                console.log(`[MultiModel-${model.modelId}] Tool calls received:`, toolCalls);
+                                hasNewToolCalls = true;
+                                
+                                // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
+                                const isReasoningEnabled = modelConfig.capabilities?.thinking &&
+                                    (model.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false);
+                                
+                                const assistantMsg: any = {
+                                    role: 'assistant',
+                                    content: lastAssistantContent,
+                                    tool_calls: toolCalls
+                                };
+
+                                // 特别是 Kimi 等模型，如果启用了 thinking，assistant 消息必须包含 reasoning_content
+                                if (isReasoningEnabled) {
+                                    assistantMsg.reasoning_content = turnThinking;
+                                }
+
+                                modelMessagesToSend.push(assistantMsg);
+
+                                // 2. 执行工具并添加结果
+                                for (const tc of toolCalls) {
+                                    // 更新 UI 显示正在调用
+                                    if (multiModelResponses[index]) {
+                                        multiModelResponses[index].toolCalls = [
+                                            ...(multiModelResponses[index].toolCalls || []),
+                                            { ...tc, status: 'calling' }
+                                        ];
+                                        multiModelResponses = [...multiModelResponses];
+                                    }
+
+                                    // 检查是否自动批准
+                                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const toolConfig = currentSelectedTools.find(
+                                        t => t.name === tc.function.name
+                                    );
+                                    const isSystemTool = tc.function.name === 'get_siyuan_skills';
+                                    const autoApprove = isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
+
+                                    let toolResult: string;
+                                    if (autoApprove) {
+                                        console.log(`[MultiModel] Auto-approving tool: ${tc.function.name}`);
+                                        toolResult = await executeToolCall(tc);
+                                    } else {
+                                        // 多模型模式下，非自动批准的工具暂时直接拒绝，避免 UI 冲突
+                                        console.log(`[MultiModel] Skipping non-auto-approved tool: ${tc.function.name}`);
+                                        toolResult = `工具 ${tc.function.name} 需要手动批准。在多模型对比模式下，为了避免 UI 冲突，该工具未被自动执行。请在选择该模型后的单模型模式下重新尝试，或在设置中将该工具设为“自动批准”。`;
+                                    }
+
+                                    modelMessagesToSend.push({
+                                        role: 'tool',
+                                        tool_call_id: tc.id,
+                                        name: tc.function.name,
+                                        content: toolResult
+                                    });
+
+                                    // 更新 UI 显示结果
+                                    if (multiModelResponses[index]) {
+                                        const callIndex = multiModelResponses[index].toolCalls.findIndex(c => c.id === tc.id);
+                                        if (callIndex !== -1) {
+                                            multiModelResponses[index].toolCalls[callIndex].status = 'completed';
+                                            multiModelResponses[index].toolCalls[callIndex].result = toolResult;
+                                            multiModelResponses = [...multiModelResponses];
+                                        }
+                                    }
+                                }
+
+                                lastAssistantContent = '';
+                                // 标记模型仍在加载（等待下一轮响应）
+                                if (multiModelResponses[index]) {
+                                    multiModelResponses[index].isLoading = true;
+                                    multiModelResponses = [...multiModelResponses];
+                                }
+                            },
                         onComplete: async (text: string) => {
                             // 如果已经中断，不再处理完成回调
                             if (isAborted) {
@@ -2577,9 +2819,9 @@
                                 const processedContent =
                                     await saveBase64ImagesInContent(convertedText);
                                 multiModelResponses[index].content = processedContent;
-                                multiModelResponses[index].thinking = thinking;
+                                multiModelResponses[index].thinking = totalThinking;
                                 multiModelResponses[index].isLoading = false;
-                                if (thinking && !multiModelResponses[index].thinkingCollapsed) {
+                                if (totalThinking && !multiModelResponses[index].thinkingCollapsed) {
                                     multiModelResponses[index].thinkingCollapsed = true;
                                 }
                                 multiModelResponses = [...multiModelResponses];
@@ -2665,7 +2907,12 @@
                     providerConfig.customApiUrl,
                     providerConfig.advancedConfig
                 );
-            } catch (error) {
+
+                if (!hasNewToolCalls) {
+                    shouldContinue = false;
+                }
+            }
+        } catch (error) {
                 // 如果是主动中断，不显示错误
                 if ((error as Error).message !== 'Request aborted' && multiModelResponses[index]) {
                     // 如果用户已经选择答案，不再更新消息
@@ -2718,7 +2965,8 @@
         messages: Message[],
         contextDocumentsWithLatestContent: ContextDocument[],
         userContent: string,
-        lastUserMessage: Message
+        lastUserMessage: Message,
+        thinkingEnabled: boolean = false
     ) {
         // 过滤掉空的 assistant 消息，防止某些 Provider（例如 Kimi）报错
         // 但保留有生图的 assistant 消息
@@ -2749,6 +2997,29 @@
                     role: msg.role,
                     content: msg.content,
                 };
+                
+                // 只有在启用 thinking 模式时才保留相关内容
+                // 特别是 Kimi 等模型，如果启用了 thinking，历史 assistant 消息必须包含 reasoning_content
+                const shouldKeepReasoning = thinkingEnabled && userToolCount > 0;
+
+                if (msg.tool_calls) {
+                    baseMsg.tool_calls = msg.tool_calls;
+                }
+                if (msg.tool_call_id) {
+                    baseMsg.tool_call_id = msg.tool_call_id;
+                }
+                if (msg.name) {
+                    baseMsg.name = msg.name;
+                }
+
+                if (shouldKeepReasoning) {
+                    if (msg.reasoning_content !== undefined) {
+                        baseMsg.reasoning_content = msg.reasoning_content;
+                    } else if (msg.role === 'assistant' && msg.tool_calls) {
+                        // 如果启用了思考模式且有工具调用，确保 reasoning_content 字段存在（即使为空）
+                        baseMsg.reasoning_content = '';
+                    }
+                }
 
                 const isLastMessage = index === array.length - 1;
                 if (
@@ -2770,8 +3041,8 @@
                                       ? '网页'
                                       : '块';
 
-                            // agent模式：文档块只传递ID，不传递内容
-                            if (chatMode === 'agent' && doc.type === 'doc') {
+                            // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
 
@@ -3016,8 +3287,8 @@
                                           ? '网页'
                                           : '块';
 
-                                // agent模式：文档块只传递ID，不传递内容
-                                if (chatMode === 'agent' && doc.type === 'doc') {
+                                // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -3044,9 +3315,9 @@
             baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
-        // Agent 模式下添加工具使用强制规则（在第一次对话前就放入）
+        // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
-        if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
@@ -3334,10 +3605,9 @@
                 try {
                     let content: string;
 
-                    if (chatMode === 'agent') {
-                        // agent模式：文档只传递ID，块获取kramdown
+                    if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+                        // agent模式或启用工具的问答模式：文档只传递ID
                         if (doc.type === 'doc') {
-                            // 文档块只传递ID，不需要获取内容
                             content = '';
                         } else {
                             // 普通块获取kramdown格式
@@ -3433,7 +3703,7 @@
         await scrollToBottom(true);
 
         // DeepSeek 思考模式：开启新一轮对话前清理历史消息中的 reasoning_content，保留工具调用链
-        if (chatMode === 'agent' && currentProvider === 'deepseek') {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && currentProvider === 'deepseek') {
             messages = messages.map(msg => {
                 if (msg.role === 'assistant' && msg.reasoning_content) {
                     const { reasoning_content, ...rest } = msg as any;
@@ -3444,7 +3714,8 @@
         }
 
         const isDeepseekThinkingAgent =
-            chatMode === 'agent' &&
+            (chatMode === 'agent' || chatMode === 'ask') &&
+            userToolCount > 0 &&
             modelConfig.capabilities?.thinking &&
             (modelConfig.thinkingEnabled || false);
 
@@ -3524,8 +3795,8 @@
                                       ? '网页'
                                       : '块';
 
-                            // agent模式：文档块只传递ID，不传递内容
-                            if (chatMode === 'agent' && doc.type === 'doc') {
+                            // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
 
@@ -3686,8 +3957,8 @@
                                           ? '网页'
                                           : '块';
 
-                                // agent模式：文档块只传递ID，不传递内容
-                                if (chatMode === 'agent' && doc.type === 'doc') {
+                                // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -3766,8 +4037,8 @@
                                           ? '网页'
                                           : '块';
 
-                                // agent模式：文档块只传递ID，不传递内容
-                                if (chatMode === 'agent' && doc.type === 'doc') {
+                                // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -3954,8 +4225,8 @@
             }
             // 再添加编辑模式的提示词
             messagesToSend.unshift({ role: 'system', content: editModePrompt });
-        } else if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
-            // Agent 模式下添加工具使用强制规则
+        } else if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+            // Agent 模式或启用工具的问答模式下添加工具使用强制规则
             let baseSystemPrompt = settings.aiSystemPrompt || '';
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
@@ -4043,12 +4314,13 @@
             const enableThinking =
                 modelConfig.capabilities?.thinking && (modelConfig.thinkingEnabled || false);
 
-            // 准备 Agent 模式的工具列表
+            // 准备工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if (chatMode === 'agent' && userToolCount > 0) {
+            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
                 // 根据选中的工具名称筛选出对应的工具定义
+                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                    selectedTools.some(t => t.name === tool.function.name)
+                    currentSelectedTools.some(t => t.name === tool.function.name)
                 );
                 // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
                 // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
@@ -4095,8 +4367,8 @@
                 }
             }
 
-            // Agent 模式使用循环调用
-            if (chatMode === 'agent' && toolsForAgent && toolsForAgent.length > 0) {
+            // Agent 模式或启用工具的问答模式使用循环调用
+            if ((chatMode === 'agent' || chatMode === 'ask') && toolsForAgent && toolsForAgent.length > 0) {
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
@@ -4217,7 +4489,8 @@
 
                                 // 处理每个工具调用
                                 for (const toolCall of toolCalls) {
-                                    const toolConfig = selectedTools.find(
+                                    const currentSelectedToolsInLoop = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
                                     // get_siyuan_skills 是系统工具，默认自动批准
@@ -6385,8 +6658,8 @@
         }
 
         try {
-            // agent模式下，文档只存储块ID，不获取内容
-            if (chatMode === 'agent') {
+            // agent模式或启用工具的问答模式下，文档只存储块ID
+            if ((chatMode === 'agent' || (chatMode === 'ask' && userToolCount > 0))) {
                 contextDocuments = [
                     ...contextDocuments,
                     {
@@ -6561,8 +6834,8 @@
                 isDoc = blockInfo?.type === 'd'; // 'd' 表示文档块
             }
 
-            // agent模式和edit模式：获取kramdown格式（用于AI），但使用Markdown生成显示标题
-            if (chatMode === 'agent' || chatMode === 'edit') {
+            // agent模式、edit模式或启用工具的问答模式：获取kramdown格式（用于AI），但使用Markdown生成显示标题
+            if (chatMode === 'agent' || chatMode === 'edit' || (chatMode === 'ask' && userToolCount > 0)) {
                 const blockData = await getBlockKramdown(blockId);
                 if (blockData && blockData.kramdown) {
                     // 获取Markdown格式用于生成友好的显示标题
@@ -8143,18 +8416,37 @@
             } else {
                 toolAutoApproveSettings = {};
             }
+            if (data?.selectedToolsAsk && Array.isArray(data.selectedToolsAsk)) {
+                selectedToolsAsk = data.selectedToolsAsk;
+            } else {
+                selectedToolsAsk = [];
+            }
+            if (
+                data?.toolAutoApproveSettingsAsk &&
+                typeof data.toolAutoApproveSettingsAsk === 'object'
+            ) {
+                toolAutoApproveSettingsAsk = data.toolAutoApproveSettingsAsk;
+            } else {
+                toolAutoApproveSettingsAsk = {};
+            }
             // 初始化快照，避免初次加载触发自动保存
             lastSavedToolsConfigSnapshot = JSON.stringify({
                 selectedTools: selectedTools || [],
                 toolAutoApproveSettings: toolAutoApproveSettings || {},
+                selectedToolsAsk: selectedToolsAsk || [],
+                toolAutoApproveSettingsAsk: toolAutoApproveSettingsAsk || {},
             });
         } catch (error) {
             console.error('[ToolConfig] Load error:', error);
             selectedTools = [];
             toolAutoApproveSettings = {};
+            selectedToolsAsk = [];
+            toolAutoApproveSettingsAsk = {};
             lastSavedToolsConfigSnapshot = JSON.stringify({
                 selectedTools: [],
                 toolAutoApproveSettings: {},
+                selectedToolsAsk: [],
+                toolAutoApproveSettingsAsk: {},
             });
         } finally {
             // 标记配置已加载完成，此后才允许自动保存
@@ -8171,6 +8463,8 @@
         const currentConfig = {
             selectedTools: selectedTools || [],
             toolAutoApproveSettings: toolAutoApproveSettings || {},
+            selectedToolsAsk: selectedToolsAsk || [],
+            toolAutoApproveSettingsAsk: toolAutoApproveSettingsAsk || {},
         };
         const currentSnapshot = JSON.stringify(currentConfig);
         // 配置未变化时不落盘，避免安装后自动生成配置文件
@@ -8189,7 +8483,7 @@
     // 监听工具选择变化，自动保存
     $: {
         // 只在配置加载完成后，且确实有变化时才保存
-        if (isToolConfigLoaded && selectedTools) {
+        if (isToolConfigLoaded && (selectedTools || selectedToolsAsk)) {
             // 使用 tick 确保在下一个事件循环保存，避免频繁保存
             tick().then(() => {
                 saveToolsConfig();
@@ -8889,7 +9183,7 @@
         }
 
         // DeepSeek 思考模式：开启新一轮对话前清理历史消息中的 reasoning_content，保留工具调用链
-        if (chatMode === 'agent' && currentProvider === 'deepseek') {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && currentProvider === 'deepseek') {
             messages = messages.map(msg => {
                 if (msg.role === 'assistant' && msg.reasoning_content) {
                     const { reasoning_content, ...rest } = msg as any;
@@ -8900,7 +9194,8 @@
         }
 
         const isDeepseekThinkingAgent =
-            chatMode === 'agent' &&
+            (chatMode === 'agent' || chatMode === 'ask') &&
+            userToolCount > 0 &&
             modelConfig &&
             modelConfig.capabilities?.thinking &&
             (modelConfig.thinkingEnabled || false);
@@ -8978,8 +9273,8 @@
                                     : doc.type === 'webpage'
                                       ? '网页'
                                       : '块';
-                            // agent模式：文档块只传递ID，不传递内容
-                            if (chatMode === 'agent' && doc.type === 'doc') {
+                            // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
+                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
                             return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
@@ -9245,9 +9540,9 @@
             baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
-        // Agent 模式下添加工具使用强制规则
+        // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
-        if (chatMode === 'agent' && selectedTools && selectedTools.length > 0) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
@@ -9287,12 +9582,13 @@
             const enableThinking =
                 modelConfig.capabilities?.thinking && (modelConfig.thinkingEnabled || false);
 
-            // 准备 Agent 模式的工具列表
+            // 准备工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if (chatMode === 'agent' && userToolCount > 0) {
+            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
                 // 根据选中的工具名称筛选出对应的工具定义
+                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                    selectedTools.some(t => t.name === tool.function.name)
+                    currentSelectedTools.some(t => t.name === tool.function.name)
                 );
                 // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
                 // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
@@ -9310,8 +9606,8 @@
             // 用于保存生成的图片
             let generatedImages: any[] = [];
 
-            // Agent 模式使用循环调用
-            if (chatMode === 'agent' && toolsForAgent && toolsForAgent.length > 0) {
+            // Agent 模式或问答模式启用工具使用循环调用
+            if ((chatMode === 'agent' || chatMode === 'ask') && toolsForAgent && toolsForAgent.length > 0) {
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
@@ -9443,7 +9739,8 @@
 
                                 // 处理每个工具调用
                                 for (const toolCall of toolCalls) {
-                                    const toolConfig = selectedTools.find(
+                                    const currentSelectedToolsInLoop = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
                                     // get_siyuan_skills 是系统工具，默认自动批准
@@ -11285,6 +11582,64 @@
                                     </div>
                                 {/if}
 
+                                <!-- 工具调用 -->
+                                {#if response.toolCalls && response.toolCalls.length > 0}
+                                    <div class="ai-message__tool-calls" style="margin-top: 8px;">
+                                        <div class="ai-message__tool-calls-title">
+                                            🔧 {t('tools.calling')} ({response.toolCalls.length})
+                                        </div>
+                                        {#each response.toolCalls as toolCall}
+                                            {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
+                                            {@const isCompleted = toolCall.status === 'completed'}
+                                            {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
+                                            
+                                            <div class="ai-message__tool-call">
+                                                <div class="ai-message__tool-call-header" 
+                                                    on:click={() => {
+                                                        toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
+                                                        toolCallsExpanded = { ...toolCallsExpanded };
+                                                    }}
+                                                >
+                                                    <div class="ai-message__tool-call-name">
+                                                        <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
+                                                            <use xlink:href="#iconRight"></use>
+                                                        </svg>
+                                                        <span>{toolDisplayName}</span>
+                                                        {#if isCompleted}
+                                                            <span class="ai-message__tool-call-status">✅</span>
+                                                        {:else}
+                                                            <span class="ai-message__tool-call-status">⏳</span>
+                                                        {/if}
+                                                    </div>
+                                                </div>
+
+                                                {#if !isCollapsed}
+                                                    <div class="ai-message__tool-call-details">
+                                                        <div class="ai-message__tool-call-params">
+                                                            <div class="ai-message__tool-call-section-header">
+                                                                {t('aiSidebar.messages.params')}
+                                                            </div>
+                                                            <div class="ai-message__tool-call-code-wrapper">
+                                                                <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
+                                                            </div>
+                                                        </div>
+                                                        {#if toolCall.result}
+                                                            <div class="ai-message__tool-call-result">
+                                                                <div class="ai-message__tool-call-section-header">
+                                                                    {t('aiSidebar.messages.result')}
+                                                                </div>
+                                                                <div class="ai-message__tool-call-code-wrapper">
+                                                                    <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                </div>
+                                                            </div>
+                                                        {/if}
+                                                    </div>
+                                                {/if}
+                                            </div>
+                                        {/each}
+                                    </div>
+                                {/if}
+
                                 <div
                                     class="ai-sidebar__multi-model-card-content b3-typography"
                                     style={messageFontSize
@@ -11463,6 +11818,64 @@
                                                     {@html streamTabThink}
                                                 </div>
                                             {/if}
+                                        </div>
+                                    {/if}
+
+                                    <!-- 工具调用 -->
+                                    {#if response.toolCalls && response.toolCalls.length > 0}
+                                        <div class="ai-message__tool-calls" style="margin-top: 8px;">
+                                            <div class="ai-message__tool-calls-title">
+                                                🔧 {t('tools.calling')} ({response.toolCalls.length})
+                                            </div>
+                                            {#each response.toolCalls as toolCall}
+                                                {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
+                                                {@const isCompleted = toolCall.status === 'completed'}
+                                                {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
+                                                
+                                                <div class="ai-message__tool-call">
+                                                    <div class="ai-message__tool-call-header" 
+                                                        on:click={() => {
+                                                            toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
+                                                            toolCallsExpanded = { ...toolCallsExpanded };
+                                                        }}
+                                                    >
+                                                        <div class="ai-message__tool-call-name">
+                                                            <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
+                                                                <use xlink:href="#iconRight"></use>
+                                                            </svg>
+                                                            <span>{toolDisplayName}</span>
+                                                            {#if isCompleted}
+                                                                <span class="ai-message__tool-call-status">✅</span>
+                                                            {:else}
+                                                                <span class="ai-message__tool-call-status">⏳</span>
+                                                            {/if}
+                                                        </div>
+                                                    </div>
+
+                                                    {#if !isCollapsed}
+                                                        <div class="ai-message__tool-call-details">
+                                                            <div class="ai-message__tool-call-params">
+                                                                <div class="ai-message__tool-call-section-header">
+                                                                    {t('aiSidebar.messages.params')}
+                                                                </div>
+                                                                <div class="ai-message__tool-call-code-wrapper">
+                                                                    <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
+                                                                </div>
+                                                            </div>
+                                                            {#if toolCall.result}
+                                                                <div class="ai-message__tool-call-result">
+                                                                    <div class="ai-message__tool-call-section-header">
+                                                                        {t('aiSidebar.messages.result')}
+                                                                    </div>
+                                                                    <div class="ai-message__tool-call-code-wrapper">
+                                                                        <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                    </div>
+                                                                </div>
+                                                            {/if}
+                                                        </div>
+                                                    {/if}
+                                                </div>
+                                            {/each}
                                         </div>
                                     {/if}
 
@@ -11653,8 +12066,8 @@
                 </label>
             {/if}
 
-            <!-- Agent模式工具选择按钮 -->
-            {#if chatMode === 'agent'}
+            <!-- Agent/Ask 模式工具选择按钮 -->
+            {#if chatMode === 'agent' || chatMode === 'ask'}
                 <button
                     class="b3-button b3-button--text ai-sidebar__tool-selector-btn"
                     on:click={() => (isToolSelectorOpen = !isToolSelectorOpen)}
@@ -12478,11 +12891,21 @@
 
     <!-- 工具选择器对话框 -->
     {#if isToolSelectorOpen}
-        <ToolSelector
-            bind:selectedTools
-            bind:toolAutoApproveSettings
-            on:close={() => (isToolSelectorOpen = false)}
-        />
+        {#if chatMode === 'ask'}
+            <ToolSelector
+                bind:selectedTools={selectedToolsAsk}
+                bind:toolAutoApproveSettings={toolAutoApproveSettingsAsk}
+                categories={QA_TOOL_CATEGORIES}
+                on:close={() => (isToolSelectorOpen = false)}
+            />
+        {:else}
+            <ToolSelector
+                bind:selectedTools
+                bind:toolAutoApproveSettings
+                categories={TOOL_CATEGORIES}
+                on:close={() => (isToolSelectorOpen = false)}
+            />
+        {/if}
     {/if}
 
     <!-- 保存到笔记对话框 -->

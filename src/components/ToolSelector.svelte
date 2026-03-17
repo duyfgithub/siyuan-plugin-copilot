@@ -12,6 +12,7 @@
 
     export let selectedTools: ToolConfig[] = [];
     export let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置
+    export let categories: Record<string, { tools: string[] }> = TOOL_CATEGORIES; // 工具分类配置
 
     const dispatch = createEventDispatcher();
 
@@ -35,13 +36,16 @@
         dispatch('close');
     }
     // 按类别组织工具
-    const categorizedTools: Record<string, Tool[]> = {};
-    for (const [category, config] of Object.entries(TOOL_CATEGORIES)) {
-        // 按照 config.tools 中定义的顺序映射工具
-        categorizedTools[category] = config.tools
-            .map(toolName => AVAILABLE_TOOLS.find(tool => tool.function.name === toolName))
-            .filter(tool => tool !== undefined) as Tool[];
-    }
+    $: categorizedTools = (() => {
+        const result: Record<string, Tool[]> = {};
+        for (const [category, config] of Object.entries(categories)) {
+            // 按照 config.tools 中定义的顺序映射工具
+            result[category] = config.tools
+                .map(toolName => AVAILABLE_TOOLS.find(tool => tool.function.name === toolName))
+                .filter(tool => tool !== undefined) as Tool[];
+        }
+        return result;
+    })();
 
     // 切换工具选择
     function toggleTool(toolName: string) {
@@ -88,8 +92,8 @@
         }
     }
 
-    // 用户可选择的工具列表（排除系统工具 get_siyuan_skills）
-    $: userSelectableTools = AVAILABLE_TOOLS.filter(
+    // 用户可选择的工具列表（基于当前分类配置，排除系统工具 get_siyuan_skills）
+    $: userSelectableTools = Object.values(categorizedTools).flat().filter(
         tool => tool.function.name !== 'get_siyuan_skills'
     );
 
