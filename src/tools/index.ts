@@ -52,6 +52,60 @@ function getProtyle() {
     return getActiveEditor(false)?.protyle;
 }
 
+// ==================== 工具分类 ====================
+
+/**
+ * 工具分类配置
+ * 用于在 UI 中按类别组织展示工具
+ */
+export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
+    siyuan: {
+        tools: [
+            'siyuan_sql_query',
+            'siyuan_database',
+            'siyuan_get_block_content',
+            'siyuan_get_block_attrs',
+            'siyuan_set_block_attrs',
+            'siyuan_insert_block',
+            'siyuan_update_block',
+            'siyuan_delete_block',
+            'siyuan_create_document',
+            'siyuan_create_child_document',
+            'siyuan_get_doc_tree',
+            'siyuan_list_notebooks',
+            'siyuan_create_notebook',
+            'siyuan_rename_document',
+            'siyuan_move_documents',
+            'siyuan_send_notification',
+            'siyuan_get_current_time',
+            'siyuan_fetch_sync_post',
+        ],
+    },
+    database: {
+        tools: [
+            'siyuan_search_database',
+            'siyuan_get_database_columns',
+            'siyuan_render_database',
+            'siyuan_add_database_rows',
+            'siyuan_add_database_blocks',
+            'siyuan_set_database_cell',
+            'siyuan_batch_set_database_cells',
+            'siyuan_get_block_databases',
+            'siyuan_convert_blockid_to_itemid',
+            'siyuan_convert_itemid_to_blockid',
+            'siyuan_add_database_column',
+            'siyuan_remove_database_column',
+            'siyuan_remove_database_rows',
+        ],
+    },
+    other: {
+        tools: [
+            'web_fetch',
+            'soul',
+        ],
+    },
+};
+
 // ==================== 工具类型定义 ====================
 
 export interface Tool {

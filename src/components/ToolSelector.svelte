@@ -7,7 +7,7 @@
 
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import { AVAILABLE_TOOLS, type Tool } from '../tools';
+    import { AVAILABLE_TOOLS, TOOL_CATEGORIES, type Tool } from '../tools';
     import { t } from '../utils/i18n';
 
     export let selectedTools: ToolConfig[] = [];
@@ -34,59 +34,9 @@
     function close() {
         dispatch('close');
     }
-    const toolCategories = {
-        siyuan: {
-            name: t('tools.category.siyuan'),
-            tools: [
-                'siyuan_sql_query',
-                'siyuan_database',
-                'siyuan_get_block_content',
-                'siyuan_get_block_attrs',
-                'siyuan_set_block_attrs',
-                'siyuan_insert_block',
-                'siyuan_update_block',
-                'siyuan_delete_block',
-                'siyuan_create_document',
-                'siyuan_create_child_document',
-                'siyuan_get_doc_tree',
-                'siyuan_list_notebooks',
-                'siyuan_create_notebook',
-                'siyuan_rename_document',
-                'siyuan_move_documents',
-                'siyuan_send_notification',
-                'siyuan_get_current_time',
-                'siyuan_fetch_sync_post',
-            ],
-        },
-        database: {
-            name: t('tools.category.database'),
-            tools: [
-                    'siyuan_search_database',
-                    'siyuan_get_database_columns',
-                    'siyuan_render_database',
-                    'siyuan_add_database_rows',
-                    'siyuan_add_database_blocks',
-                    'siyuan_set_database_cell',
-                    'siyuan_batch_set_database_cells',
-                    'siyuan_get_block_databases',
-                    'siyuan_convert_blockid_to_itemid',
-                    'siyuan_convert_itemid_to_blockid',
-                    'siyuan_add_database_column',
-                    'siyuan_remove_database_column',
-                    'siyuan_remove_database_rows',
-            ],
-        },
-        other: {
-            name: t('tools.category.other'),
-            tools: [
-            'web_fetch',
-            'soul'],
-        },
-    };
-
     // 按类别组织工具
     const categorizedTools: Record<string, Tool[]> = {};
-    for (const [category, config] of Object.entries(toolCategories)) {
+    for (const [category, config] of Object.entries(TOOL_CATEGORIES)) {
         // 按照 config.tools 中定义的顺序映射工具
         categorizedTools[category] = config.tools
             .map(toolName => AVAILABLE_TOOLS.find(tool => tool.function.name === toolName))
@@ -237,7 +187,7 @@
 
         {#each Object.entries(categorizedTools) as [category, tools] (category)}
             <div class="tool-category">
-                <h4 class="tool-category__title">{toolCategories[category].name}</h4>
+                <h4 class="tool-category__title">{t(`tools.category.${category}`)}</h4>
                 <div class="tool-list">
                     {#each tools as tool (tool.function.name)}
                         {@const toolName = tool.function.name}
