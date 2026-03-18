@@ -81,6 +81,18 @@ export interface Message {
         isSelected?: boolean; // 是否被选择
         thinkingCollapsed?: boolean; // 思考内容是否折叠
         thinkingEnabled?: boolean; // 用户是否开启思考模式
+        thinkingEffort?: ThinkingEffort; // 思考努力程度
+        toolCalls?: Array<{
+            id: string;
+            type: string;
+            function: {
+                name: string;
+                arguments: string;
+            };
+            status?: 'calling' | 'completed';
+            result?: string;
+            thinkingBefore?: string; // 该工具调用前的思考内容
+        }>; // 工具调用历史
     }>; // 多模型响应
     generatedImages?: GeneratedImageData[]; // 生成的图片数据（用于多轮生图）
 }
