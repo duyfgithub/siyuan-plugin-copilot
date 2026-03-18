@@ -1204,6 +1204,7 @@
             result?: string;
             thinkingBefore?: string; // 该工具调用前的思考内容
         }>; // 工具调用历史
+        conversationMessages?: Message[]; // 该模型的完整对话消息历史（包含 tool_calls 和 tool 响应）
     }> = []; // 多模型响应
     let isWaitingForAnswerSelection = false; // 是否在等待用户选择答案
     let selectedAnswerIndex: number | null = null; // 用户选择的答案索引
@@ -2840,6 +2841,8 @@
                                 // 标记模型仍在加载（等待下一轮响应）
                                 if (multiModelResponses[index]) {
                                     multiModelResponses[index].isLoading = true;
+                                    // 保存当前模型的对话历史（包含 tool_calls 和 tool 响应）
+                                    multiModelResponses[index].conversationMessages = [...modelMessagesToSend];
                                     multiModelResponses = [...multiModelResponses];
                                 }
                             },
@@ -2860,6 +2863,8 @@
                                 multiModelResponses[index].content = processedContent;
                                 multiModelResponses[index].thinking = totalThinking;
                                 multiModelResponses[index].isLoading = false;
+                                // 保存最终的对话历史（包含最后一次 assistant 回复）
+                                multiModelResponses[index].conversationMessages = [...modelMessagesToSend];
                                 if (totalThinking && !multiModelResponses[index].thinkingCollapsed) {
                                     multiModelResponses[index].thinkingCollapsed = true;
                                 }
@@ -3458,20 +3463,74 @@
         // 不再强制重置布局，保持用户选择的布局样式
         // multiModelLayout = 'tab';
 
+        // 【修复】从选中的模型对话历史中提取 tool 调用链消息
+        // 这些消息需要被添加到 messages 数组中，以便重新生成时能正确重建上下文
+        const toolMessages: Message[] = [];
+        if (selectedResponse.conversationMessages && selectedResponse.conversationMessages.length > 0) {
+            for (const msg of selectedResponse.conversationMessages) {
+                // 提取包含 tool_calls 的 assistant 消息
+                if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+                    const assistantMsg: Message = {
+                        role: 'assistant',
+                        content: msg.content,
+                        tool_calls: msg.tool_calls,
+                    };
+                    // 如果有 reasoning_content，也一并保存
+                    if (msg.reasoning_content !== undefined) {
+                        (assistantMsg as any).reasoning_content = msg.reasoning_content;
+                    }
+                    toolMessages.push(assistantMsg);
+                }
+                // 提取 tool 响应消息
+                else if (msg.role === 'tool' && msg.tool_call_id) {
+                    toolMessages.push({
+                        role: 'tool',
+                        tool_call_id: msg.tool_call_id,
+                        name: msg.name,
+                        content: msg.content,
+                    });
+                }
+            }
+        }
+
+        // 【关键修复】将 tool 调用链消息插入到 messages 中
+        // 注意：必须先插入 tool 消息，再更新/创建 assistant 消息
+        if (toolMessages.length > 0) {
+            let lastUserMessageIndex = -1;
+            for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === 'user') {
+                    lastUserMessageIndex = i;
+                    break;
+                }
+            }
+            
+            if (lastUserMessageIndex >= 0) {
+                // 在用户消息之后插入 tool 消息
+                const insertIndex = lastUserMessageIndex + 1;
+                messages = [
+                    ...messages.slice(0, insertIndex),
+                    ...toolMessages,
+                    ...messages.slice(insertIndex)
+                ];
+            }
+        }
+
         // 【修复】更新已存在的助手消息，而不是创建新消息
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+        // 注意：tool 消息已经插入，现在需要找到 assistant 消息并更新它
+        const assistantMsgIndex = messages.findIndex(
+            m => m.role === 'assistant' && m.multiModelResponses
+        );
+        if (assistantMsgIndex >= 0) {
             // 更新已有的助手消息
-            lastMessage.content = selectedResponse.content; // 设置为选择的答案内容
-            lastMessage.thinking = selectedResponse.thinking || ''; // 保存思考内容
-            lastMessage.multiModelResponses = multiModelResponses.map((response, i) => ({
+            messages[assistantMsgIndex].content = selectedResponse.content; // 设置为选择的答案内容
+            messages[assistantMsgIndex].thinking = selectedResponse.thinking || ''; // 保存思考内容
+            messages[assistantMsgIndex].multiModelResponses = multiModelResponses.map((response, i) => ({
                 ...response,
                 isSelected: i === index, // 标记哪个被选择
                 modelName: i === index ? ' ✅' + response.modelName : response.modelName, // 选择的模型名添加✅
             }));
-            messages = [...messages];
         } else {
-            // 如果没有找到助手消息（不应该发生），创建新消息
+            // 如果没有找到助手消息（不应该发生），在最后创建新消息
             const assistantMessage: Message = {
                 role: 'assistant',
                 content: selectedResponse.content,
@@ -3484,6 +3543,9 @@
             };
             messages = [...messages, assistantMessage];
         }
+        
+        // 触发响应式更新
+        messages = [...messages];
 
         // 清除多模型状态（全局多模型响应清除），但记录已选索引用于UI
         multiModelResponses = [];
