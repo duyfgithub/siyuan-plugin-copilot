@@ -2202,7 +2202,6 @@ export default class PluginSample extends Plugin {
      * 迁移旧会话存储到独立文件
      */
     async migrateSessions(settings: any) {
-        console.log('Starting session storage migration...');
 
         // 加载会话数据
         const data = await this.loadData('chat-sessions.json');
