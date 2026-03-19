@@ -8,7 +8,7 @@
         "settingsPanel": "Settings Panel",
         "settingsGroup": {
             "ai": "AI Settings",
-            "tool": "Tool Settings",
+            "tools": "Tools Settings",
             "aiPlatform": "AI Platform Configuration",
             "systemPrompt": "System Prompt",
             "platformManagement": "Platform Management",
