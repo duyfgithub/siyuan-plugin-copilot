@@ -16,10 +16,11 @@
     let notebookOptions: Record<string, string> = {};
 
     // SOUL 文档验证状态
-    let soulDocValidation: { status: 'idle' | 'checking' | 'valid' | 'invalid'; message: string } = {
-        status: 'idle',
-        message: '',
-    };
+    let soulDocValidation: { status: 'idle' | 'checking' | 'valid' | 'invalid'; message: string } =
+        {
+            status: 'idle',
+            message: '',
+        };
 
     interface ISettingGroup {
         name: string;
@@ -94,7 +95,7 @@
     function handleDrop(e: DragEvent, targetIndex: number) {
         e.preventDefault();
         dragOverIndex = null;
-        
+
         if (dragSourceIndex === null || dragSourceIndex === targetIndex) {
             return;
         }
@@ -253,9 +254,9 @@
     $: allProviderOptions = (() => {
         // 获取被禁用的内置平台列表
         const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
-        
+
         const builtIn = Object.keys(builtInProviderNames)
-            .filter(id => !disabledBuiltIn.includes(id))  // 过滤掉被禁用的内置平台
+            .filter(id => !disabledBuiltIn.includes(id)) // 过滤掉被禁用的内置平台
             .map(id => ({
                 id,
                 name: builtInProviderNames[id],
@@ -271,7 +272,7 @@
         );
 
         const allProviders = [...builtIn, ...custom];
-        
+
         // 根据保存的顺序排序
         const savedOrder = settings.aiProviders?.providerOrder || [];
         if (savedOrder.length > 0) {
@@ -289,7 +290,7 @@
                 return 0;
             });
         }
-        
+
         return allProviders;
     })();
 
@@ -412,62 +413,6 @@
             ],
         },
         {
-            name: t('settings.settingsGroup.tools') || '工具 设置',
-            items: [
-                {
-                    key: 'pythonPath',
-                    value: settings.pythonPath,
-                    type: 'textinput',
-                    title: t('settings.pythonPath.title') || 'Python 解释器路径',
-                    description:
-                        t('settings.pythonPath.description') ||
-                        '设置 Python 可执行文件的路径，用于运行 Python 代码工具。留空则使用系统默认的 python 命令',
-                    placeholder: t('settings.pythonPath.placeholder') || '例如：C:\\Python311\\python.exe 或 /usr/bin/python3',
-                },
-            ],
-        },
-        {
-            name: t('settings.settingsGroup.soul') || 'SOUL 文档',
-            items: [
-                {
-                    key: 'soulDocId',
-                    value: settings.soulDocId,
-                    type: 'textinput',
-                    title: t('settings.soulDocId.title') || 'SOUL 文档 ID',
-                    description:
-                        t('settings.soulDocId.description') ||
-                        '设置 SOUL 数据存储的文档 ID。SOUL 工具只能在此文档内进行增删改查操作。',
-                    placeholder: t('settings.soulDocId.placeholder') || '输入文档块 ID，如 20260312120000-xxxxxxxx',
-                },
-            ],
-        },
-        {
-            name: t('settings.settingsGroup.webApp') || '网页小程序',
-            items: [
-                {
-                    key: 'openLinksInWebView',
-                    value: settings.openLinksInWebView,
-                    type: 'checkbox',
-                    title: t('settings.openLinksInWebView.title') || '在 WebView 中打开链接',
-                    description:
-                        t('settings.openLinksInWebView.description') ||
-                        '点击思源笔记中的 https 链接时，在内置 WebView 标签页中打开，而不是外部浏览器',
-                },
-                {
-                    key: 'searchEngine',
-                    value: settings.searchEngine,
-                    type: 'select',
-                    title: '搜索引擎',
-                    description:
-                        '选择地址栏使用的默认搜索引擎',
-                    options: {
-                        google: 'Google',
-                        bing: 'Bing',
-                    },
-                },
-            ],
-        },
-        {
             name: t('settings.settingsGroup.translate') || '翻译设置',
             items: [
                 {
@@ -496,6 +441,65 @@
                     rows: 8,
                     placeholder:
                         t('settings.translate.prompt.placeholder') || '输入翻译提示词模板...',
+                },
+            ],
+        },
+        {
+            name: t('settings.settingsGroup.tools') || '工具设置',
+            items: [
+                {
+                    key: 'pythonPath',
+                    value: settings.pythonPath,
+                    type: 'textinput',
+                    title: t('settings.pythonPath.title') || 'Python 解释器路径',
+                    description:
+                        t('settings.pythonPath.description') ||
+                        '设置 Python 可执行文件的路径，用于运行 Python 代码工具。留空则使用系统默认的 python 命令',
+                    placeholder:
+                        t('settings.pythonPath.placeholder') ||
+                        '例如：C:\\Python311\\python.exe 或 /usr/bin/python3',
+                },
+            ],
+        },
+        {
+            name: t('settings.settingsGroup.soul') || 'SOUL 文档',
+            items: [
+                {
+                    key: 'soulDocId',
+                    value: settings.soulDocId,
+                    type: 'textinput',
+                    title: t('settings.soulDocId.title') || 'SOUL 文档 ID',
+                    description:
+                        t('settings.soulDocId.description') ||
+                        '设置 SOUL 数据存储的文档 ID。SOUL 工具只能在此文档内进行增删改查操作。',
+                    placeholder:
+                        t('settings.soulDocId.placeholder') ||
+                        '输入文档块 ID，如 20260312120000-xxxxxxxx',
+                },
+            ],
+        },
+        {
+            name: t('settings.settingsGroup.webApp') || '网页小程序',
+            items: [
+                {
+                    key: 'openLinksInWebView',
+                    value: settings.openLinksInWebView,
+                    type: 'checkbox',
+                    title: t('settings.openLinksInWebView.title') || '在 WebView 中打开链接',
+                    description:
+                        t('settings.openLinksInWebView.description') ||
+                        '点击思源笔记中的 https 链接时，在内置 WebView 标签页中打开，而不是外部浏览器',
+                },
+                {
+                    key: 'searchEngine',
+                    value: settings.searchEngine,
+                    type: 'select',
+                    title: '搜索引擎',
+                    description: '选择地址栏使用的默认搜索引擎',
+                    options: {
+                        google: 'Google',
+                        bing: 'Bing',
+                    },
                 },
             ],
         },
@@ -694,7 +698,10 @@
             return;
         }
 
-        soulDocValidation = { status: 'checking', message: t('settings.soulDocId.validating') || '验证中...' };
+        soulDocValidation = {
+            status: 'checking',
+            message: t('settings.soulDocId.validating') || '验证中...',
+        };
 
         try {
             const block = await getBlockByID(docId);
@@ -709,14 +716,17 @@
             if (block.type !== 'd') {
                 soulDocValidation = {
                     status: 'invalid',
-                    message: t('settings.soulDocId.notDoc') || `该 ID 不是文档类型，当前类型: ${block.type}`,
+                    message:
+                        t('settings.soulDocId.notDoc') ||
+                        `该 ID 不是文档类型，当前类型: ${block.type}`,
                 };
                 return;
             }
 
             soulDocValidation = {
                 status: 'valid',
-                message: t('settings.soulDocId.valid') || `✓ 有效文档: ${block.content || '未命名'}`,
+                message:
+                    t('settings.soulDocId.valid') || `✓ 有效文档: ${block.content || '未命名'}`,
             };
         } catch (error) {
             soulDocValidation = {
@@ -820,8 +830,13 @@
                                     class:platform-item--selected={selectedProviderId ===
                                         platform.id}
                                     class:platform-item--dragging={dragSourceIndex === index}
-                                    class:platform-item--drag-over-top={dragOverIndex === index && dragSourceIndex !== null && dragSourceIndex > index}
-                                    class:platform-item--drag-over-bottom={dragOverIndex === index && dragSourceIndex !== null && dragSourceIndex < index}
+                                    class:platform-item--drag-over-top={dragOverIndex === index &&
+                                        dragSourceIndex !== null &&
+                                        dragSourceIndex > index}
+                                    class:platform-item--drag-over-bottom={dragOverIndex ===
+                                        index &&
+                                        dragSourceIndex !== null &&
+                                        dragSourceIndex < index}
                                     draggable="true"
                                     on:click={() => {
                                         selectedProviderId = platform.id;
@@ -1024,8 +1039,7 @@
                             {t('settings.soulDocId.title') || 'SOUL 文档 ID'}
                         </div>
                         <div class="config__item-description">
-                            {t('settings.soulDocId.description') ||
-                                '设置 SOUL 数据存储的文档 ID'}
+                            {t('settings.soulDocId.description') || '设置 SOUL 数据存储的文档 ID'}
                         </div>
                     </div>
                     <div class="config__item-control">
