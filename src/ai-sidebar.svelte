@@ -16124,9 +16124,6 @@
     .ai-sidebar__multi-model-card-scroll {
         flex: 1;
         min-height: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
         overflow-y: auto;
         padding: 4px;
         user-select: text; // 允许文本选择
@@ -16151,6 +16148,9 @@
     }
 
     .ai-sidebar__multi-model-card-content {
+        flex: 0 0 auto;
+        min-height: fit-content;
+        overflow: visible;
         user-select: text; // 允许文本选择
     }
 
