@@ -52,7 +52,14 @@
     import { settingsStore } from './stores/settings';
     import { confirm, Constants, platformUtils } from 'siyuan';
     import { t } from './utils/i18n';
-    import { AVAILABLE_TOOLS, executeToolCall, TOOL_CATEGORIES, QA_TOOL_CATEGORIES, soul } from './tools';
+    import {
+        AVAILABLE_TOOLS,
+        createGetSiyuanSkillsTool,
+        executeToolCall,
+        TOOL_CATEGORIES,
+        QA_TOOL_CATEGORIES,
+        soul,
+    } from './tools';
 
     // Agent 模式工具使用强制规则（统一常量）
     const AGENT_TOOL_USAGE_INSTRUCTION = `=== 工具使用强制规则 ===
@@ -754,15 +761,14 @@
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                     currentSelectedTools.some(t => t.name === tool.function.name)
                 );
-                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                if (descTool) {
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills'
-                    );
-                    toolsForAgent = [descTool, ...filteredToolDefs];
-                } else {
-                    toolsForAgent = selectedToolDefs;
-                }
+                const filteredToolDefs = selectedToolDefs.filter(
+                    tool => tool.function.name !== 'get_siyuan_skills'
+                );
+                const descTool =
+                    chatMode === 'ask'
+                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
 
             // 准备联网搜索工具（如果启用）
@@ -2685,15 +2691,16 @@
                     const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                         currentSelectedTools.some(t => t.name === tool.function.name)
                     );
-                    const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    if (descTool) {
-                        const filteredToolDefs = selectedToolDefs.filter(
-                            tool => tool.function.name !== 'get_siyuan_skills'
-                        );
-                        toolsForAgent = [descTool, ...filteredToolDefs];
-                    } else {
-                        toolsForAgent = selectedToolDefs;
-                    }
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills'
+                    );
+                    const descTool =
+                        chatMode === 'ask'
+                            ? createGetSiyuanSkillsTool(
+                                  filteredToolDefs.map(tool => tool.function.name)
+                              )
+                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                    toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
                 }
 
                 // 准备联网搜索工具（如果启用）
@@ -4448,17 +4455,14 @@
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                     currentSelectedTools.some(t => t.name === tool.function.name)
                 );
-                // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
-                // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
-                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                if (descTool) {
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills'
-                    );
-                    toolsForAgent = [descTool, ...filteredToolDefs];
-                } else {
-                    toolsForAgent = selectedToolDefs;
-                }
+                const filteredToolDefs = selectedToolDefs.filter(
+                    tool => tool.function.name !== 'get_siyuan_skills'
+                );
+                const descTool =
+                    chatMode === 'ask'
+                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
 
             // 准备联网搜索工具（如果启用）
@@ -9602,17 +9606,14 @@
                 const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                     currentSelectedTools.some(t => t.name === tool.function.name)
                 );
-                // 始终添加 get_siyuan_skills 工具（用于获取工具详细说明）
-                // 注意：需要排除用户可能已选择的 get_siyuan_skills，避免重复
-                const descTool = AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                if (descTool) {
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills'
-                    );
-                    toolsForAgent = [descTool, ...filteredToolDefs];
-                } else {
-                    toolsForAgent = selectedToolDefs;
-                }
+                const filteredToolDefs = selectedToolDefs.filter(
+                    tool => tool.function.name !== 'get_siyuan_skills'
+                );
+                const descTool =
+                    chatMode === 'ask'
+                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
 
             // 用于保存生成的图片
@@ -10873,6 +10874,7 @@
                                                     </div>
                                                 </div>
 
+                                                <div class="ai-sidebar__multi-model-card-scroll">
                                                 <!-- 思考过程 -->
                                                 {#if response.thinking}
                                                     {@const isCollapsed =
@@ -11099,6 +11101,7 @@
                                                         )}
                                                         {@html contentDisplay}
                                                     {/if}
+                                                </div>
                                                 </div>
                                             </div>
                                         {/each}
@@ -11882,6 +11885,7 @@
                                     </div>
                                 </div>
 
+                                <div class="ai-sidebar__multi-model-card-scroll">
                                 <!-- 按轮次显示思考、工具调用和回复 -->
                                 {#if response.toolCalls && response.toolCalls.length > 0}
                                     {@const groupedToolCalls = response.toolCalls.reduce((acc, tc, i) => {
@@ -12067,6 +12071,7 @@
                                             </span>
                                         </div>
                                     {/if}
+                                </div>
                                 </div>
                             </div>
                         {/each}
@@ -16116,8 +16121,12 @@
         border-color: var(--b3-theme-success) !important;
     }
 
-    .ai-sidebar__multi-model-card-content {
+    .ai-sidebar__multi-model-card-scroll {
         flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
         overflow-y: auto;
         padding: 4px;
         user-select: text; // 允许文本选择
@@ -16139,6 +16148,10 @@
                 background: var(--b3-theme-on-surface);
             }
         }
+    }
+
+    .ai-sidebar__multi-model-card-content {
+        user-select: text; // 允许文本选择
     }
 
     .ai-sidebar__multi-model-card-loading {

@@ -277,13 +277,7 @@ export function getSiyuanSkills(toolName: string): string {
     return description;
 }
 
-export const AVAILABLE_TOOLS: Tool[] = [
-    // 工具详细描述查询工具 - 隐藏工具，不在 UI 中显示
-    {
-        type: 'function',
-        function: {
-            name: 'get_siyuan_skills',
-            description: `了解思源笔记AI使用规范，获取指定工具的详细使用说明文档。
+const GET_SIYUAN_SKILLS_TOOL_DESCRIPTION = `了解思源笔记AI使用规范，获取指定工具的详细使用说明文档。
 
 **重要规则**
 - 在使用任何工具之前，必须先调用此工具获取该工具的详细说明。
@@ -294,56 +288,83 @@ export const AVAILABLE_TOOLS: Tool[] = [
 4. 根据文档正确调用目标工具
 
 ## 参数
-- toolName: 要查询的工具名称，如 "siyuan_sql_query", "siyuan_update_block" 等`,
+- toolName: 要查询的工具名称，如 "siyuan_sql_query" 等`;
+
+const GET_SIYUAN_SKILLS_ALL_TOOL_NAMES = [
+    'siyuan_sql_query',
+    'siyuan_update_block',
+    'siyuan_insert_block',
+    'siyuan_get_block_content',
+    'siyuan_create_document',
+    'siyuan_create_child_document',
+    'siyuan_list_notebooks',
+    'siyuan_get_doc_tree',
+    'siyuan_create_notebook',
+    'siyuan_rename_document',
+    'siyuan_move_documents',
+    'siyuan_get_block_attrs',
+    'siyuan_set_block_attrs',
+    'siyuan_search_database',
+    'siyuan_get_database_columns',
+    'siyuan_render_database',
+    'siyuan_add_database_rows',
+    'siyuan_add_database_blocks',
+    'siyuan_set_database_cell',
+    'siyuan_batch_set_database_cells',
+    'siyuan_get_block_databases',
+    'siyuan_convert_blockid_to_itemid',
+    'siyuan_convert_itemid_to_blockid',
+    'siyuan_add_database_column',
+    'siyuan_remove_database_column',
+    'siyuan_remove_database_rows',
+    'web_fetch',
+    'siyuan_delete_block',
+    'siyuan_fetch_sync_post',
+    'siyuan_send_notification',
+    'siyuan_get_current_time',
+    'soul',
+    'run_js',
+    'run_python',
+] as const;
+
+function buildGetSiyuanSkillsEnum(allowedToolNames?: string[]): string[] {
+    if (!allowedToolNames || allowedToolNames.length === 0) {
+        return [...GET_SIYUAN_SKILLS_ALL_TOOL_NAMES];
+    }
+
+    const allowedSet = new Set(allowedToolNames);
+    return GET_SIYUAN_SKILLS_ALL_TOOL_NAMES.filter(name => allowedSet.has(name));
+}
+
+/**
+ * 构建 get_siyuan_skills 工具定义
+ * - 默认返回全量工具 enum（兼容 agent 模式）
+ * - 传入 allowedToolNames 后只保留该范围（用于问答模式）
+ */
+export function createGetSiyuanSkillsTool(allowedToolNames?: string[]): Tool {
+    return {
+        type: 'function',
+        function: {
+            name: 'get_siyuan_skills',
+            description: GET_SIYUAN_SKILLS_TOOL_DESCRIPTION,
             parameters: {
                 type: 'object',
                 properties: {
                     toolName: {
                         type: 'string',
                         description: '要获取详细描述的工具名称',
-                        enum: [
-                            'siyuan_sql_query',
-                            'siyuan_update_block',
-                            'siyuan_insert_block',
-                            'siyuan_get_block_content',
-                            'siyuan_create_document',
-                            'siyuan_create_child_document',
-                            'siyuan_list_notebooks',
-                            'siyuan_get_doc_tree',
-                            'siyuan_create_notebook',
-                            'siyuan_rename_document',
-                            'siyuan_move_documents',
-                            'siyuan_get_block_attrs',
-                            'siyuan_set_block_attrs',
-                            // 数据库属性视图工具
-                            'siyuan_search_database',
-                            'siyuan_get_database_columns',
-                            'siyuan_render_database',
-                            'siyuan_add_database_rows',
-                            'siyuan_add_database_blocks',
-                            'siyuan_set_database_cell',
-                            'siyuan_batch_set_database_cells',
-                            'siyuan_get_block_databases',
-                            'siyuan_convert_blockid_to_itemid',
-                            'siyuan_convert_itemid_to_blockid',
-                            'siyuan_add_database_column',
-                            'siyuan_remove_database_column',
-                            'siyuan_remove_database_rows',
-                            'web_fetch',
-                            'siyuan_delete_block',
-                            'siyuan_fetch_sync_post',
-                            'siyuan_send_notification',
-                            'siyuan_get_current_time',
-                            'soul',
-                            'run_js',
-                            'run_python',
-                        ],
+                        enum: buildGetSiyuanSkillsEnum(allowedToolNames),
                     },
                 },
                 required: ['toolName'],
             },
         },
-    },
+    };
+}
+
+export const AVAILABLE_TOOLS: Tool[] = [
+    // 工具详细描述查询工具 - 隐藏工具，不在 UI 中显示
+    createGetSiyuanSkillsTool(),
 
     // SQL查询工具
     createTool(
