@@ -3504,11 +3504,28 @@
             }
         }
 
-        // 【修复】更新已存在的助手消息，而不是创建新消息
-        // 注意：tool 消息已经插入，现在需要找到 assistant 消息并更新它
-        const assistantMsgIndex = messages.findIndex(
-            m => m.role === 'assistant' && m.multiModelResponses
-        );
+        // 【修复】更新当前这轮待选择的助手消息，而不是错误覆盖历史轮次
+        // 注意：必须从后往前找，优先命中最新一条未完成选择的多模型消息
+        let assistantMsgIndex = -1;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.role !== 'assistant' || !msg.multiModelResponses) continue;
+
+            const hasSelectedAnswer = msg.multiModelResponses.some(r => r.isSelected);
+            const hasFinalContent =
+                typeof msg.content === 'string' && msg.content.trim().length > 0;
+
+            // 当前轮次通常是“未选择 + 空内容”，优先匹配它
+            if (!hasSelectedAnswer && !hasFinalContent) {
+                assistantMsgIndex = i;
+                break;
+            }
+
+            // 回退策略：至少保证命中最后一条多模型助手消息，而不是第一条
+            if (assistantMsgIndex === -1) {
+                assistantMsgIndex = i;
+            }
+        }
         if (assistantMsgIndex >= 0) {
             // 更新已有的助手消息
             messages[assistantMsgIndex].content = selectedResponse.content; // 设置为选择的答案内容
