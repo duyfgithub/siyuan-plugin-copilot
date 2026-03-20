@@ -616,6 +616,10 @@ async function chatOpenAIFormat(
         // 如果启用思考模式，添加相关参数
         // 注意：这里在自定义参数之后设置，确保界面控制的思考模式优先级最高
         const reasoningEffort = options.reasoningEffort || 'low';
+        
+        // 通用 thinking 开关：开启思考模式时默认显式启用
+        // 某些 OpenAI 兼容接口要求该字段存在
+        requestBody.thinking = { type: 'enabled' };
 
         // 检查是否是 Claude 模型（通过 OpenAI 兼容 API）
         if (isSupportedThinkingClaudeModel(options.model)) {

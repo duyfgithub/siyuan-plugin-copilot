@@ -23,8 +23,8 @@ function isThinkingModel(modelId: string): boolean {
     // 包含 reasoning/reasoner/thinking/think 关键词
     if (/\b(reasoning|reasoner|thinking|think)\b/.test(id)) return true;
 
-    // DeepSeek R1 系列
-    if (/deepseek-r1/.test(id)) return true;
+    // DeepSeek 全系列
+    if (/deepseek/.test(id)) return true;
 
     // QwQ 系列
     if (/\bqwq\b/.test(id)) return true;
