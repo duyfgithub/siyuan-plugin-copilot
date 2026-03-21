@@ -818,13 +818,15 @@ async function chatGeminiFormat(
             // 添加工具调用信息 (Gemini 格式: functionCall)
             if (msg.tool_calls) {
                 for (const toolCall of msg.tool_calls) {
-                    parts.push({
-                        functionCall: {
-                            name: toolCall.function.name,
-                            args: JSON.parse(toolCall.function.arguments || '{}'),
-                            thought_signature: toolCall.function.thought_signature
-                        }
-                    });
+                    const functionCallPart: any = {
+                        name: toolCall.function.name,
+                        args: JSON.parse(toolCall.function.arguments || '{}'),
+                    };
+                    // 只有存在 thought_signature 时才添加，Gemini API 要求必须回传
+                    if (toolCall.function.thought_signature) {
+                        functionCallPart.thought_signature = toolCall.function.thought_signature;
+                    }
+                    parts.push({ functionCall: functionCallPart });
                 }
             }
 
@@ -1229,7 +1231,7 @@ async function handleGeminiStreamResponse(
                                         arguments: typeof part.functionCall.args === 'string'
                                             ? part.functionCall.args
                                             : JSON.stringify(part.functionCall.args || {}),
-                                        thought_signature: part.functionCall.thought_signature
+                                        thought_signature: part.functionCall.thought_signature || part.functionCall.thoughtSignature
                                     }
                                 });
                             }
