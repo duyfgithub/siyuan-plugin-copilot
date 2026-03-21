@@ -818,14 +818,13 @@ async function chatGeminiFormat(
             // 添加工具调用信息 (Gemini 格式: functionCall)
             if (msg.tool_calls) {
                 for (const toolCall of msg.tool_calls) {
+                    const thoughtSig = toolCall.function.thought_signature || '';
                     const functionCallPart: any = {
                         name: toolCall.function.name,
                         args: JSON.parse(toolCall.function.arguments || '{}'),
+                        // Gemini API 要求必须包含 thought_signature，如果不存在则使用空字符串
+                        thought_signature: thoughtSig
                     };
-                    // 只有存在 thought_signature 时才添加，Gemini API 要求必须回传
-                    if (toolCall.function.thought_signature) {
-                        functionCallPart.thought_signature = toolCall.function.thought_signature;
-                    }
                     parts.push({ functionCall: functionCallPart });
                 }
             }
@@ -1063,13 +1062,14 @@ async function handleStreamResponse(
                                 const currentCall = toolCalls.find(tc => (tc as any)._index === index && (!toolCallDelta.id || tc.id === toolCallDelta.id));
                                 
                                 if (!currentCall || (toolCallDelta.id && toolCallDelta.id !== currentCall.id)) {
+                                    const thoughtSig = toolCallDelta.function?.thought_signature || '';
                                     const newCall: ToolCall = {
                                         id: toolCallDelta.id || `call_${Math.random().toString(36).substring(2, 9)}`,
                                         type: 'function',
                                         function: {
                                             name: toolCallDelta.function?.name || '',
                                             arguments: toolCallDelta.function?.arguments || '',
-                                            thought_signature: toolCallDelta.function?.thought_signature
+                                            thought_signature: thoughtSig
                                         }
                                     };
                                     (newCall as any)._index = index;
@@ -1223,6 +1223,7 @@ async function handleGeminiStreamResponse(
 
                             // 处理工具调用
                             if (part.functionCall) {
+                                const thoughtSig = part.functionCall.thought_signature || part.functionCall.thoughtSignature || '';
                                 toolCalls.push({
                                     id: `call_${Math.random().toString(36).substring(2, 9)}`,
                                     type: 'function',
@@ -1231,7 +1232,7 @@ async function handleGeminiStreamResponse(
                                         arguments: typeof part.functionCall.args === 'string'
                                             ? part.functionCall.args
                                             : JSON.stringify(part.functionCall.args || {}),
-                                        thought_signature: part.functionCall.thought_signature || part.functionCall.thoughtSignature
+                                        thought_signature: thoughtSig
                                     }
                                 });
                             }
