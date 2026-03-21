@@ -51,7 +51,7 @@
 - 图片上传：支持粘贴、上传图片，还支持拖动图片块直接上传
 - 文件上传（支持 Markdown、文本文件等）
 
-### 三种聊天模式切换：ask、edit、agent三种聊天模式切换
+### 聊天模式切换：ask、agent
 
 - ask 模式：日常问答，支持选择多个模型同时回复，选择满意回答
 
@@ -62,11 +62,7 @@
   多模型回答结果
 
   <img alt="image" src="https://assets.b3logfile.com/siyuan/1610205759005/assets/image-20260118231241-74cd19k.png" />
-- edit 模式：编辑修改笔记，支持编辑查看差异、撤回
 
-  比如我让AI把表格的某一列批量设置为红色字体
-
-  <img alt="image" src="https://assets.b3logfile.com/siyuan/1610205759005/assets/image-20260118231401-xvkxsz2.png" />
 - agent 模式：提供工具，让AI实现自助查询笔记内容、编辑笔记、创建文档等功能
 
   agent模式可以选择AI可以使用的工具
