@@ -828,7 +828,6 @@
                             }
                         },
                         onToolCallComplete: async (toolCalls: ToolCall[]) => {
-                            console.log(`[RegenerateMultiModel-${response.modelId}] Tool calls received:`, toolCalls);
                             hasNewToolCalls = true;
                             
                             // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
@@ -2763,7 +2762,6 @@
                                 }
                             },
                             onToolCallComplete: async (toolCalls: ToolCall[]) => {
-                                console.log(`[MultiModel-${model.modelId}] Tool calls received:`, toolCalls);
                                 hasNewToolCalls = true;
                                 
                                 // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
@@ -4360,7 +4358,6 @@
                                   }
                                 : undefined,
                             onToolCallComplete: async (toolCalls: ToolCall[]) => {
-                                console.log('Tool calls received:', toolCalls);
                                 receivedToolCalls = true;
 
                                 // 获取当前工具调用的起始索引
@@ -9533,7 +9530,6 @@
                                   }
                                 : undefined,
                             onToolCallComplete: async (toolCalls: ToolCall[]) => {
-                                console.log('Tool calls received:', toolCalls);
                                 receivedToolCalls = true;
 
                                 // 获取当前工具调用的起始索引
