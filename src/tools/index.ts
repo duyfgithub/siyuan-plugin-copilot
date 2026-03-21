@@ -3795,8 +3795,65 @@ export async function siyuan_delete_block(id: string): Promise<any> {
         if (!id) {
             throw new Error('块ID是必需的');
         }
+
+        const targetBlock = await getBlockByID(id);
+        if (!targetBlock) {
+            throw new Error(`块不存在: ${id}`);
+        }
+
+        // 思源中标题块的“子内容”可能不会随 deleteBlock 自动删除。
+        // 对标题块执行递归删除：按 parent_id 收集后代，先删后代，再删标题本身。
+        if (targetBlock.type === 'h') {
+            const descendants: Array<{ id: string; level: number }> = [];
+            const queue: Array<{ id: string; level: number }> = [{ id, level: 0 }];
+
+            // 宽度优先遍历 parent_id 关系，收集整棵子树
+            while (queue.length > 0) {
+                const current = queue.shift();
+                if (!current) break;
+                const safeCurrentId = current.id.replace(/'/g, "''");
+                const children = await sql(`
+                    SELECT id
+                    FROM blocks
+                    WHERE parent_id = '${safeCurrentId}'
+                `);
+
+                for (const child of children || []) {
+                    if (!child?.id) continue;
+                    const childId = String(child.id);
+                    const nextLevel = current.level + 1;
+                    descendants.push({ id: childId, level: nextLevel });
+                    queue.push({ id: childId, level: nextLevel });
+                }
+            }
+
+            // 深层后代先删除，避免父级先删导致子级查找/删除异常
+            descendants.sort((a, b) => b.level - a.level);
+
+            const deletedIds: string[] = [];
+            for (const item of descendants) {
+                await deleteBlock(item.id);
+                deletedIds.push(item.id);
+            }
+
+            const selfResult = await deleteBlock(id);
+            deletedIds.push(id);
+
+            return {
+                id,
+                deletedCount: deletedIds.length,
+                deletedIds,
+                selfResult,
+            };
+        }
+
         const result = await deleteBlock(id);
-        return result;
+        return {
+            id,
+            deletedCount: 1,
+            deletedIds: [id],
+            selfResult: result,
+        };
     } catch (error) {
         console.error('Delete block error:', error);
         throw new Error(`删除块失败: ${(error as Error).message}`);
