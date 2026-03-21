@@ -177,6 +177,7 @@
     let currentModelId = '';
     let providers: Record<string, ProviderConfig> = {};
 
+
     // 显示设置
     let messageFontSize = 12;
     let multiModelViewMode: 'tab' | 'card' = 'tab'; // 多模型回答样式
@@ -798,8 +799,7 @@
                         maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                         stream: true,
                         signal: localAbort.signal,
-                        customBody,
-                        // 同时检查模型能力和用户是否启用，与 sendMultiModelMessage 保持一致
+                        customBody, // 同时检查模型能力和用户是否启用，与 sendMultiModelMessage 保持一致
                         enableThinking:
                             modelConfig.capabilities?.thinking &&
                             (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false),
@@ -1069,8 +1069,7 @@
                     maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                     stream: true,
                     signal: localAbort.signal,
-                    customBody,
-                    enableThinking:
+                    customBody, enableThinking:
                         modelConfig.capabilities?.thinking &&
                         (modelConfig.thinkingEnabled || false),
                     reasoningEffort: modelConfig.thinkingEffort || 'low',
@@ -2738,8 +2737,7 @@
                             reasoningEffort:
                                 model.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
                             tools: toolsToPass, 
-                            customBody, // 传递自定义参数
-                            onThinkingChunk: async (chunk: string) => {
+                            customBody, onThinkingChunk: async (chunk: string) => {
                                 turnThinking += chunk;
                                 totalThinking += chunk;
                                 if (multiModelResponses[index]) {
@@ -4340,8 +4338,7 @@
                             enableThinking,
                             reasoningEffort: modelConfig.thinkingEffort || 'low',
                             tools: toolsForAgent,
-                            customBody, // 传递自定义参数
-                            onThinkingChunk: enableThinking
+                            customBody, onThinkingChunk: enableThinking
                                 ? async (chunk: string) => {
                                       isThinkingPhase = true;
                                       streamingThinking += chunk;
@@ -4761,8 +4758,7 @@
                         enableThinking,
                         reasoningEffort: modelConfig.thinkingEffort || 'low',
                         tools: webSearchTools, // 传递联网搜索工具
-                        customBody, // 传递自定义参数
-                        enableImageGeneration,
+                        customBody, enableImageGeneration,
                         onImageGenerated: async (images: any[]) => {
                             // 立即保存生成的图片到 SiYuan 资源文件夹并转换为 blob URL
                             generatedImages = await Promise.all(
@@ -9512,8 +9508,7 @@
                             enableThinking,
                             reasoningEffort: modelConfig.thinkingEffort || 'low',
                             tools: toolsForAgent,
-                            customBody, // 传递自定义参数
-                            onThinkingChunk: enableThinking
+                            customBody, onThinkingChunk: enableThinking
                                 ? async (chunk: string) => {
                                       isThinkingPhase = true;
                                       streamingThinking += chunk;
@@ -9938,8 +9933,7 @@
                         maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                         stream: true,
                         signal: abortController.signal,
-                        customBody,
-                        enableThinking,
+                        customBody, enableThinking,
                         reasoningEffort: modelConfig.thinkingEffort || 'low',
                         enableImageGeneration,
                         onThinkingChunk: enableThinking
@@ -11355,7 +11349,11 @@
                                 (message.attachments?.length || 0)}
                             <div class="ai-message__context-docs">
                                 <div class="ai-message__context-docs-title">
-                                    📎 {t('aiSidebar.context.content')} ({contextCount})
+                                    {#if message.role === 'assistant'}
+                                        🖼️ 图片与附件 ({contextCount})
+                                    {:else}
+                                        📎 {t('aiSidebar.context.content')} ({contextCount})
+                                    {/if}
                                 </div>
 
                                 <!-- 显示附件 -->
