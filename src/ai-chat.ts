@@ -564,13 +564,19 @@ async function chatOpenAIFormat(
         // 添加工具调用信息
         if (msg.tool_calls) {
             const isGeminiLike = /gemini/i.test(options.model) || isSupportedThinkingGeminiModel(options.model);
-            formatted.tool_calls = msg.tool_calls.map(tc => {
+            formatted.tool_calls = msg.tool_calls.map((tc, index) => {
                 const functionCopied = { ...tc.function };
-                if (isGeminiLike && !functionCopied.thought_signature) {
+                
+                // Google api requires thought_signature ONLY on the first parallel tool call
+                if (isGeminiLike && index === 0 && !functionCopied.thought_signature) {
                     // 补充因历史错误或代理丢失造成的 thought_signature 缺失，避免 400/429 报错
                     // 使用绕过验证的魔法值 skip_thought_signature_validator
                     functionCopied.thought_signature = "skip_thought_signature_validator";
+                } else if (isGeminiLike && index > 0 && functionCopied.thought_signature) {
+                    // 并行调用的后续工具不能有签名，如果有则移除
+                    delete functionCopied.thought_signature;
                 }
+                
                 const tcPayload: any = { ...tc, function: functionCopied };
                 if (functionCopied.thought_signature) {
                     tcPayload.extra_content = { google: { thought_signature: functionCopied.thought_signature } };
