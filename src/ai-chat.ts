@@ -37,6 +37,8 @@ export interface EditOperation {
     blockId: string; // update时为要更新的块ID，insert时为参考块ID
     docId?: string; // 汇总差异时对应文档ID
     docTitle?: string; // 汇总差异时对应文档名/路径
+    oldDocTitle?: string; // 文档旧标题（重命名差异）
+    newDocTitle?: string; // 文档新标题（重命名差异）
     affectedBlockIds?: string[]; // 本次回答中该文档涉及的块ID列表
     newContent: string;
     oldContent?: string; // kramdown格式的旧内容，用于实际应用编辑

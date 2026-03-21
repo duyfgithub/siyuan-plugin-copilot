@@ -1152,6 +1152,8 @@
     type PendingDocDiff = {
         docId: string;
         docTitle: string;
+        oldDocTitle: string;
+        newDocTitle: string;
         oldContent: string;
         newContent: string;
         affectedBlockIds: Set<string>;
@@ -8397,10 +8399,12 @@
     }
 
     type ToolChangeContext = {
-        operationType: 'update' | 'insert' | 'delete';
+        operationType: 'update' | 'insert' | 'delete' | 'rename';
         docId: string;
         docTitle: string;
+        oldDocTitle: string;
         affectedBlockId: string;
+        renameTitleTo?: string;
     };
 
     function escapeSqlString(value: string) {
@@ -8442,12 +8446,39 @@
         return `文档 ${docId}`;
     }
 
+    async function getDocNameById(docId: string): Promise<string> {
+        try {
+            const docBlock = await getBlockByID(docId);
+            if (docBlock?.content && docBlock.content.trim()) {
+                return docBlock.content.trim();
+            }
+        } catch (error) {
+            console.warn('通过 getBlockByID 获取文档标题失败:', error);
+        }
+
+        try {
+            const safeDocId = escapeSqlString(docId);
+            const rows = await sql(
+                `SELECT content FROM blocks WHERE id = '${safeDocId}' LIMIT 1`
+            );
+            const title = rows?.[0]?.content;
+            if (typeof title === 'string' && title.trim()) {
+                return title.trim();
+            }
+        } catch (error) {
+            console.warn('通过 SQL 获取文档标题失败:', error);
+        }
+
+        return '';
+    }
+
     async function resolveToolChangeContext(toolCall: ToolCall): Promise<ToolChangeContext | null> {
         const toolName = toolCall.function.name;
         if (
             toolName !== 'siyuan_update_block' &&
             toolName !== 'siyuan_insert_block' &&
-            toolName !== 'siyuan_delete_block'
+            toolName !== 'siyuan_delete_block' &&
+            toolName !== 'siyuan_rename_document'
         ) {
             return null;
         }
@@ -8464,6 +8495,9 @@
                 operationType = 'insert';
                 targetBlockId =
                     args.nextID || args.previousID || args.parentID || args.appendParentID || '';
+            } else if (toolName === 'siyuan_rename_document') {
+                operationType = 'rename';
+                targetBlockId = args.id || '';
             } else {
                 operationType = 'delete';
                 targetBlockId = args.id || '';
@@ -8491,12 +8525,16 @@
                     : blockInfo?.root_id || targetBlockId;
 
             const docTitle = await getDocDisplayTitle(docId);
+            const currentDocName = (await getDocNameById(docId)) || docTitle;
 
             return {
                 operationType,
                 docId,
                 docTitle,
                 affectedBlockId: targetBlockId,
+                renameTitleTo:
+                    toolName === 'siyuan_rename_document' ? String(args.title || '').trim() : undefined,
+                oldDocTitle: currentDocName,
             };
         } catch (error) {
             console.warn('解析工具调用参数失败，无法生成汇总差异记录:', error);
@@ -8526,6 +8564,8 @@
             pendingDiff = {
                 docId: changeContext.docId,
                 docTitle: changeContext.docTitle,
+                oldDocTitle: changeContext.oldDocTitle || changeContext.docTitle,
+                newDocTitle: changeContext.oldDocTitle || changeContext.docTitle,
                 oldContent,
                 newContent: oldContent,
                 affectedBlockIds: new Set<string>(),
@@ -8533,6 +8573,10 @@
             messageDiffMap.set(changeContext.docId, pendingDiff);
         }
 
+        if (changeContext.renameTitleTo) {
+            pendingDiff.newDocTitle = changeContext.renameTitleTo;
+            pendingDiff.docTitle = changeContext.renameTitleTo;
+        }
         pendingDiff.affectedBlockIds.add(changeContext.affectedBlockId);
     }
 
@@ -8548,6 +8592,13 @@
 
         const newMdData = await exportMdContent(changeContext.docId, false, false, 2, 0, false);
         pendingDiff.newContent = newMdData?.content || '';
+        if (!changeContext.renameTitleTo) {
+            pendingDiff.newDocTitle = await getDocNameById(changeContext.docId);
+            pendingDiff.docTitle = pendingDiff.newDocTitle || pendingDiff.docTitle;
+        } else {
+            pendingDiff.newDocTitle = changeContext.renameTitleTo;
+            pendingDiff.docTitle = changeContext.renameTitleTo;
+        }
         pendingDiff.affectedBlockIds.add(changeContext.affectedBlockId);
     }
 
@@ -8566,7 +8617,9 @@
 
         const summaryDiffs: EditOperation[] = [];
         for (const pendingDiff of messageDiffMap.values()) {
-            if (pendingDiff.oldContent === pendingDiff.newContent) {
+            const contentChanged = pendingDiff.oldContent !== pendingDiff.newContent;
+            const titleChanged = pendingDiff.oldDocTitle !== pendingDiff.newDocTitle;
+            if (!contentChanged && !titleChanged) {
                 continue;
             }
 
@@ -8575,6 +8628,8 @@
                 blockId: pendingDiff.docId,
                 docId: pendingDiff.docId,
                 docTitle: pendingDiff.docTitle,
+                oldDocTitle: pendingDiff.oldDocTitle,
+                newDocTitle: pendingDiff.newDocTitle,
                 affectedBlockIds: Array.from(pendingDiff.affectedBlockIds),
                 oldContent: pendingDiff.oldContent,
                 oldContentForDisplay: pendingDiff.oldContent,
@@ -8614,10 +8669,22 @@
             // 更新操作
             // 使用保存的Markdown格式内容来显示差异
             // 这样可以看到真正的修改前内容，即使块已经被修改了
-            const oldMdContent = operation.oldContentForDisplay || operation.oldContent || '';
-            const newMdContent =
+            let oldMdContent = operation.oldContentForDisplay || operation.oldContent || '';
+            let newMdContent =
                 operation.newContentForDisplay ||
                 operation.newContent.replace(/\{:\s*id="[^"]+"\s*\}/g, '').trim();
+
+            // 文档重命名差异：在对比内容头部注入标题信息，确保即使正文不变也可见
+            if (
+                operation.oldDocTitle &&
+                operation.newDocTitle &&
+                operation.oldDocTitle !== operation.newDocTitle
+            ) {
+                const oldTitleLine = `# 文档标题: ${operation.oldDocTitle}\n\n`;
+                const newTitleLine = `# 文档标题: ${operation.newDocTitle}\n\n`;
+                oldMdContent = oldTitleLine + oldMdContent;
+                newMdContent = newTitleLine + newMdContent;
+            }
 
             // 如果没有保存的显示内容（兼容旧数据），尝试实时获取
             if (!operation.oldContentForDisplay) {
@@ -8641,8 +8708,8 @@
             // 创建用于显示的临时operation对象
             currentDiffOperation = {
                 ...operation,
-                oldContent: operation.oldContentForDisplay || oldMdContent,
-                newContent: operation.newContentForDisplay || newMdContent,
+                oldContent: oldMdContent,
+                newContent: newMdContent,
             };
         }
 
@@ -11444,6 +11511,11 @@
                                                 块ID: {operation.affectedBlockIds.join(', ')}
                                             </div>
                                         {/if}
+                                        {#if operation.oldDocTitle && operation.newDocTitle && operation.oldDocTitle !== operation.newDocTitle}
+                                            <div class="ai-message__edit-operation-block-ids">
+                                                标题: {operation.oldDocTitle} → {operation.newDocTitle}
+                                            </div>
+                                        {/if}
                                         <div class="ai-message__edit-operation-actions">
                                             <!-- 查看差异按钮：所有状态都可以查看 -->
                                             <button
@@ -12891,6 +12963,11 @@
                         {#if currentDiffOperation.affectedBlockIds && currentDiffOperation.affectedBlockIds.length > 0}
                             <strong>块ID:</strong>
                             {currentDiffOperation.affectedBlockIds.join(', ')}
+                            <br />
+                        {/if}
+                        {#if currentDiffOperation.oldDocTitle && currentDiffOperation.newDocTitle && currentDiffOperation.oldDocTitle !== currentDiffOperation.newDocTitle}
+                            <strong>标题:</strong>
+                            {currentDiffOperation.oldDocTitle} → {currentDiffOperation.newDocTitle}
                             <br />
                         {/if}
                         {#if currentDiffOperation.docId}
