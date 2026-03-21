@@ -16,15 +16,11 @@
     import { getActiveEditor, openTab } from 'siyuan';
     import { WEBAPP_TAB_TYPE } from './index';
     import {
-        refreshSql,
         pushMsg,
         pushErrMsg,
         sql,
         exportMdContent,
         openBlock,
-        updateBlock,
-        insertBlock,
-        getBlockDOM,
         getBlockKramdown,
         getBlockByID,
         getFileBlob,
@@ -199,13 +195,12 @@
             thinkingEffort?: ThinkingEffort;
         }>,
         enableMultiModel: false,
-        chatMode: 'ask' as 'ask' | 'edit' | 'agent',
+        chatMode: 'ask' as 'ask' | 'agent',
     };
 
-    // 编辑模式
-    type ChatMode = 'ask' | 'edit' | 'agent';
+    // 对话模式
+    type ChatMode = 'ask' | 'agent';
     let chatMode: ChatMode = 'ask';
-    let autoApproveEdit = false; // 自动批准编辑操作
     let isDiffDialogOpen = false;
     let currentDiffOperation: EditOperation | null = null;
     type DiffViewMode = 'diff' | 'split';
@@ -600,14 +595,6 @@
                             content = doc.content; // 保留原内容
                         }
                     }
-                } else if (chatMode === 'edit') {
-                    // edit模式：获取kramdown格式
-                    const blockData = await getBlockKramdown(doc.id);
-                    if (blockData && blockData.kramdown) {
-                        content = blockData.kramdown;
-                    } else {
-                        content = doc.content; // 保留原内容
-                    }
                 } else {
                     // ask模式：获取Markdown格式
                     const data = await exportMdContent(doc.id, false, false, 2, 0, false);
@@ -694,9 +681,6 @@
                         const blockData = await getBlockKramdown(doc.id);
                         content = (blockData && blockData.kramdown) || doc.content;
                     }
-                } else if (chatMode === 'edit') {
-                    const blockData = await getBlockKramdown(doc.id);
-                    content = (blockData && blockData.kramdown) || doc.content;
                 } else {
                     const data = await exportMdContent(doc.id, false, false, 2, 0, false);
                     content = (data && data.content) || doc.content;
@@ -1019,13 +1003,8 @@
         for (const doc of userContextDocs) {
             try {
                 let content: string;
-                if (chatMode === 'edit') {
-                    const blockData = await getBlockKramdown(doc.id);
-                    content = (blockData && blockData.kramdown) || doc.content;
-                } else {
-                    const data = await exportMdContent(doc.id, false, false, 2, 0, false);
-                    content = (data && data.content) || doc.content;
-                }
+                const data = await exportMdContent(doc.id, false, false, 2, 0, false);
+                content = (data && data.content) || doc.content;
                 contextDocumentsWithLatestContent.push({
                     id: doc.id,
                     title: doc.title,
@@ -1250,7 +1229,7 @@
 
         // 初始化模式
         if (!settings.selectedModelPresetId && settings.lastUsedChatMode) {
-            chatMode = settings.lastUsedChatMode;
+            chatMode = settings.lastUsedChatMode === 'agent' ? 'agent' : 'ask';
         }
 
 
@@ -1942,7 +1921,7 @@
                 thinkingEffort?: ThinkingEffort;
             }>;
             enableMultiModel?: boolean;
-            chatMode?: 'ask' | 'edit' | 'agent';
+            chatMode?: 'ask' | 'agent';
         }>
     ) {
         const newSettings = event.detail;
@@ -2513,9 +2492,6 @@
                             const blockData = await getBlockKramdown(doc.id);
                             content = (blockData && blockData.kramdown) || doc.content;
                         }
-                    } else if (chatMode === 'edit') {
-                        const blockData = await getBlockKramdown(doc.id);
-                        content = (blockData && blockData.kramdown) || doc.content;
                     } else {
                         const data = await exportMdContent(doc.id, false, false, 2, 0, false);
                         content = (data && data.content) || doc.content;
@@ -3752,15 +3728,6 @@
                                 content = doc.content;
                             }
                         }
-                    } else if (chatMode === 'edit') {
-                        // 编辑模式：获取kramdown格式，保留块ID结构
-                        const blockData = await getBlockKramdown(doc.id);
-                        if (blockData && blockData.kramdown) {
-                            content = blockData.kramdown;
-                        } else {
-                            // 降级使用缓存内容
-                            content = doc.content;
-                        }
                     } else {
                         // ask模式：获取Markdown格式
                         const data = await exportMdContent(doc.id, false, false, 2, 0, false);
@@ -4193,172 +4160,7 @@
         }
 
         // 根据模式添加系统提示词
-        if (chatMode === 'edit') {
-            // 编辑模式的特殊系统提示词
-            const editModePrompt = `你是一个专业的笔记编辑助手。当用户要求修改内容时，你必须返回JSON格式的编辑指令。
-
-**关于上下文格式**：
-用户提供的上下文将以以下格式呈现：
-
-## 文档: 文档标题
-或
-## 块: 块内容预览
-
-**BlockID**: \`20240101120000-abc123\`
-
-\`\`\`markdown
-这里是kramdown格式的内容，包含块ID信息：
-段落内容
-{: id="20240101120100-def456"}
-
-* 列表项
-  {: id="20240101120200-ghi789"}
-\`\`\`
-
-**关于BlockID和kramdown格式**：
-- **顶层BlockID**：位于 \`\`\`markdown 代码块之前，格式为 **BlockID**: \`xxxxxxxxxx-xxxxxxx\`
-- **子块ID标记**：在markdown代码块内，格式为 {: id="20240101120100-def456"}
-- 段落块会有 {: id="..."} 标记
-- 列表项会有 {: id="..."} 标记  
-- 标题、代码块等各种块都有ID标记
-
-你可以编辑任何包含ID标记的块，包括：
-- 顶层文档/块（使用代码块外的BlockID）
-- 文档内的任何子块（使用代码块内的 {: id="xxx"}）
-
-**提取BlockID的方法**：
-- 从 **BlockID**: \`xxxxx\` 获取顶层块ID
-- 从 {: id="xxxxx"} 获取子块ID
-- BlockID格式通常为：时间戳-字符串，如 20240101120000-abc123
-
-编辑指令格式（必须严格遵循）：
-\`\`\`json
-{
-  "editOperations": [
-    {
-      "operationType": "update",  // 操作类型："update"=更新块（默认），"insert"=插入新块
-      "blockId": "要编辑的块ID（可以是顶层块或子块的ID）",
-      "newContent": "修改后的内容（kramdown格式，保留必要的ID标记）"
-    },
-    {
-      "operationType": "insert",  // 插入新块
-      "blockId": "参考块的ID（在此块前后插入）",
-      "position": "after",  // "before"=在参考块之前插入，"after"=在参考块之后插入（默认）
-      "newContent": "新插入的内容（kramdown格式）"
-    }
-  ]
-}
-\`\`\`
-
-重要规则：
-1. **必须返回JSON格式**：使用上述JSON结构，包裹在 \`\`\`json 代码块中
-2. **blockId 必须来自上下文**：从 [BlockID: xxx] 或 {: id="xxx"} 中提取
-3. **可以编辑任何有ID的块**：不限于顶层块，子块也可以精确编辑
-4. **可以插入新块**：使用 operationType: "insert" 在指定块前后插入新内容
-5. **newContent格式**：应该是kramdown格式，如果编辑子块，内容要包含该块的ID标记；插入新块时不需要ID标记
-6. **可以批量编辑**：在 editOperations 数组中包含多个编辑操作
-7. 思源笔记kramdown格式如果要添加颜色：应该是<span data-type="text">添加颜色的文字1</span>{: style="color: var(--b3-font-color1);"}，优先使用以下颜色变量：
-  - --b3-font-color1: 红色
-  - --b3-font-color2: 橙色
-  - --b3-font-color3: 蓝色
-  - --b3-font-color4: 绿色
-  - --b3-font-color5: 灰色
-8. **添加说明**：在JSON代码块之外，添加文字说明你的修改
-
-示例1 - 编辑顶层块：
-好的，我会帮你改进这段内容：
-
-\`\`\`json
-{
-  "editOperations": [
-    {
-      "operationType": "update",
-      "blockId": "20240101120000-abc123",
-      "newContent": "这是修改后的整个文档内容\\n{: id=\\"20240101120000-abc123\\"}"
-    }
-  ]
-}
-\`\`\`
-
-示例2 - 编辑子块（推荐）：
-我会针对性地修改第二段和第三个列表项：
-
-\`\`\`json
-{
-  "editOperations": [
-    {
-      "operationType": "update",
-      "blockId": "20240101120100-def456",
-      "newContent": "这是修改后的第二段内容，表达更专业。\\n{: id=\\"20240101120100-def456\\"}"
-    },
-    {
-      "operationType": "update",
-      "blockId": "20240101120200-ghi789",
-      "newContent": "* 这是修改后的列表项\\n  {: id=\\"20240101120200-ghi789\\"}"
-    }
-  ]
-}
-\`\`\`
-
-我针对需要改进的具体段落和列表项进行了精确修改。
-
-示例3 - 插入新块：
-我会在第二段后面插入一段补充说明：
-
-\`\`\`json
-{
-  "editOperations": [
-    {
-      "operationType": "insert",
-      "blockId": "20240101120100-def456",
-      "position": "after",
-      "newContent": "这是新插入的补充段落，提供更多细节信息。"
-    }
-  ]
-}
-\`\`\`
-
-我在指定的段落后面添加了补充内容。
-
-示例4 - 混合操作：
-我会修改第一段并在其后插入新内容：
-
-\`\`\`json
-{
-  "editOperations": [
-    {
-      "operationType": "update",
-      "blockId": "20240101120100-def456",
-      "newContent": "这是修改后的段落内容。\\n{: id=\\"20240101120100-def456\\"}"
-    },
-    {
-      "operationType": "insert",
-      "blockId": "20240101120100-def456",
-      "position": "after",
-      "newContent": "这是紧跟在修改段落后的新增内容。"
-    }
-  ]
-}
-\`\`\`
-
-我修改了原段落并在其后添加了补充信息。
-
-注意：
-- 优先编辑子块而不是整个文档，这样更精确且不会影响其他内容
-- 只有在用户明确要求修改内容时才返回JSON编辑指令
-- 如果只是回答问题，则正常回复即可，不要返回JSON
-- 确保JSON格式正确，可以被解析
-- 确保blockId来自上下文中的ID标记（**BlockID**: \`xxx\` 或 {: id="xxx"}）
-- newContent应保留kramdown的ID标记
-- **重要**：newContent中只包含修改后的正文内容，不要包含"## 文档"、"## 块"或"**BlockID**:"这样的上下文标识，这些只是用于你理解上下文的`;
-
-            // 先添加用户的系统提示词（如果有）
-            if (settings.aiSystemPrompt) {
-                messagesToSend.unshift({ role: 'system', content: settings.aiSystemPrompt });
-            }
-            // 再添加编辑模式的提示词
-            messagesToSend.unshift({ role: 'system', content: editModePrompt });
-        } else if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             // Agent 模式或启用工具的问答模式下添加工具使用强制规则
             let baseSystemPrompt = settings.aiSystemPrompt || '';
             if (baseSystemPrompt.trim()) {
@@ -4628,6 +4430,7 @@
                                         toolCall.function.name === 'get_siyuan_skills';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
+                                    const toolEditOperation = await buildToolEditOperation(toolCall);
 
                                     try {
                                         let toolResult: string;
@@ -4647,6 +4450,15 @@
                                                 content: toolResult,
                                             };
                                             messages = [...messages, toolResultMessage];
+                                            if (
+                                                firstToolCallMessageIndex !== null &&
+                                                toolEditOperation
+                                            ) {
+                                                appendEditOperationToMessage(
+                                                    firstToolCallMessageIndex,
+                                                    toolEditOperation
+                                                );
+                                            }
                                         } else {
                                             // 需要手动批准：显示批准对话框
                                             console.log(
@@ -4674,6 +4486,15 @@
                                                     content: toolResult,
                                                 };
                                                 messages = [...messages, toolResultMessage];
+                                                if (
+                                                    firstToolCallMessageIndex !== null &&
+                                                    toolEditOperation
+                                                ) {
+                                                    appendEditOperationToMessage(
+                                                        firstToolCallMessageIndex,
+                                                        toolEditOperation
+                                                    );
+                                                }
                                             } else {
                                                 // 用户拒绝
                                                 const toolResultMessage: Message = {
@@ -4979,57 +4800,6 @@
                                 assistantMessage.thinking = streamingThinking;
                             }
 
-                            // 如果是编辑模式，解析编辑操作
-                            if (chatMode === 'edit') {
-                                const editOperations = parseEditOperations(convertedText);
-                                if (editOperations.length > 0) {
-                                    // 异步获取每个块的旧内容（kramdown格式和Markdown格式）
-                                    for (const op of editOperations) {
-                                        try {
-                                            // 获取kramdown格式（用于应用编辑）
-                                            const blockData = await getBlockKramdown(op.blockId);
-                                            if (blockData && blockData.kramdown) {
-                                                op.oldContent = blockData.kramdown;
-                                            }
-
-                                            // 获取Markdown格式（用于显示差异）
-                                            const mdData = await exportMdContent(
-                                                op.blockId,
-                                                false,
-                                                false,
-                                                2,
-                                                0,
-                                                false
-                                            );
-                                            if (mdData && mdData.content) {
-                                                op.oldContentForDisplay = mdData.content;
-                                            }
-
-                                            // 处理newContent用于显示（移除kramdown ID标记）
-                                            op.newContentForDisplay = op.newContent
-                                                .replace(/\{:\s*id="[^"]+"\s*\}/g, '')
-                                                .trim();
-                                        } catch (error) {
-                                            console.error(`获取块 ${op.blockId} 内容失败:`, error);
-                                        }
-                                    }
-                                    assistantMessage.editOperations = editOperations;
-
-                                    // 如果启用了自动批准，则自动应用所有编辑操作
-                                    if (autoApproveEdit) {
-                                        messages = [...messages, assistantMessage];
-                                        const currentMessageIndex = messages.length - 1;
-
-                                        for (const op of editOperations) {
-                                            await applyEditOperation(op, currentMessageIndex);
-                                        }
-
-                                        // 更新消息状态
-                                        messages = [...messages];
-                                    }
-                                }
-                            }
-
                             // 如果有生成的图片，保存到消息中
                             if (generatedImages.length > 0) {
                                 // 保存图片信息（不包含base64数据，只保存路径）
@@ -5051,13 +4821,7 @@
                                 }));
                             }
 
-                            if (
-                                !autoApproveEdit ||
-                                chatMode !== 'edit' ||
-                                !assistantMessage.editOperations?.length
-                            ) {
-                                messages = [...messages, assistantMessage];
-                            }
+                            messages = [...messages, assistantMessage];
                             streamingMessage = '';
                             streamingThinking = '';
                             isThinkingPhase = false;
@@ -5068,10 +4832,8 @@
                             // AI 回复完成后，自动保存当前会话
                             await saveCurrentSession(true);
 
-                            // 根据AI回答自动重命名会话标题（仅在非编辑模式下）
-                            if (chatMode !== 'edit') {
-                                autoRenameSession(convertedText);
-                            }
+                            // 根据AI回答自动重命名会话标题
+                            autoRenameSession(convertedText);
                         },
                         onError: (error: Error) => {
                             // 如果是主动中断，不显示错误
@@ -6964,8 +6726,8 @@
                 isDoc = blockInfo?.type === 'd'; // 'd' 表示文档块
             }
 
-            // agent模式、edit模式或启用工具的问答模式：获取kramdown格式（用于AI），但使用Markdown生成显示标题
-            if (chatMode === 'agent' || chatMode === 'edit' || (chatMode === 'ask' && userToolCount > 0)) {
+            // agent模式或启用工具的问答模式：获取kramdown格式（用于AI），但使用Markdown生成显示标题
+            if (chatMode === 'agent' || (chatMode === 'ask' && userToolCount > 0)) {
                 const blockData = await getBlockKramdown(blockId);
                 if (blockData && blockData.kramdown) {
                     // 获取Markdown格式用于生成友好的显示标题
@@ -8603,211 +8365,75 @@
         }
     }
 
-    // 编辑模式相关函数
-    // 解析AI返回的编辑操作（JSON格式）
-    function parseEditOperations(content: string): EditOperation[] {
-        const operations: EditOperation[] = [];
-
-        try {
-            // 尝试匹配JSON代码块: ```json\n{...}\n```
-            const jsonBlockRegex = /```json\s*\n([\s\S]*?)\n```/gi;
-            let match = jsonBlockRegex.exec(content);
-
-            if (match) {
-                const jsonStr = match[1].trim();
-                const data = JSON.parse(jsonStr);
-
-                if (data.editOperations && Array.isArray(data.editOperations)) {
-                    for (const op of data.editOperations) {
-                        if (op.blockId && op.newContent !== undefined) {
-                            operations.push({
-                                operationType: op.operationType || 'update', // 默认为update
-                                blockId: op.blockId,
-                                newContent: op.newContent,
-                                oldContent: undefined, // 稍后获取
-                                status: 'pending',
-                                position: op.position || 'after', // 默认在后面插入
-                            });
-                        }
-                    }
-                }
-            } else {
-                // 尝试直接解析JSON（不在代码块中）
-                const data = JSON.parse(content);
-                if (data.editOperations && Array.isArray(data.editOperations)) {
-                    for (const op of data.editOperations) {
-                        if (op.blockId && op.newContent !== undefined) {
-                            operations.push({
-                                operationType: op.operationType || 'update', // 默认为update
-                                blockId: op.blockId,
-                                newContent: op.newContent,
-                                oldContent: undefined,
-                                status: 'pending',
-                                position: op.position || 'after', // 默认在后面插入
-                            });
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('解析编辑操作失败:', error);
-        }
-
-        return operations;
+    function normalizeOperationContentForDiff(content: string) {
+        return content.replace(/\{:\s*id="[^"]+"\s*\}/g, '').trim();
     }
 
-    // 应用编辑操作
-    async function applyEditOperation(operation: EditOperation, messageIndex: number) {
+    async function buildToolEditOperation(toolCall: ToolCall): Promise<EditOperation | null> {
+        const toolName = toolCall.function.name;
+        if (toolName !== 'siyuan_update_block' && toolName !== 'siyuan_insert_block') {
+            return null;
+        }
+
         try {
-            const operationType = operation.operationType || 'update';
+            const args = JSON.parse(toolCall.function.arguments || '{}');
 
-            if (operationType === 'insert') {
-                // 插入新块
-                const position = operation.position || 'after';
-
-                // 根据位置确定参数
-                let nextID: string | null;
-                let previousID: string | null;
-
-                if (position === 'before') {
-                    // 在指定块之前插入
-                    nextID = operation.blockId;
-                } else {
-                    // 在指定块之后插入（默认）
-                    previousID = operation.blockId;
-                }
-                let lute = window.Lute.New();
-                let newBlockDom = lute.Md2BlockDOM(operation.newContent);
-                let newBlockId = newBlockDom.match(/data-node-id="([^"]*)"/)[1];
-
-                // 创建可撤回的事务
-                if (newBlockId) {
-                    try {
-                        const currentProtyle = getProtyle();
-                        if (currentProtyle) {
-                            // 获取父块ID
-                            const block = await getBlockByID(operation.blockId);
-                            const parentID = block?.root_id || currentProtyle.block.id;
-                            const doOperations = [];
-                            if (nextID) {
-                                doOperations.push({
-                                    action: 'insert',
-                                    id: newBlockId,
-                                    data: newBlockDom,
-                                    parentID: parentID,
-                                    nextID: nextID,
-                                });
-                            } else {
-                                doOperations.push({
-                                    action: 'insert',
-                                    id: newBlockId,
-                                    data: newBlockDom,
-                                    parentID: parentID,
-                                    previousID: previousID,
-                                });
-                            }
-
-                            const undoOperations = [
-                                {
-                                    action: 'delete',
-                                    id: newBlockId,
-                                    data: null,
-                                },
-                            ];
-
-                            // 执行事务以支持撤回
-                            currentProtyle.getInstance().transaction(doOperations, undoOperations);
-                            setTimeout(() => {
-                                currentProtyle.getInstance()?.reload(false);
-                            }, 500);
-                        }
-                    } catch (transactionError) {
-                        console.warn('创建撤回事务失败，但块已插入:', transactionError);
-                    }
+            if (toolName === 'siyuan_update_block') {
+                if (!args.id || args.data === undefined) {
+                    return null;
                 }
 
-                // 更新操作状态
-                const message = messages[messageIndex];
-                if (message.editOperations) {
-                    const op = message.editOperations.find(
-                        o =>
-                            o.blockId === operation.blockId && o.newContent === operation.newContent
-                    );
-                    if (op) {
-                        op.status = 'applied';
-                    }
-                }
-                messages = [...messages];
-                hasUnsavedChanges = true;
+                const blockData = await getBlockKramdown(args.id);
+                const oldMdData = await exportMdContent(args.id, false, false, 2, 0, false);
+                const newContent = String(args.data ?? '');
 
-                pushMsg(t('aiSidebar.success.insertBlockSuccess'));
-            } else {
-                // 更新现有块
-                // 获取当前块内容
-                const blockData = await getBlockKramdown(operation.blockId);
-                if (!blockData || !blockData.kramdown) {
-                    pushErrMsg(t('aiSidebar.errors.getBlockFailed'));
-                    return;
-                }
-
-                // 保存旧内容用于显示（如果还没有保存）
-                if (!operation.oldContent) {
-                    operation.oldContent = blockData.kramdown;
-                }
-
-                // 保存旧的DOM用于撤回操作
-                const oldBlockDomRes = await getBlockDOM(operation.blockId);
-
-                // 使用 updateBlock API 更新块内容
-                await updateBlock('markdown', operation.newContent, operation.blockId);
-                await refreshSql();
-                // 获取当前编辑器实例并创建可撤回的事务
-                try {
-                    const currentProtyle = getProtyle();
-                    if (currentProtyle) {
-                        await refreshSql();
-                        const oldBlockDom = oldBlockDomRes?.dom;
-                        const newBlockDomRes = await getBlockDOM(operation.blockId);
-                        const newBlockDom = newBlockDomRes?.dom;
-                        currentProtyle
-                            .getInstance()
-                            .updateTransaction(operation.blockId, newBlockDom, oldBlockDom);
-                    }
-                } catch (transactionError) {
-                    console.warn('创建撤回事务失败，但块内容已更新:', transactionError);
-                }
-
-                // 更新操作状态
-                const message = messages[messageIndex];
-                if (message.editOperations) {
-                    const op = message.editOperations.find(o => o.blockId === operation.blockId);
-                    if (op) {
-                        op.status = 'applied';
-                    }
-                }
-                messages = [...messages];
-                hasUnsavedChanges = true;
-
-                pushMsg(t('aiSidebar.success.applyEditSuccess'));
+                return {
+                    operationType: 'update',
+                    blockId: args.id,
+                    newContent,
+                    oldContent: blockData?.kramdown || '',
+                    oldContentForDisplay: oldMdData?.content || '',
+                    newContentForDisplay: normalizeOperationContentForDiff(newContent),
+                    status: 'applied',
+                };
             }
+
+            if (args.data === undefined) {
+                return null;
+            }
+
+            const newContent = String(args.data ?? '');
+            const blockId = args.nextID || args.previousID || args.parentID || args.appendParentID || '';
+            if (!blockId) {
+                return null;
+            }
+
+            return {
+                operationType: 'insert',
+                blockId,
+                position: args.nextID ? 'before' : 'after',
+                newContent,
+                newContentForDisplay: normalizeOperationContentForDiff(newContent),
+                status: 'applied',
+            };
         } catch (error) {
-            console.error('应用编辑失败:', error);
-            pushErrMsg(t('aiSidebar.errors.applyEditFailed'));
+            console.warn('解析工具调用参数失败，无法生成差异记录:', error);
+            return null;
         }
     }
 
-    // 拒绝编辑操作
-    function rejectEditOperation(operation: EditOperation, messageIndex: number) {
+    function appendEditOperationToMessage(messageIndex: number, operation: EditOperation) {
         const message = messages[messageIndex];
-        if (message.editOperations) {
-            const op = message.editOperations.find(o => o.blockId === operation.blockId);
-            if (op) {
-                op.status = 'rejected';
-            }
+        if (!message || message.role !== 'assistant') {
+            return;
         }
+
+        if (!message.editOperations) {
+            message.editOperations = [];
+        }
+        message.editOperations = [...message.editOperations, operation];
         messages = [...messages];
         hasUnsavedChanges = true;
-        pushMsg(t('aiSidebar.success.rejectEditSuccess'));
     }
 
     // 查看差异
@@ -9165,24 +8791,13 @@
             try {
                 let content: string;
 
-                if (chatMode === 'edit') {
-                    // 编辑模式：获取kramdown格式，保留块ID结构
-                    const blockData = await getBlockKramdown(doc.id);
-                    if (blockData && blockData.kramdown) {
-                        content = blockData.kramdown;
-                    } else {
-                        // 降级使用缓存内容
-                        content = doc.content;
-                    }
+                // 问答模式：获取Markdown格式
+                const data = await exportMdContent(doc.id, false, false, 2, 0, false);
+                if (data && data.content) {
+                    content = data.content;
                 } else {
-                    // 问答模式：获取Markdown格式
-                    const data = await exportMdContent(doc.id, false, false, 2, 0, false);
-                    if (data && data.content) {
-                        content = data.content;
-                    } else {
-                        // 降级使用缓存内容
-                        content = doc.content;
-                    }
+                    // 降级使用缓存内容
+                    content = doc.content;
                 }
 
                 contextDocumentsWithLatestContent.push({
@@ -9761,6 +9376,7 @@
                                         toolCall.function.name === 'get_siyuan_skills';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
+                                    const toolEditOperation = await buildToolEditOperation(toolCall);
 
                                     try {
                                         let toolResult: string;
@@ -9780,6 +9396,15 @@
                                                 content: toolResult,
                                             };
                                             messages = [...messages, toolResultMessage];
+                                            if (
+                                                firstToolCallMessageIndex !== null &&
+                                                toolEditOperation
+                                            ) {
+                                                appendEditOperationToMessage(
+                                                    firstToolCallMessageIndex,
+                                                    toolEditOperation
+                                                );
+                                            }
                                         } else {
                                             // 需要手动批准：显示批准对话框
                                             console.log(
@@ -9807,6 +9432,15 @@
                                                     content: toolResult,
                                                 };
                                                 messages = [...messages, toolResultMessage];
+                                                if (
+                                                    firstToolCallMessageIndex !== null &&
+                                                    toolEditOperation
+                                                ) {
+                                                    appendEditOperationToMessage(
+                                                        firstToolCallMessageIndex,
+                                                        toolEditOperation
+                                                    );
+                                                }
                                             } else {
                                                 // 用户拒绝
                                                 const toolResultMessage: Message = {
@@ -11625,38 +11259,6 @@
                                                 </svg>
                                                 {t('aiSidebar.actions.viewDiff')}
                                             </button>
-
-                                            {#if operation.status === 'pending'}
-                                                <!-- 应用和拒绝按钮：仅在pending状态显示 -->
-                                                <button
-                                                    class="b3-button b3-button--outline"
-                                                    on:click={() =>
-                                                        applyEditOperation(
-                                                            operation,
-                                                            messageIndex + msgIndex
-                                                        )}
-                                                    title={t('aiSidebar.actions.applyEdit')}
-                                                >
-                                                    <svg class="b3-button__icon">
-                                                        <use xlink:href="#iconCheck"></use>
-                                                    </svg>
-                                                    {t('aiSidebar.actions.applyEdit')}
-                                                </button>
-                                                <button
-                                                    class="b3-button b3-button--text"
-                                                    on:click={() =>
-                                                        rejectEditOperation(
-                                                            operation,
-                                                            messageIndex + msgIndex
-                                                        )}
-                                                    title={t('aiSidebar.actions.rejectEdit')}
-                                                >
-                                                    <svg class="b3-button__icon">
-                                                        <use xlink:href="#iconClose"></use>
-                                                    </svg>
-                                                    {t('aiSidebar.actions.rejectEdit')}
-                                                </button>
-                                            {/if}
                                         </div>
                                     </div>
                                 {/each}
@@ -12531,17 +12133,8 @@
                 bind:value={chatMode}
             >
                 <option value="ask">{t('aiSidebar.mode.ask')}</option>
-                <option value="edit">{t('aiSidebar.mode.edit')}</option>
                 <option value="agent">{t('aiSidebar.mode.agent')}</option>
             </select>
-
-            <!-- 自动批准复选框（仅在编辑模式下显示） -->
-            {#if chatMode === 'edit'}
-                <label class="ai-sidebar__auto-approve-label">
-                    <input type="checkbox" class="b3-switch" bind:checked={autoApproveEdit} />
-                    <span>{t('aiSidebar.mode.autoApprove')}</span>
-                </label>
-            {/if}
 
             <!-- Agent/Ask 模式工具选择按钮 -->
             {#if chatMode === 'agent' || chatMode === 'ask'}
@@ -12759,15 +12352,6 @@
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
             </button>
-            {#if contextDocuments.length > 0}
-                <button
-                    class="b3-button b3-button--text b3-tooltips b3-tooltips__n"
-                    on:click={summarizeContextDoc}
-                    aria-label={t('aiSidebar.actions.summarizeContext')}
-                >
-                    <svg class="b3-button__icon"><use xlink:href="#iconCopilot"></use></svg>
-                </button>
-            {/if}
             <button
                 class="b3-button b3-button--text ai-sidebar__search-btn b3-tooltips b3-tooltips__n"
                 on:click={() => {
@@ -15418,6 +15002,13 @@
         .b3-button {
             padding: 4px 12px;
             font-size: 12px;
+        }
+
+        // 按钮同时使用了 b3-button--text，需要显式覆盖激活态样式
+        .b3-button.b3-button--primary {
+            background: var(--b3-theme-primary);
+            color: var(--b3-theme-on-primary);
+            border-color: var(--b3-theme-primary);
         }
     }
 
