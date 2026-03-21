@@ -1086,7 +1086,7 @@ async function handleStreamResponse(
                                         currentCall.function.arguments += toolCallDelta.function.arguments;
                                     }
                                     if (toolCallDelta.function?.thought_signature) {
-                                        currentCall.function.thought_signature = toolCallDelta.function.thought_signature;
+                                        currentCall.function.thought_signature = (currentCall.function.thought_signature || '') + toolCallDelta.function.thought_signature;
                                     }
                                 }
                             }
