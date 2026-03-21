@@ -2378,8 +2378,8 @@ siyuan_send_notification({
                     description: '通知内容（可选，默认为空）',
                 },
                 delay: {
-                    type: ['number', 'string'],
-                    description: '延迟时间：数字表示秒数，字符串表示具体时间。本地时间格式 "2026-03-12T11:50:00"，UTC 时间格式 "2026-03-12T11:50:00Z"',
+                    type: 'string',
+                    description: '延迟时间：数字字符串表示秒数（如 "300" 表示5分钟后），ISO 8601 格式字符串表示具体时间。本地时间格式 "2026-03-12T11:50:00"，UTC 时间格式 "2026-03-12T11:50:00Z"，立即发送可不传或传 "0"',
                 },
                 timeoutType: {
                     type: 'string',
@@ -4861,14 +4861,20 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 const apiResult = await siyuan_fetch_sync_post(args.api, args.data);
                 return JSON.stringify(apiResult, null, 2);
 
-            case 'siyuan_send_notification':
+            case 'siyuan_send_notification': {
+                // 处理 delay 参数：如果是纯数字字符串，转换为数字
+                let delay: number | string = args.delay;
+                if (typeof delay === 'string' && /^\d+$/.test(delay)) {
+                    delay = parseInt(delay, 10);
+                }
                 const notifyResult = await siyuan_send_notification(
                     args.title,
                     args.body,
-                    args.delay,
+                    delay,
                     args.timeoutType
                 );
                 return JSON.stringify(notifyResult, null, 2);
+            }
 
             case 'siyuan_get_current_time':
                 const timeResult = await siyuan_get_current_time(args.format);
