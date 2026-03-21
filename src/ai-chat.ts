@@ -563,7 +563,20 @@ async function chatOpenAIFormat(
 
         // 添加工具调用信息
         if (msg.tool_calls) {
-            formatted.tool_calls = msg.tool_calls;
+            const isGeminiLike = /gemini/i.test(options.model) || isSupportedThinkingGeminiModel(options.model);
+            formatted.tool_calls = msg.tool_calls.map(tc => {
+                const functionCopied = { ...tc.function };
+                if (isGeminiLike && !functionCopied.thought_signature) {
+                    // 补充因历史错误或代理丢失造成的 thought_signature 缺失，避免 400/429 报错
+                    // 使用绕过验证的魔法值 skip_thought_signature_validator
+                    functionCopied.thought_signature = "skip_thought_signature_validator";
+                }
+                const tcPayload: any = { ...tc, function: functionCopied };
+                if (functionCopied.thought_signature) {
+                    tcPayload.extra_content = { google: { thought_signature: functionCopied.thought_signature } };
+                }
+                return tcPayload;
+            });
         }
 
         // 添加工具返回信息
@@ -1062,7 +1075,7 @@ async function handleStreamResponse(
                                 const currentCall = toolCalls.find(tc => (tc as any)._index === index && (!toolCallDelta.id || tc.id === toolCallDelta.id));
                                 
                                 if (!currentCall || (toolCallDelta.id && toolCallDelta.id !== currentCall.id)) {
-                                    const thoughtSig = toolCallDelta.function?.thought_signature || '';
+                                    const thoughtSig = toolCallDelta.function?.thought_signature || toolCallDelta.function?.thoughtSignature || (toolCallDelta as any).extra_content?.google?.thought_signature || '';
                                     const newCall: ToolCall = {
                                         id: toolCallDelta.id || `call_${Math.random().toString(36).substring(2, 9)}`,
                                         type: 'function',
@@ -1085,8 +1098,9 @@ async function handleStreamResponse(
                                     if (toolCallDelta.function?.arguments) {
                                         currentCall.function.arguments += toolCallDelta.function.arguments;
                                     }
-                                    if (toolCallDelta.function?.thought_signature) {
-                                        currentCall.function.thought_signature = (currentCall.function.thought_signature || '') + toolCallDelta.function.thought_signature;
+                                    const incSig = toolCallDelta.function?.thought_signature || toolCallDelta.function?.thoughtSignature || (toolCallDelta as any).extra_content?.google?.thought_signature;
+                                    if (incSig !== undefined) {
+                                        currentCall.function.thought_signature = (currentCall.function.thought_signature || '') + incSig;
                                     }
                                 }
                             }
