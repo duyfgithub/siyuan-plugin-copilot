@@ -1092,9 +1092,12 @@
         display: flex;
         flex-direction: row;
         overflow: hidden;
+        container-type: inline-size;
+        container-name: settings-panel;
     }
     .config__panel > .b3-tab-bar {
         width: min(30%, 170px);
+        flex-shrink: 0;
     }
 
     .config__tab-wrap {
@@ -1384,6 +1387,40 @@
                 color: var(--b3-theme-on-surface-light);
                 opacity: 0.6;
             }
+        }
+    }
+
+    @container settings-panel (max-width: 599px) {
+        .platform-management-layout {
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+
+        .platform-sidebar {
+            width: 100%;
+            max-height: 42%;
+        }
+
+        .platform-main {
+            min-height: 260px;
+        }
+    }
+
+    @container settings-panel (max-width: 768px) {
+        .config__panel > .b3-tab-bar {
+            width: min(40%, 170px);
+            min-width: 112px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .config__panel > .b3-tab-bar .b3-list-item__text {
+            display: inline-block !important;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
     }
 </style>
