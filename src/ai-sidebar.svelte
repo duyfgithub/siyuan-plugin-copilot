@@ -209,6 +209,7 @@
 
     // 图片查看器
     let isImageViewerOpen = false;
+    let isImageViewerFullscreen = false;
     let currentImageSrc = '';
     let currentImageName = '';
 
@@ -314,6 +315,12 @@
         isImageViewerOpen = false;
         currentImageSrc = '';
         currentImageName = '';
+        isImageViewerFullscreen = false;
+    }
+
+    // 切换图片查看器全屏
+    function toggleImageViewerFullscreen() {
+        isImageViewerFullscreen = !isImageViewerFullscreen;
     }
 
     // 下载图片
@@ -13428,7 +13435,7 @@
 
     <!-- 图片查看器 -->
     {#if isImageViewerOpen}
-        <div class="image-viewer">
+        <div class="image-viewer" class:image-viewer--fullscreen={isImageViewerFullscreen}>
             <div class="image-viewer__header">
                 <h3 class="image-viewer__title">{currentImageName || '图片预览'}</h3>
                 <div class="image-viewer__actions">
@@ -13448,6 +13455,14 @@
                     >
                         <svg class="b3-button__icon"><use xlink:href="#iconDownload"></use></svg>
                         <span>下载</span>
+                    </button>
+                    <button
+                        class="b3-button b3-button--text"
+                        on:click={toggleImageViewerFullscreen}
+                        title={isImageViewerFullscreen ? '退出全屏' : '全屏查看'}
+                    >
+                        <svg class="b3-button__icon"><use xlink:href={isImageViewerFullscreen ? '#iconFullscreenExit' : '#iconFullscreen'}></use></svg>
+                        <span>{isImageViewerFullscreen ? '退出全屏' : '全屏'}</span>
                     </button>
                     <button
                         class="b3-button b3-button--text"
@@ -16722,6 +16737,23 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        transition: all 0.2s ease;
+
+        &--fullscreen {
+            max-width: 100vw;
+            max-height: 100vh;
+            width: 100vw;
+            height: 100vh;
+            border-radius: 0;
+
+            .image-viewer__content {
+                max-height: calc(100vh - 80px);
+            }
+
+            .image-viewer__image {
+                max-height: calc(100vh - 112px);
+            }
+        }
     }
 
     .image-viewer__header {
