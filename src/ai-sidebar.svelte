@@ -16747,11 +16747,17 @@
             border-radius: 0;
 
             .image-viewer__content {
-                max-height: calc(100vh - 80px);
+                max-height: none;
+                flex: 1;
+                min-height: 0;
             }
 
             .image-viewer__image {
-                max-height: calc(100vh - 112px);
+                max-height: 100%;
+                max-width: 100%;
+                height: 100%;
+                width: 100%;
+                border-radius: 0;
             }
         }
     }
