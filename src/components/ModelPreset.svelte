@@ -846,7 +846,7 @@
         bind:this={buttonElement}
         class="b3-button b3-button--text model-settings-button__trigger b3-tooltips b3-tooltips__n"
         on:click|stopPropagation={toggleDropdown}
-        aria-label={currentPresetName || t('aiSidebar.modelSettings.title')}
+        title={currentPresetName || t('aiSidebar.modelSettings.title')}
     >
         <svg class="b3-button__icon"><use xlink:href="#iconModelSetting"></use></svg>
         {#if currentPresetName}
@@ -944,7 +944,11 @@
                                         <div class="model-settings-preset-list-item-content">
                                             <span class="preset-name">{preset.name}</span>
                                             <div class="model-settings-preset-details">
-                                                {t('aiSidebar.modelSettings.contextCount')}: {preset.contextCount === -1 ? (t('aiSidebar.modelSettings.unlimited') || '不限制') : preset.contextCount}
+                                                {t('aiSidebar.modelSettings.contextCount')}: {preset.contextCount ===
+                                                -1
+                                                    ? t('aiSidebar.modelSettings.unlimited') ||
+                                                      '不限制'
+                                                    : preset.contextCount}
                                                 {#if preset.temperatureEnabled ?? true}
                                                     | {t('aiSidebar.modelSettings.temperature')}: {preset.temperature.toFixed(
                                                         2
@@ -1082,7 +1086,9 @@
                     <label class="model-settings-label">
                         {t('aiSidebar.modelSettings.contextCount')}
                         <span class="model-settings-value">
-                            {tempContextCount === -1 ? (t('aiSidebar.modelSettings.unlimited') || '不限制') : tempContextCount}
+                            {tempContextCount === -1
+                                ? t('aiSidebar.modelSettings.unlimited') || '不限制'
+                                : tempContextCount}
                         </span>
                     </label>
                     <input
@@ -1096,7 +1102,10 @@
                     />
                     <div class="model-settings-hint">
                         {t('aiSidebar.modelSettings.contextCountHint')}
-                        {tempContextCount === -1 ? (t('aiSidebar.modelSettings.unlimitedHint') || '（-1 代表不限制上下文消息数）') : ''}
+                        {tempContextCount === -1
+                            ? t('aiSidebar.modelSettings.unlimitedHint') ||
+                              '（-1 代表不限制上下文消息数）'
+                            : ''}
                     </div>
                 </div>
 

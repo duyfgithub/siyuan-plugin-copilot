@@ -177,7 +177,6 @@
     let currentModelId = '';
     let providers: Record<string, ProviderConfig> = {};
 
-
     // 显示设置
     let messageFontSize = 12;
     let multiModelViewMode: 'tab' | 'card' = 'tab'; // 多模型回答样式
@@ -426,7 +425,6 @@
         }
     }
 
-
     // 从独立文件加载单个翻译项
     async function loadTranslateItem(
         id: string
@@ -441,8 +439,6 @@
             return null;
         }
     }
-
-
 
     // 小程序功能相关函数
     // 切换小程序菜单
@@ -725,7 +721,10 @@
             userContent,
             userMessage,
             // 传入当前模型的 thinking 状态，以便正确处理历史 assistant 消息中的 reasoning_content
-            !!(modelConfig.capabilities?.thinking && (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false))
+            !!(
+                modelConfig.capabilities?.thinking &&
+                (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false)
+            )
         );
 
         // 本次请求的 AbortController（用于单个模型的中断）
@@ -758,7 +757,9 @@
                 );
                 const descTool =
                     chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        ? createGetSiyuanSkillsTool(
+                              filteredToolDefs.map(tool => tool.function.name)
+                          )
                         : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
                 toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
@@ -810,7 +811,8 @@
                         enableThinking:
                             modelConfig.capabilities?.thinking &&
                             (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false),
-                        reasoningEffort: response.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
+                        reasoningEffort:
+                            response.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
                         tools: toolsToPass,
                         onThinkingChunk: async (chunk: string) => {
                             turnThinking += chunk;
@@ -836,15 +838,16 @@
                         },
                         onToolCallComplete: async (toolCalls: ToolCall[]) => {
                             hasNewToolCalls = true;
-                            
+
                             // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
-                            const isReasoningEnabled = modelConfig.capabilities?.thinking &&
+                            const isReasoningEnabled =
+                                modelConfig.capabilities?.thinking &&
                                 (response.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false);
-                                
+
                             const assistantMsg: any = {
                                 role: 'assistant',
                                 content: lastAssistantContent,
-                                tool_calls: toolCalls
+                                tool_calls: toolCalls,
                             };
 
                             // 特别是 Kimi 等模型，如果启用了 thinking，assistant 消息必须包含 reasoning_content
@@ -860,25 +863,31 @@
                                 if (multiModelResponses[index]) {
                                     multiModelResponses[index].toolCalls = [
                                         ...(multiModelResponses[index].toolCalls || []),
-                                        { ...tc, status: 'calling', thinkingBefore: turnThinking }
+                                        { ...tc, status: 'calling', thinkingBefore: turnThinking },
                                     ];
                                     multiModelResponses = [...multiModelResponses];
                                 }
 
                                 // 检查是否自动批准
-                                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                const currentSelectedTools =
+                                    chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                                 const toolConfig = currentSelectedTools.find(
                                     t => t.name === tc.function.name
                                 );
                                 const isSystemTool = tc.function.name === 'get_siyuan_skills';
-                                const autoApprove = isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
+                                const autoApprove =
+                                    isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
 
                                 let toolResult: string;
                                 if (autoApprove) {
-                                    console.log(`[RegenerateMultiModel] Auto-approving tool: ${tc.function.name}`);
+                                    console.log(
+                                        `[RegenerateMultiModel] Auto-approving tool: ${tc.function.name}`
+                                    );
                                     toolResult = await executeToolCall(tc);
                                 } else {
-                                    console.log(`[RegenerateMultiModel] Skipping non-auto-approved tool: ${tc.function.name}`);
+                                    console.log(
+                                        `[RegenerateMultiModel] Skipping non-auto-approved tool: ${tc.function.name}`
+                                    );
                                     toolResult = `工具 ${tc.function.name} 需要手动批准。在多模型对比模式下，为了避免 UI 冲突，该工具未被自动执行。请在设置中将该工具设为“自动批准”。`;
                                 }
 
@@ -886,15 +895,19 @@
                                     role: 'tool',
                                     tool_call_id: tc.id,
                                     name: tc.function.name,
-                                    content: toolResult
+                                    content: toolResult,
                                 });
 
                                 // 更新 UI 显示结果
                                 if (multiModelResponses[index]) {
-                                    const callIndex = multiModelResponses[index].toolCalls.findIndex(c => c.id === tc.id);
+                                    const callIndex = multiModelResponses[
+                                        index
+                                    ].toolCalls.findIndex(c => c.id === tc.id);
                                     if (callIndex !== -1) {
-                                        multiModelResponses[index].toolCalls[callIndex].status = 'completed';
-                                        multiModelResponses[index].toolCalls[callIndex].result = toolResult;
+                                        multiModelResponses[index].toolCalls[callIndex].status =
+                                            'completed';
+                                        multiModelResponses[index].toolCalls[callIndex].result =
+                                            toolResult;
                                         multiModelResponses = [...multiModelResponses];
                                     }
                                 }
@@ -906,31 +919,35 @@
                                 multiModelResponses = [...multiModelResponses];
                             }
                         },
-                    onComplete: async (text: string) => {
-                        if (multiModelResponses[index]) {
-                            const convertedText = convertLatexToMarkdown(text);
-                            // 处理content中的base64图片，保存为assets文件
-                            const processedContent = await saveBase64ImagesInContent(convertedText);
-                            multiModelResponses[index].content = processedContent;
-                            multiModelResponses[index].thinking = totalThinking;
-                            multiModelResponses[index].isLoading = false;
-                            if (totalThinking && !multiModelResponses[index].thinkingCollapsed) {
-                                multiModelResponses[index].thinkingCollapsed = true;
+                        onComplete: async (text: string) => {
+                            if (multiModelResponses[index]) {
+                                const convertedText = convertLatexToMarkdown(text);
+                                // 处理content中的base64图片，保存为assets文件
+                                const processedContent =
+                                    await saveBase64ImagesInContent(convertedText);
+                                multiModelResponses[index].content = processedContent;
+                                multiModelResponses[index].thinking = totalThinking;
+                                multiModelResponses[index].isLoading = false;
+                                if (
+                                    totalThinking &&
+                                    !multiModelResponses[index].thinkingCollapsed
+                                ) {
+                                    multiModelResponses[index].thinkingCollapsed = true;
+                                }
+                                multiModelResponses = [...multiModelResponses];
                             }
-                            multiModelResponses = [...multiModelResponses];
-                        }
+                        },
+                        onError: (error: Error) => {
+                            if (error.message !== 'Request aborted' && multiModelResponses[index]) {
+                                multiModelResponses[index].error = error.message;
+                                multiModelResponses[index].isLoading = false;
+                                multiModelResponses = [...multiModelResponses];
+                            }
+                        },
                     },
-                    onError: (error: Error) => {
-                        if (error.message !== 'Request aborted' && multiModelResponses[index]) {
-                            multiModelResponses[index].error = error.message;
-                            multiModelResponses[index].isLoading = false;
-                            multiModelResponses = [...multiModelResponses];
-                        }
-                    },
-                },
-                providerConfig.customApiUrl,
-                providerConfig.advancedConfig
-            );
+                    providerConfig.customApiUrl,
+                    providerConfig.advancedConfig
+                );
 
                 if (!hasNewToolCalls) {
                     shouldContinue = false;
@@ -1076,7 +1093,8 @@
                     maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                     stream: true,
                     signal: localAbort.signal,
-                    customBody, enableThinking:
+                    customBody,
+                    enableThinking:
                         modelConfig.capabilities?.thinking &&
                         (modelConfig.thinkingEnabled || false),
                     reasoningEffort: modelConfig.thinkingEffort || 'low',
@@ -1135,10 +1153,9 @@
     let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置（包括未选中的）
     let toolAutoApproveSettingsAsk: Record<string, boolean> = {}; // 问答模式所有工具的 autoApprove 配置
     // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
-    $: userToolCount =
-        (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
-            t => t.name !== 'get_siyuan_skills'
-        ).length;
+    $: userToolCount = (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
+        t => t.name !== 'get_siyuan_skills'
+    ).length;
 
     // 记忆当前选择的模式
     $: if (chatMode && settings && !isInitialLoading) {
@@ -1246,8 +1263,6 @@
         if (!settings.selectedModelPresetId && settings.lastUsedChatMode) {
             chatMode = settings.lastUsedChatMode === 'agent' ? 'agent' : 'ask';
         }
-
-
 
         // 初始化多模型选择，过滤掉无效的模型
         selectedMultiModels = (settings.selectedMultiModels || []).filter(model => {
@@ -2678,7 +2693,8 @@
                 // 准备 Agent/Ask 模式的工具列表
                 let toolsForAgent: any[] | undefined = undefined;
                 if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const currentSelectedTools =
+                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                     const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                         currentSelectedTools.some(t => t.name === tool.function.name)
                     );
@@ -2733,7 +2749,8 @@
                             temperature: tempModelSettings.temperatureEnabled
                                 ? tempModelSettings.temperature
                                 : modelConfig.temperature,
-                            maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
+                            maxTokens:
+                                modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                             stream: true,
                             signal: abortController.signal,
                             // 使用模型实例的 thinkingEnabled 值
@@ -2743,8 +2760,9 @@
                             // 使用模型实例的 thinkingEffort 值，如果没有则使用 modelConfig 中的默认值
                             reasoningEffort:
                                 model.thinkingEffort ?? modelConfig.thinkingEffort ?? 'low',
-                            tools: toolsToPass, 
-                            customBody, onThinkingChunk: async (chunk: string) => {
+                            tools: toolsToPass,
+                            customBody,
+                            onThinkingChunk: async (chunk: string) => {
                                 turnThinking += chunk;
                                 totalThinking += chunk;
                                 if (multiModelResponses[index]) {
@@ -2753,7 +2771,10 @@
                                 }
                             },
                             onThinkingComplete: () => {
-                                if (multiModelResponses[index] && multiModelResponses[index].thinking) {
+                                if (
+                                    multiModelResponses[index] &&
+                                    multiModelResponses[index].thinking
+                                ) {
                                     multiModelResponses[index].thinkingCollapsed = true;
                                     multiModelResponses = [...multiModelResponses];
                                 }
@@ -2768,15 +2789,16 @@
                             },
                             onToolCallComplete: async (toolCalls: ToolCall[]) => {
                                 hasNewToolCalls = true;
-                                
+
                                 // 1. 将 assistant 消息（包含 tool_calls）添加到当前模型的上下文
-                                const isReasoningEnabled = modelConfig.capabilities?.thinking &&
+                                const isReasoningEnabled =
+                                    modelConfig.capabilities?.thinking &&
                                     (model.thinkingEnabled ?? modelConfig.thinkingEnabled ?? false);
-                                
+
                                 const assistantMsg: any = {
                                     role: 'assistant',
                                     content: lastAssistantContent,
-                                    tool_calls: toolCalls
+                                    tool_calls: toolCalls,
                                 };
 
                                 // 特别是 Kimi 等模型，如果启用了 thinking，assistant 消息必须包含 reasoning_content
@@ -2792,26 +2814,38 @@
                                     if (multiModelResponses[index]) {
                                         multiModelResponses[index].toolCalls = [
                                             ...(multiModelResponses[index].toolCalls || []),
-                                            { ...tc, status: 'calling', thinkingBefore: turnThinking }
+                                            {
+                                                ...tc,
+                                                status: 'calling',
+                                                thinkingBefore: turnThinking,
+                                            },
                                         ];
                                         multiModelResponses = [...multiModelResponses];
                                     }
 
                                     // 检查是否自动批准
-                                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const currentSelectedTools =
+                                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                                     const toolConfig = currentSelectedTools.find(
                                         t => t.name === tc.function.name
                                     );
                                     const isSystemTool = tc.function.name === 'get_siyuan_skills';
-                                    const autoApprove = isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
+                                    const autoApprove =
+                                        isSystemTool ||
+                                        (toolConfig && toolConfig.autoApprove) ||
+                                        false;
 
                                     let toolResult: string;
                                     if (autoApprove) {
-                                        console.log(`[MultiModel] Auto-approving tool: ${tc.function.name}`);
+                                        console.log(
+                                            `[MultiModel] Auto-approving tool: ${tc.function.name}`
+                                        );
                                         toolResult = await executeToolCall(tc);
                                     } else {
                                         // 多模型模式下，非自动批准的工具暂时直接拒绝，避免 UI 冲突
-                                        console.log(`[MultiModel] Skipping non-auto-approved tool: ${tc.function.name}`);
+                                        console.log(
+                                            `[MultiModel] Skipping non-auto-approved tool: ${tc.function.name}`
+                                        );
                                         toolResult = `工具 ${tc.function.name} 需要手动批准。在多模型对比模式下，为了避免 UI 冲突，该工具未被自动执行。请在选择该模型后的单模型模式下重新尝试，或在设置中将该工具设为“自动批准”。`;
                                     }
 
@@ -2819,15 +2853,19 @@
                                         role: 'tool',
                                         tool_call_id: tc.id,
                                         name: tc.function.name,
-                                        content: toolResult
+                                        content: toolResult,
                                     });
 
                                     // 更新 UI 显示结果
                                     if (multiModelResponses[index]) {
-                                        const callIndex = multiModelResponses[index].toolCalls.findIndex(c => c.id === tc.id);
+                                        const callIndex = multiModelResponses[
+                                            index
+                                        ].toolCalls.findIndex(c => c.id === tc.id);
                                         if (callIndex !== -1) {
-                                            multiModelResponses[index].toolCalls[callIndex].status = 'completed';
-                                            multiModelResponses[index].toolCalls[callIndex].result = toolResult;
+                                            multiModelResponses[index].toolCalls[callIndex].status =
+                                                'completed';
+                                            multiModelResponses[index].toolCalls[callIndex].result =
+                                                toolResult;
                                             multiModelResponses = [...multiModelResponses];
                                         }
                                     }
@@ -2838,121 +2876,149 @@
                                 if (multiModelResponses[index]) {
                                     multiModelResponses[index].isLoading = true;
                                     // 保存当前模型的对话历史（包含 tool_calls 和 tool 响应）
-                                    multiModelResponses[index].conversationMessages = [...modelMessagesToSend];
+                                    multiModelResponses[index].conversationMessages = [
+                                        ...modelMessagesToSend,
+                                    ];
                                     multiModelResponses = [...multiModelResponses];
                                 }
                             },
-                        onComplete: async (text: string) => {
-                            // 如果已经中断，不再处理完成回调
-                            if (isAborted) {
-                                return;
-                            }
-                            // 如果用户已经选择答案，不再更新消息
-                            if (!isWaitingForAnswerSelection) {
-                                return;
-                            }
-                            if (multiModelResponses[index]) {
-                                const convertedText = convertLatexToMarkdown(text);
-                                // 处理content中的base64图片，保存为assets文件
-                                const processedContent =
-                                    await saveBase64ImagesInContent(convertedText);
-                                multiModelResponses[index].content = processedContent;
-                                multiModelResponses[index].thinking = totalThinking;
-                                multiModelResponses[index].isLoading = false;
-                                // 保存最终的对话历史（包含最后一次 assistant 回复）
-                                multiModelResponses[index].conversationMessages = [...modelMessagesToSend];
-                                if (totalThinking && !multiModelResponses[index].thinkingCollapsed) {
-                                    multiModelResponses[index].thinkingCollapsed = true;
+                            onComplete: async (text: string) => {
+                                // 如果已经中断，不再处理完成回调
+                                if (isAborted) {
+                                    return;
                                 }
-                                multiModelResponses = [...multiModelResponses];
-
-                                // 【修复】首个模型完成时，尝试更新已有的多模型助手消息，或者创建新消息
-                                if (!assistantMessageCreated) {
-                                    // 先标记已创建，防止并发的 onComplete 也进入此分支
-                                    assistantMessageCreated = true;
-                                    
-                                    const lastMessage = messages[messages.length - 1];
-                                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
-                                        // 如果已经存在（例如因为 abortMessage 已经提前创建了），则直接更新
-                                        lastMessage.multiModelResponses = [...multiModelResponses];
-                                        // 保持 content 为空，等用户选择后填充
-                                        assistantMessageIndex = messages.length - 1;
-                                        messages = [...messages];
-                                    } else {
-                                        // 创建包含多模型响应的助手消息
-                                        const assistantMessage: Message = {
-                                            role: 'assistant',
-                                            content: '', // 暂时为空，等用户选择后填充
-                                            multiModelResponses: [...multiModelResponses],
-                                        };
-                                        messages = [...messages, assistantMessage];
-                                        assistantMessageIndex = messages.length - 1;
-                                    }
-                                    hasUnsavedChanges = true;
-
-                                    // 立即保存会话文件
-                                    await saveCurrentSession(true);
-                                } else if (assistantMessageIndex >= 0 && messages[assistantMessageIndex]) {
-                                    // 后续模型完成时更新助手消息的 multiModelResponses
-                                    messages[assistantMessageIndex].multiModelResponses = [
-                                        ...multiModelResponses,
-                                    ];
-                                    messages = [...messages];
-
-                                    // 保存更新后的会话
-                                    await saveCurrentSession(true);
-                                }
-                            }
-                        },
-                        onError: (error: Error) => {
-                            // 如果是主动中断，不显示错误
-                            if (error.message !== 'Request aborted' && multiModelResponses[index]) {
                                 // 如果用户已经选择答案，不再更新消息
                                 if (!isWaitingForAnswerSelection) {
                                     return;
                                 }
-                                multiModelResponses[index].error = error.message;
-                                multiModelResponses[index].isLoading = false;
-                                multiModelResponses = [...multiModelResponses];
-
-                                // 【修复】模型出错时也尝试更新或创建助手消息
-                                if (!assistantMessageCreated) {
-                                    assistantMessageCreated = true;
-                                    const lastMessage = messages[messages.length - 1];
-                                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
-                                        lastMessage.multiModelResponses = [...multiModelResponses];
-                                        assistantMessageIndex = messages.length - 1;
-                                        messages = [...messages];
-                                    } else {
-                                        const assistantMessage: Message = {
-                                            role: 'assistant',
-                                            content: '',
-                                            multiModelResponses: [...multiModelResponses],
-                                        };
-                                        messages = [...messages, assistantMessage];
-                                        assistantMessageIndex = messages.length - 1;
-                                    }
-                                    hasUnsavedChanges = true;
-                                    saveCurrentSession(true);
-                                } else if (assistantMessageIndex >= 0 && messages[assistantMessageIndex]) {
-                                    messages[assistantMessageIndex].multiModelResponses = [
-                                        ...multiModelResponses,
+                                if (multiModelResponses[index]) {
+                                    const convertedText = convertLatexToMarkdown(text);
+                                    // 处理content中的base64图片，保存为assets文件
+                                    const processedContent =
+                                        await saveBase64ImagesInContent(convertedText);
+                                    multiModelResponses[index].content = processedContent;
+                                    multiModelResponses[index].thinking = totalThinking;
+                                    multiModelResponses[index].isLoading = false;
+                                    // 保存最终的对话历史（包含最后一次 assistant 回复）
+                                    multiModelResponses[index].conversationMessages = [
+                                        ...modelMessagesToSend,
                                     ];
-                                    messages = [...messages];
-                                    saveCurrentSession(true);
-                                }
-                            }
-                        },
-                    },
-                    providerConfig.customApiUrl,
-                    providerConfig.advancedConfig
-                );
+                                    if (
+                                        totalThinking &&
+                                        !multiModelResponses[index].thinkingCollapsed
+                                    ) {
+                                        multiModelResponses[index].thinkingCollapsed = true;
+                                    }
+                                    multiModelResponses = [...multiModelResponses];
 
-                if (!hasNewToolCalls) {
-                    shouldContinue = false;
+                                    // 【修复】首个模型完成时，尝试更新已有的多模型助手消息，或者创建新消息
+                                    if (!assistantMessageCreated) {
+                                        // 先标记已创建，防止并发的 onComplete 也进入此分支
+                                        assistantMessageCreated = true;
+
+                                        const lastMessage = messages[messages.length - 1];
+                                        if (
+                                            lastMessage &&
+                                            lastMessage.role === 'assistant' &&
+                                            lastMessage.multiModelResponses
+                                        ) {
+                                            // 如果已经存在（例如因为 abortMessage 已经提前创建了），则直接更新
+                                            lastMessage.multiModelResponses = [
+                                                ...multiModelResponses,
+                                            ];
+                                            // 保持 content 为空，等用户选择后填充
+                                            assistantMessageIndex = messages.length - 1;
+                                            messages = [...messages];
+                                        } else {
+                                            // 创建包含多模型响应的助手消息
+                                            const assistantMessage: Message = {
+                                                role: 'assistant',
+                                                content: '', // 暂时为空，等用户选择后填充
+                                                multiModelResponses: [...multiModelResponses],
+                                            };
+                                            messages = [...messages, assistantMessage];
+                                            assistantMessageIndex = messages.length - 1;
+                                        }
+                                        hasUnsavedChanges = true;
+
+                                        // 立即保存会话文件
+                                        await saveCurrentSession(true);
+                                    } else if (
+                                        assistantMessageIndex >= 0 &&
+                                        messages[assistantMessageIndex]
+                                    ) {
+                                        // 后续模型完成时更新助手消息的 multiModelResponses
+                                        messages[assistantMessageIndex].multiModelResponses = [
+                                            ...multiModelResponses,
+                                        ];
+                                        messages = [...messages];
+
+                                        // 保存更新后的会话
+                                        await saveCurrentSession(true);
+                                    }
+                                }
+                            },
+                            onError: (error: Error) => {
+                                // 如果是主动中断，不显示错误
+                                if (
+                                    error.message !== 'Request aborted' &&
+                                    multiModelResponses[index]
+                                ) {
+                                    // 如果用户已经选择答案，不再更新消息
+                                    if (!isWaitingForAnswerSelection) {
+                                        return;
+                                    }
+                                    multiModelResponses[index].error = error.message;
+                                    multiModelResponses[index].isLoading = false;
+                                    multiModelResponses = [...multiModelResponses];
+
+                                    // 【修复】模型出错时也尝试更新或创建助手消息
+                                    if (!assistantMessageCreated) {
+                                        assistantMessageCreated = true;
+                                        const lastMessage = messages[messages.length - 1];
+                                        if (
+                                            lastMessage &&
+                                            lastMessage.role === 'assistant' &&
+                                            lastMessage.multiModelResponses
+                                        ) {
+                                            lastMessage.multiModelResponses = [
+                                                ...multiModelResponses,
+                                            ];
+                                            assistantMessageIndex = messages.length - 1;
+                                            messages = [...messages];
+                                        } else {
+                                            const assistantMessage: Message = {
+                                                role: 'assistant',
+                                                content: '',
+                                                multiModelResponses: [...multiModelResponses],
+                                            };
+                                            messages = [...messages, assistantMessage];
+                                            assistantMessageIndex = messages.length - 1;
+                                        }
+                                        hasUnsavedChanges = true;
+                                        saveCurrentSession(true);
+                                    } else if (
+                                        assistantMessageIndex >= 0 &&
+                                        messages[assistantMessageIndex]
+                                    ) {
+                                        messages[assistantMessageIndex].multiModelResponses = [
+                                            ...multiModelResponses,
+                                        ];
+                                        messages = [...messages];
+                                        saveCurrentSession(true);
+                                    }
+                                }
+                            },
+                        },
+                        providerConfig.customApiUrl,
+                        providerConfig.advancedConfig
+                    );
+
+                    if (!hasNewToolCalls) {
+                        shouldContinue = false;
+                    }
                 }
-            }
-        } catch (error) {
+            } catch (error) {
                 // 如果是主动中断，不显示错误
                 if ((error as Error).message !== 'Request aborted' && multiModelResponses[index]) {
                     // 如果用户已经选择答案，不再更新消息
@@ -2967,7 +3033,11 @@
                     if (!assistantMessageCreated) {
                         assistantMessageCreated = true;
                         const lastMessage = messages[messages.length - 1];
-                        if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                        if (
+                            lastMessage &&
+                            lastMessage.role === 'assistant' &&
+                            lastMessage.multiModelResponses
+                        ) {
                             lastMessage.multiModelResponses = [...multiModelResponses];
                             assistantMessageIndex = messages.length - 1;
                             messages = [...messages];
@@ -3037,7 +3107,7 @@
                     role: msg.role,
                     content: msg.content,
                 };
-                
+
                 // 只有在启用 thinking 模式时才保留相关内容
                 // 特别是 Kimi 等模型，如果启用了 thinking，历史 assistant 消息必须包含 reasoning_content
                 const shouldKeepReasoning = thinkingEnabled && userToolCount > 0;
@@ -3082,7 +3152,11 @@
                                       : '块';
 
                             // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                            if (
+                                (chatMode === 'agent' || chatMode === 'ask') &&
+                                userToolCount > 0 &&
+                                doc.type === 'doc'
+                            ) {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
 
@@ -3328,7 +3402,11 @@
                                           : '块';
 
                                 // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                                if (
+                                    (chatMode === 'agent' || chatMode === 'ask') &&
+                                    userToolCount > 0 &&
+                                    doc.type === 'doc'
+                                ) {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -3366,12 +3444,12 @@
                 baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
             hasToolInstruction = true;
-            
+
             // 检查是否启用了SOUL工具
             const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
             hasSoulEnabled = currentSelectedTools.some(t => t.name === 'soul');
         }
-        
+
         // 如果启用了SOUL工具，自动获取SOUL文档内容并追加到系统提示词
         if (hasSoulEnabled) {
             try {
@@ -3463,7 +3541,10 @@
         // 这些消息需要被添加到 messages 数组中，以便重新生成时能正确重建上下文
         // 注意：多模型模式下工具调用已保存在 multiModelResponses 中，不需要再插入到主消息流
         const toolMessages: Message[] = [];
-        if (selectedResponse.conversationMessages && selectedResponse.conversationMessages.length > 0) {
+        if (
+            selectedResponse.conversationMessages &&
+            selectedResponse.conversationMessages.length > 0
+        ) {
             for (const msg of selectedResponse.conversationMessages) {
                 // 只提取 tool 响应消息，不提取包含 tool_calls 的 assistant 消息
                 // 因为多模型模式下工具调用已经在每个模型卡片中显示了
@@ -3488,14 +3569,14 @@
                     break;
                 }
             }
-            
+
             if (lastUserMessageIndex >= 0) {
                 // 在用户消息之后插入 tool 消息
                 const insertIndex = lastUserMessageIndex + 1;
                 messages = [
                     ...messages.slice(0, insertIndex),
                     ...toolMessages,
-                    ...messages.slice(insertIndex)
+                    ...messages.slice(insertIndex),
                 ];
             }
         }
@@ -3526,11 +3607,13 @@
             // 更新已有的助手消息
             messages[assistantMsgIndex].content = selectedResponse.content; // 设置为选择的答案内容
             messages[assistantMsgIndex].thinking = selectedResponse.thinking || ''; // 保存思考内容
-            messages[assistantMsgIndex].multiModelResponses = multiModelResponses.map((response, i) => ({
-                ...response,
-                isSelected: i === index, // 标记哪个被选择
-                modelName: i === index ? ' ✅' + response.modelName : response.modelName, // 选择的模型名添加✅
-            }));
+            messages[assistantMsgIndex].multiModelResponses = multiModelResponses.map(
+                (response, i) => ({
+                    ...response,
+                    isSelected: i === index, // 标记哪个被选择
+                    modelName: i === index ? ' ✅' + response.modelName : response.modelName, // 选择的模型名添加✅
+                })
+            );
         } else {
             // 如果没有找到助手消息（不应该发生），在最后创建新消息
             const assistantMessage: Message = {
@@ -3545,7 +3628,7 @@
             };
             messages = [...messages, assistantMessage];
         }
-        
+
         // 触发响应式更新
         messages = [...messages];
 
@@ -3816,7 +3899,11 @@
         await scrollToBottom(true);
 
         // DeepSeek 思考模式：开启新一轮对话前清理历史消息中的 reasoning_content，保留工具调用链
-        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && currentProvider === 'deepseek') {
+        if (
+            (chatMode === 'agent' || chatMode === 'ask') &&
+            userToolCount > 0 &&
+            currentProvider === 'deepseek'
+        ) {
             messages = messages.map(msg => {
                 if (msg.role === 'assistant' && msg.reasoning_content) {
                     const { reasoning_content, ...rest } = msg as any;
@@ -3909,7 +3996,11 @@
                                       : '块';
 
                             // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                            if (
+                                (chatMode === 'agent' || chatMode === 'ask') &&
+                                userToolCount > 0 &&
+                                doc.type === 'doc'
+                            ) {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
 
@@ -4071,7 +4162,11 @@
                                           : '块';
 
                                 // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                                if (
+                                    (chatMode === 'agent' || chatMode === 'ask') &&
+                                    userToolCount > 0 &&
+                                    doc.type === 'doc'
+                                ) {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -4151,7 +4246,11 @@
                                           : '块';
 
                                 // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                                if (
+                                    (chatMode === 'agent' || chatMode === 'ask') &&
+                                    userToolCount > 0 &&
+                                    doc.type === 'doc'
+                                ) {
                                     return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                                 }
 
@@ -4275,7 +4374,9 @@
                 );
                 const descTool =
                     chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        ? createGetSiyuanSkillsTool(
+                              filteredToolDefs.map(tool => tool.function.name)
+                          )
                         : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
                 toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
@@ -4313,7 +4414,11 @@
             }
 
             // Agent 模式或启用工具的问答模式使用循环调用
-            if ((chatMode === 'agent' || chatMode === 'ask') && toolsForAgent && toolsForAgent.length > 0) {
+            if (
+                (chatMode === 'agent' || chatMode === 'ask') &&
+                toolsForAgent &&
+                toolsForAgent.length > 0
+            ) {
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
@@ -4345,7 +4450,8 @@
                             enableThinking,
                             reasoningEffort: modelConfig.thinkingEffort || 'low',
                             tools: toolsForAgent,
-                            customBody, onThinkingChunk: enableThinking
+                            customBody,
+                            onThinkingChunk: enableThinking
                                 ? async (chunk: string) => {
                                       isThinkingPhase = true;
                                       streamingThinking += chunk;
@@ -4365,14 +4471,17 @@
                                 receivedToolCalls = true;
 
                                 // 获取当前工具调用的起始索引
-                                const toolCallStartIndex = firstToolCallMessageIndex !== null
-                                    ? (messages[firstToolCallMessageIndex].tool_calls?.length || 0)
-                                    : 0;
+                                const toolCallStartIndex =
+                                    firstToolCallMessageIndex !== null
+                                        ? messages[firstToolCallMessageIndex].tool_calls?.length ||
+                                          0
+                                        : 0;
 
                                 // 计算当前轮次的折叠索引
-                                const baseIndex = firstToolCallMessageIndex !== null
-                                    ? firstToolCallMessageIndex * 100 + currentToolCallRound
-                                    : messages.length * 100;
+                                const baseIndex =
+                                    firstToolCallMessageIndex !== null
+                                        ? firstToolCallMessageIndex * 100 + currentToolCallRound
+                                        : messages.length * 100;
 
                                 // 如果是第一次工具调用，创建新的assistant消息
                                 if (firstToolCallMessageIndex === null) {
@@ -4380,10 +4489,12 @@
                                         role: 'assistant',
                                         content: streamingMessage || '',
                                         tool_calls: toolCalls,
-                                        toolCallThinkings: [{
-                                            toolCallIndex: 0,
-                                            thinkingBefore: streamingThinking || '',
-                                        }],
+                                        toolCallThinkings: [
+                                            {
+                                                toolCallIndex: 0,
+                                                thinkingBefore: streamingThinking || '',
+                                            },
+                                        ],
                                     };
 
                                     // 只有在启用 thinking 模式时才添加 reasoning_content
@@ -4432,7 +4543,8 @@
 
                                 // 处理每个工具调用
                                 for (const toolCall of toolCalls) {
-                                    const currentSelectedToolsInLoop = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const currentSelectedToolsInLoop =
+                                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                                     const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
@@ -4443,10 +4555,7 @@
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
                                         await resolveToolChangeContext(toolCall);
-                                    if (
-                                        firstToolCallMessageIndex !== null &&
-                                        toolChangeContext
-                                    ) {
+                                    if (firstToolCallMessageIndex !== null && toolChangeContext) {
                                         await ensureDocDiffSnapshotBefore(
                                             firstToolCallMessageIndex,
                                             toolChangeContext
@@ -4564,11 +4673,13 @@
                                         }
 
                                         // 检测是否是 DeepSeek 推理模型
-                                        const isDeepSeekReasonerModel2 = /deepseek-(reasoner|r1)/i.test(modelConfig.id);
+                                        const isDeepSeekReasonerModel2 =
+                                            /deepseek-(reasoner|r1)/i.test(modelConfig.id);
 
                                         // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                                         // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
-                                        const shouldKeepReasoning2 = isDeepseekThinkingAgent || isDeepSeekReasonerModel2;
+                                        const shouldKeepReasoning2 =
+                                            isDeepseekThinkingAgent || isDeepSeekReasonerModel2;
                                         if (
                                             shouldKeepReasoning2 &&
                                             msg.reasoning_content !== undefined
@@ -4665,8 +4776,13 @@
                                             // 构建完整的 reasoning_content，包含所有轮次的思考
                                             let fullReasoning = '';
                                             if (existingMessage.toolCallThinkings) {
-                                                for (let i = 0; i < existingMessage.toolCallThinkings.length; i++) {
-                                                    const round = existingMessage.toolCallThinkings[i];
+                                                for (
+                                                    let i = 0;
+                                                    i < existingMessage.toolCallThinkings.length;
+                                                    i++
+                                                ) {
+                                                    const round =
+                                                        existingMessage.toolCallThinkings[i];
                                                     if (i > 0) fullReasoning += '\n\n';
                                                     fullReasoning += `[第${i + 1}轮思考]\n${round.thinkingBefore}`;
                                                 }
@@ -4765,7 +4881,8 @@
                         enableThinking,
                         reasoningEffort: modelConfig.thinkingEffort || 'low',
                         tools: webSearchTools, // 传递联网搜索工具
-                        customBody, enableImageGeneration,
+                        customBody,
+                        enableImageGeneration,
                         onImageGenerated: async (images: any[]) => {
                             // 立即保存生成的图片到 SiYuan 资源文件夹并转换为 blob URL
                             generatedImages = await Promise.all(
@@ -4939,7 +5056,11 @@
 
                     // 【修复】检查是否已经存在该 turns 的助手消息，避免重复添加
                     const lastMessage = messages[messages.length - 1];
-                    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                    if (
+                        lastMessage &&
+                        lastMessage.role === 'assistant' &&
+                        lastMessage.multiModelResponses
+                    ) {
                         lastMessage.content = selectedResponse.content || '';
                         lastMessage.thinking = selectedResponse.thinking || '';
                         lastMessage.multiModelResponses = updatedMultiModelResponses;
@@ -5040,13 +5161,15 @@
                     ...response,
                     isSelected: i === firstSuccessIndex,
                     modelName:
-                        i === firstSuccessIndex
-                            ? ' ✅' + response.modelName
-                            : response.modelName, // 选择的模型名添加✅
+                        i === firstSuccessIndex ? ' ✅' + response.modelName : response.modelName, // 选择的模型名添加✅
                 }));
 
                 const lastMessage = messages[messages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                if (
+                    lastMessage &&
+                    lastMessage.role === 'assistant' &&
+                    lastMessage.multiModelResponses
+                ) {
                     lastMessage.content = selectedResponse.content || '';
                     lastMessage.thinking = selectedResponse.thinking || '';
                     lastMessage.multiModelResponses = updatedMultiModelResponses;
@@ -6580,7 +6703,7 @@
 
         try {
             // agent模式或启用工具的问答模式下，文档只存储块ID
-            if ((chatMode === 'agent' || (chatMode === 'ask' && userToolCount > 0))) {
+            if (chatMode === 'agent' || (chatMode === 'ask' && userToolCount > 0)) {
                 contextDocuments = [
                     ...contextDocuments,
                     {
@@ -7101,39 +7224,72 @@
             // 【修复】在保存前重新加载最新的会话列表，避免多页签覆盖问题
             await loadSessions();
 
-        if (currentSessionId) {
-            // 更新现有会话
-            const session = sessions.find(s => s.id === currentSessionId);
-            if (session) {
-                session.updatedAt = now;
-                session.messageCount = messages.filter(m => m.role !== 'system').length;
+            if (currentSessionId) {
+                // 更新现有会话
+                const session = sessions.find(s => s.id === currentSessionId);
+                if (session) {
+                    session.updatedAt = now;
+                    session.messageCount = messages.filter(m => m.role !== 'system').length;
 
-                // 1. 保存 metadata 列表
-                await saveSessions();
+                    // 1. 保存 metadata 列表
+                    await saveSessions();
 
-                // 2. 将消息中的 Blob URL 转换为 path 以便永久存储
-                const messagesToSave = messages.map(msg => ({
-                    ...msg,
-                    attachments: msg.attachments?.map(att => ({
-                        ...att,
-                        data: att.path ? '' : att.data, // 如果有 path，清空 data
-                    })),
-                    generatedImages: msg.generatedImages?.map(img => ({
-                        ...img,
-                        data: '', // 不再这里存 base64
-                    })),
-                }));
+                    // 2. 将消息中的 Blob URL 转换为 path 以便永久存储
+                    const messagesToSave = messages.map(msg => ({
+                        ...msg,
+                        attachments: msg.attachments?.map(att => ({
+                            ...att,
+                            data: att.path ? '' : att.data, // 如果有 path，清空 data
+                        })),
+                        generatedImages: msg.generatedImages?.map(img => ({
+                            ...img,
+                            data: '', // 不再这里存 base64
+                        })),
+                    }));
 
-                // 3. 保存完整内容到独立文件
-                const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${currentSessionId}.json`;
-                const sessionContent = JSON.stringify({ messages: messagesToSave }, null, 2);
-                const sessionBlob = new Blob([sessionContent], { type: 'application/json' });
-                await putFile(sessionPath, false, sessionBlob);
+                    // 3. 保存完整内容到独立文件
+                    const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${currentSessionId}.json`;
+                    const sessionContent = JSON.stringify({ messages: messagesToSave }, null, 2);
+                    const sessionBlob = new Blob([sessionContent], { type: 'application/json' });
+                    await putFile(sessionPath, false, sessionBlob);
+                } else {
+                    // 如果会话不存在，创建为新会话
+                    const userContent = messages.find(m => m.role === 'user')?.content || '';
+                    const newSession: ChatSession = {
+                        id: currentSessionId,
+                        title:
+                            typeof userContent === 'string'
+                                ? userContent.substring(0, 30)
+                                : generateSessionTitle(),
+                        messageCount: messages.filter(m => m.role !== 'system').length,
+                        createdAt: now,
+                        updatedAt: now,
+                    };
+                    sessions = [newSession, ...sessions];
+                    await saveSessions();
+
+                    // 保存完整内容
+                    const messagesToSave = messages.map(msg => ({
+                        ...msg,
+                        attachments: msg.attachments?.map(att => ({
+                            ...att,
+                            data: att.path ? '' : att.data,
+                        })),
+                        generatedImages: msg.generatedImages?.map(img => ({
+                            ...img,
+                            data: '',
+                        })),
+                    }));
+                    const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${currentSessionId}.json`;
+                    const sessionContent = JSON.stringify({ messages: messagesToSave }, null, 2);
+                    const sessionBlob = new Blob([sessionContent], { type: 'application/json' });
+                    await putFile(sessionPath, false, sessionBlob);
+                }
             } else {
-                // 如果会话不存在，创建为新会话
+                // 创建新会话
                 const userContent = messages.find(m => m.role === 'user')?.content || '';
                 const newSession: ChatSession = {
-                    id: currentSessionId,
+                    id: `session_${now}`,
                     title:
                         typeof userContent === 'string'
                             ? userContent.substring(0, 30)
@@ -7143,6 +7299,7 @@
                     updatedAt: now,
                 };
                 sessions = [newSession, ...sessions];
+                currentSessionId = newSession.id;
                 await saveSessions();
 
                 // 保存完整内容
@@ -7157,50 +7314,16 @@
                         data: '',
                     })),
                 }));
-                const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${currentSessionId}.json`;
+                const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${newSession.id}.json`;
                 const sessionContent = JSON.stringify({ messages: messagesToSave }, null, 2);
                 const sessionBlob = new Blob([sessionContent], { type: 'application/json' });
                 await putFile(sessionPath, false, sessionBlob);
             }
-        } else {
-            // 创建新会话
-            const userContent = messages.find(m => m.role === 'user')?.content || '';
-            const newSession: ChatSession = {
-                id: `session_${now}`,
-                title:
-                    typeof userContent === 'string'
-                        ? userContent.substring(0, 30)
-                        : generateSessionTitle(),
-                messageCount: messages.filter(m => m.role !== 'system').length,
-                createdAt: now,
-                updatedAt: now,
-            };
-            sessions = [newSession, ...sessions];
-            currentSessionId = newSession.id;
-            await saveSessions();
+            hasUnsavedChanges = false;
 
-            // 保存完整内容
-            const messagesToSave = messages.map(msg => ({
-                ...msg,
-                attachments: msg.attachments?.map(att => ({
-                    ...att,
-                    data: att.path ? '' : att.data,
-                })),
-                generatedImages: msg.generatedImages?.map(img => ({
-                    ...img,
-                    data: '',
-                })),
-            }));
-            const sessionPath = `/data/storage/petal/siyuan-plugin-copilot/sessions/${newSession.id}.json`;
-            const sessionContent = JSON.stringify({ messages: messagesToSave }, null, 2);
-            const sessionBlob = new Blob([sessionContent], { type: 'application/json' });
-            await putFile(sessionPath, false, sessionBlob);
-        }
-        hasUnsavedChanges = false;
-
-        if (!silent) {
-            pushMsg(t('aiSidebar.success.saveSessionSuccess'));
-        }
+            if (!silent) {
+                pushMsg(t('aiSidebar.success.saveSessionSuccess'));
+            }
         } finally {
             isSavingSession = false;
             // 如果有待处理的保存请求，执行它
@@ -7228,13 +7351,15 @@
                     ...response,
                     isSelected: i === firstSuccessIndex,
                     modelName:
-                        i === firstSuccessIndex
-                            ? ' ✅' + response.modelName
-                            : response.modelName,
+                        i === firstSuccessIndex ? ' ✅' + response.modelName : response.modelName,
                 }));
 
                 const lastMessage = messages[messages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                if (
+                    lastMessage &&
+                    lastMessage.role === 'assistant' &&
+                    lastMessage.multiModelResponses
+                ) {
                     lastMessage.content = selectedResponse.content || '';
                     lastMessage.thinking = selectedResponse.thinking || '';
                     lastMessage.multiModelResponses = updatedMultiModelResponses;
@@ -7540,13 +7665,15 @@
                     ...response,
                     isSelected: i === firstSuccessIndex, // 标记第一个成功的为默认选择
                     modelName:
-                        i === firstSuccessIndex
-                            ? ' ✅' + response.modelName
-                            : response.modelName,
+                        i === firstSuccessIndex ? ' ✅' + response.modelName : response.modelName,
                 }));
 
                 const lastMessage = messages[messages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant' && lastMessage.multiModelResponses) {
+                if (
+                    lastMessage &&
+                    lastMessage.role === 'assistant' &&
+                    lastMessage.multiModelResponses
+                ) {
                     lastMessage.content = selectedResponse.content || '';
                     lastMessage.thinking = selectedResponse.thinking || '';
                     lastMessage.multiModelResponses = updatedMultiModelResponses;
@@ -8035,7 +8162,6 @@
                     }
                 }
 
-
                 // 如果有附件，添加附件信息
                 if (message.attachments && message.attachments.length > 0) {
                     markdown += `### 附件\n\n`;
@@ -8432,9 +8558,7 @@
 
         try {
             const safeDocId = escapeSqlString(docId);
-            const rows = await sql(
-                `SELECT content FROM blocks WHERE id = '${safeDocId}' LIMIT 1`
-            );
+            const rows = await sql(`SELECT content FROM blocks WHERE id = '${safeDocId}' LIMIT 1`);
             const title = rows?.[0]?.content;
             if (typeof title === 'string' && title.trim()) {
                 return title;
@@ -8458,9 +8582,7 @@
 
         try {
             const safeDocId = escapeSqlString(docId);
-            const rows = await sql(
-                `SELECT content FROM blocks WHERE id = '${safeDocId}' LIMIT 1`
-            );
+            const rows = await sql(`SELECT content FROM blocks WHERE id = '${safeDocId}' LIMIT 1`);
             const title = rows?.[0]?.content;
             if (typeof title === 'string' && title.trim()) {
                 return title.trim();
@@ -8520,9 +8642,7 @@
                 }
             }
             const docId =
-                blockInfo?.type === 'd'
-                    ? blockInfo.id
-                    : blockInfo?.root_id || targetBlockId;
+                blockInfo?.type === 'd' ? blockInfo.id : blockInfo?.root_id || targetBlockId;
 
             const docTitle = await getDocDisplayTitle(docId);
             const currentDocName = (await getDocNameById(docId)) || docTitle;
@@ -8533,7 +8653,9 @@
                 docTitle,
                 affectedBlockId: targetBlockId,
                 renameTitleTo:
-                    toolName === 'siyuan_rename_document' ? String(args.title || '').trim() : undefined,
+                    toolName === 'siyuan_rename_document'
+                        ? String(args.title || '').trim()
+                        : undefined,
                 oldDocTitle: currentDocName,
             };
         } catch (error) {
@@ -9062,7 +9184,11 @@
         }
 
         // DeepSeek 思考模式：开启新一轮对话前清理历史消息中的 reasoning_content，保留工具调用链
-        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && currentProvider === 'deepseek') {
+        if (
+            (chatMode === 'agent' || chatMode === 'ask') &&
+            userToolCount > 0 &&
+            currentProvider === 'deepseek'
+        ) {
             messages = messages.map(msg => {
                 if (msg.role === 'assistant' && msg.reasoning_content) {
                     const { reasoning_content, ...rest } = msg as any;
@@ -9112,7 +9238,9 @@
                 }
 
                 // 检测是否是 DeepSeek 推理模型
-                const isDeepSeekReasonerModel3 = modelConfig ? /deepseek-(reasoner|r1)/i.test(modelConfig.id) : false;
+                const isDeepSeekReasonerModel3 = modelConfig
+                    ? /deepseek-(reasoner|r1)/i.test(modelConfig.id)
+                    : false;
 
                 // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                 // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
@@ -9153,7 +9281,11 @@
                                       ? '网页'
                                       : '块';
                             // agent模式或启用工具的问答模式：文档块只传递ID，不传递内容
-                            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0 && doc.type === 'doc') {
+                            if (
+                                (chatMode === 'agent' || chatMode === 'ask') &&
+                                userToolCount > 0 &&
+                                doc.type === 'doc'
+                            ) {
                                 return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\``;
                             }
                             return `## ${label}: ${doc.title}\n\n**BlockID**: \`${doc.id}\`\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
@@ -9474,7 +9606,9 @@
                 );
                 const descTool =
                     chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+                        ? createGetSiyuanSkillsTool(
+                              filteredToolDefs.map(tool => tool.function.name)
+                          )
                         : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
                 toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
             }
@@ -9483,7 +9617,11 @@
             let generatedImages: any[] = [];
 
             // Agent 模式或问答模式启用工具使用循环调用
-            if ((chatMode === 'agent' || chatMode === 'ask') && toolsForAgent && toolsForAgent.length > 0) {
+            if (
+                (chatMode === 'agent' || chatMode === 'ask') &&
+                toolsForAgent &&
+                toolsForAgent.length > 0
+            ) {
                 let shouldContinue = true;
                 // 记录第一次工具调用后创建的assistant消息索引
                 let firstToolCallMessageIndex: number | null = null;
@@ -9515,7 +9653,8 @@
                             enableThinking,
                             reasoningEffort: modelConfig.thinkingEffort || 'low',
                             tools: toolsForAgent,
-                            customBody, onThinkingChunk: enableThinking
+                            customBody,
+                            onThinkingChunk: enableThinking
                                 ? async (chunk: string) => {
                                       isThinkingPhase = true;
                                       streamingThinking += chunk;
@@ -9535,14 +9674,17 @@
                                 receivedToolCalls = true;
 
                                 // 获取当前工具调用的起始索引
-                                const toolCallStartIndex = firstToolCallMessageIndex !== null
-                                    ? (messages[firstToolCallMessageIndex].tool_calls?.length || 0)
-                                    : 0;
+                                const toolCallStartIndex =
+                                    firstToolCallMessageIndex !== null
+                                        ? messages[firstToolCallMessageIndex].tool_calls?.length ||
+                                          0
+                                        : 0;
 
                                 // 计算当前轮次的折叠索引
-                                const baseIndex = firstToolCallMessageIndex !== null
-                                    ? firstToolCallMessageIndex * 100 + currentToolCallRound
-                                    : messages.length * 100;
+                                const baseIndex =
+                                    firstToolCallMessageIndex !== null
+                                        ? firstToolCallMessageIndex * 100 + currentToolCallRound
+                                        : messages.length * 100;
 
                                 // 如果是第一次工具调用，创建新的assistant消息
                                 if (firstToolCallMessageIndex === null) {
@@ -9550,10 +9692,12 @@
                                         role: 'assistant',
                                         content: streamingMessage || '',
                                         tool_calls: toolCalls,
-                                        toolCallThinkings: [{
-                                            toolCallIndex: 0,
-                                            thinkingBefore: streamingThinking || '',
-                                        }],
+                                        toolCallThinkings: [
+                                            {
+                                                toolCallIndex: 0,
+                                                thinkingBefore: streamingThinking || '',
+                                            },
+                                        ],
                                     };
 
                                     // 只有在启用 thinking 模式时才添加 reasoning_content
@@ -9570,8 +9714,14 @@
                                     const existingMessage = messages[firstToolCallMessageIndex];
 
                                     // 先保存上一轮工具调用后的思考内容（如果有）
-                                    if (currentToolCallRound > 0 && existingMessage.toolCallThinkings) {
-                                        const prevRound = existingMessage.toolCallThinkings[currentToolCallRound - 1];
+                                    if (
+                                        currentToolCallRound > 0 &&
+                                        existingMessage.toolCallThinkings
+                                    ) {
+                                        const prevRound =
+                                            existingMessage.toolCallThinkings[
+                                                currentToolCallRound - 1
+                                            ];
                                         if (prevRound && !prevRound.thinkingAfter) {
                                             prevRound.thinkingAfter = streamingThinking || '';
                                         }
@@ -9613,7 +9763,8 @@
 
                                 // 处理每个工具调用
                                 for (const toolCall of toolCalls) {
-                                    const currentSelectedToolsInLoop = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                                    const currentSelectedToolsInLoop =
+                                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                                     const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
@@ -9624,10 +9775,7 @@
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
                                         await resolveToolChangeContext(toolCall);
-                                    if (
-                                        firstToolCallMessageIndex !== null &&
-                                        toolChangeContext
-                                    ) {
+                                    if (firstToolCallMessageIndex !== null && toolChangeContext) {
                                         await ensureDocDiffSnapshotBefore(
                                             firstToolCallMessageIndex,
                                             toolChangeContext
@@ -9745,11 +9893,14 @@
                                         }
 
                                         // 检测是否是 DeepSeek 推理模型
-                                        const isDeepSeekReasonerModel4 = modelConfig ? /deepseek-(reasoner|r1)/i.test(modelConfig.id) : false;
+                                        const isDeepSeekReasonerModel4 = modelConfig
+                                            ? /deepseek-(reasoner|r1)/i.test(modelConfig.id)
+                                            : false;
 
                                         // 只有在启用 thinking 模式或者是 DeepSeek 推理模型时才保留 reasoning_content
                                         // Kimi 等模型在未启用 thinking 时看到 reasoning_content 会报错
-                                        const shouldKeepReasoning4 = isDeepseekThinkingAgent || isDeepSeekReasonerModel4;
+                                        const shouldKeepReasoning4 =
+                                            isDeepseekThinkingAgent || isDeepSeekReasonerModel4;
                                         if (
                                             shouldKeepReasoning4 &&
                                             msg.reasoning_content !== undefined
@@ -9846,8 +9997,13 @@
                                             // 构建完整的 reasoning_content，包含所有轮次的思考
                                             let fullReasoning = '';
                                             if (existingMessage.toolCallThinkings) {
-                                                for (let i = 0; i < existingMessage.toolCallThinkings.length; i++) {
-                                                    const round = existingMessage.toolCallThinkings[i];
+                                                for (
+                                                    let i = 0;
+                                                    i < existingMessage.toolCallThinkings.length;
+                                                    i++
+                                                ) {
+                                                    const round =
+                                                        existingMessage.toolCallThinkings[i];
                                                     if (i > 0) fullReasoning += '\n\n';
                                                     fullReasoning += `[第${i + 1}轮思考]\n${round.thinkingBefore}`;
                                                 }
@@ -9940,7 +10096,8 @@
                         maxTokens: modelConfig.maxTokens > 0 ? modelConfig.maxTokens : undefined,
                         stream: true,
                         signal: abortController.signal,
-                        customBody, enableThinking,
+                        customBody,
+                        enableThinking,
                         reasoningEffort: modelConfig.thinkingEffort || 'low',
                         enableImageGeneration,
                         onThinkingChunk: enableThinking
@@ -9960,7 +10117,10 @@
                             // 立即保存生成的图片到 SiYuan 资源文件夹并转换为 blob URL
                             generatedImages = await Promise.all(
                                 images.map(async (img, idx) => {
-                                    const blob = base64ToBlob(img.data, img.mimeType || 'image/png');
+                                    const blob = base64ToBlob(
+                                        img.data,
+                                        img.mimeType || 'image/png'
+                                    );
                                     const name = `generated-image-${Date.now()}-${idx + 1}.${
                                         img.mimeType?.split('/')[1] || 'png'
                                     }`;
@@ -10142,7 +10302,7 @@
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={openTranslateDialog}
-                aria-label={t('aiSidebar.translate.openDialog') || '翻译'}
+                title={t('aiSidebar.translate.openDialog') || '翻译'}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconTranslate"></use></svg>
             </button>
@@ -10151,7 +10311,7 @@
                     class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                     bind:this={webAppMenuButton}
                     on:click={toggleWebAppMenu}
-                    aria-label={t('aiSidebar.webapp.title') || '小程序'}
+                    title={t('aiSidebar.webapp.title') || '小程序'}
                 >
                     <svg class="b3-button__icon"><use xlink:href="#iconCopilotWebApp"></use></svg>
                 </button>
@@ -10202,7 +10362,7 @@
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={newSession}
-                aria-label={t('aiSidebar.session.new')}
+                title={t('aiSidebar.session.new')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconAdd"></use></svg>
             </button>
@@ -10221,21 +10381,21 @@
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={copyAsMarkdown}
-                aria-label={t('aiSidebar.actions.copyAllChat')}
+                title={t('aiSidebar.actions.copyAllChat')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconCopy"></use></svg>
             </button>
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={() => openSaveToNoteDialog()}
-                aria-label={t('aiSidebar.actions.saveToNote')}
+                title={t('aiSidebar.actions.saveToNote')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconDownload"></use></svg>
             </button>
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={clearChat}
-                aria-label={t('aiSidebar.actions.clear')}
+                title={t('aiSidebar.actions.clear')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconTrashcan"></use></svg>
             </button>
@@ -10244,7 +10404,7 @@
                     class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                     bind:this={openWindowMenuButton}
                     on:click={toggleOpenWindowMenu}
-                    aria-label={t('aiSidebar.actions.openWindow') || '在新窗口打开'}
+                    title={t('aiSidebar.actions.openWindow') || '在新窗口打开'}
                 >
                     <svg class="b3-button__icon"><use xlink:href="#iconOpenWindow"></use></svg>
                 </button>
@@ -10268,7 +10428,7 @@
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={toggleFullscreen}
-                aria-label={isFullscreen ? '退出全屏' : '全屏查看'}
+                title={isFullscreen ? '退出全屏' : '全屏查看'}
             >
                 <svg class="b3-button__icon">
                     <use
@@ -10279,7 +10439,7 @@
             <button
                 class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
                 on:click={openSettings}
-                aria-label={t('aiSidebar.actions.settings')}
+                title={t('aiSidebar.actions.settings')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconSettings"></use></svg>
             </button>
@@ -10311,7 +10471,7 @@
                             <!-- 按轮次显示思考和工具调用 -->
                             {#each message.toolCallThinkings as round, roundIndex}
                                 {@const baseIndex = (messageIndex + msgIndex) * 100 + roundIndex}
-                                
+
                                 <!-- 该轮工具调用前的思考 -->
                                 {#if round.thinkingBefore}
                                     <div class="ai-message__thinking">
@@ -10333,20 +10493,27 @@
                                             </span>
                                         </div>
                                         {#if !thinkingCollapsed[baseIndex]}
-                                            {@const thinkDisplay = getDisplayContent(round.thinkingBefore)}
+                                            {@const thinkDisplay = getDisplayContent(
+                                                round.thinkingBefore
+                                            )}
                                             <div class="ai-message__thinking-content b3-typography">
                                                 {@html thinkDisplay}
                                             </div>
                                         {/if}
                                     </div>
                                 {/if}
-                                
+
                                 <!-- 该轮对应的工具调用 -->
                                 {#if message.tool_calls && message.tool_calls.length > 0}
                                     {@const nextRound = message.toolCallThinkings[roundIndex + 1]}
-                                    {@const endIndex = nextRound ? nextRound.toolCallIndex : message.tool_calls.length}
-                                    {@const roundToolCalls = message.tool_calls.slice(round.toolCallIndex, endIndex)}
-                                    
+                                    {@const endIndex = nextRound
+                                        ? nextRound.toolCallIndex
+                                        : message.tool_calls.length}
+                                    {@const roundToolCalls = message.tool_calls.slice(
+                                        round.toolCallIndex,
+                                        endIndex
+                                    )}
+
                                     {#if roundToolCalls.length > 0}
                                         <div class="ai-message__tool-calls">
                                             <div class="ai-message__tool-calls-title">
@@ -10356,12 +10523,16 @@
                                                 {@const toolResult = group.messages
                                                     .slice(msgIndex + 1)
                                                     .find(
-                                                        m => m.role === 'tool' && m.tool_call_id === toolCall.id
+                                                        m =>
+                                                            m.role === 'tool' &&
+                                                            m.tool_call_id === toolCall.id
                                                     )}
                                                 {@const toolName = toolCall.function.name}
-                                                {@const toolDisplayName = getToolDisplayName(toolName)}
+                                                {@const toolDisplayName =
+                                                    getToolDisplayName(toolName)}
                                                 {@const isCompleted = !!toolResult}
-                                                {@const toolCallCollapsed = !toolCallsExpanded[toolCall.id]}
+                                                {@const toolCallCollapsed =
+                                                    !toolCallsExpanded[toolCall.id]}
 
                                                 <div class="ai-message__tool-call">
                                                     <div
@@ -10369,7 +10540,9 @@
                                                         on:click={() => {
                                                             toolCallsExpanded[toolCall.id] =
                                                                 !toolCallsExpanded[toolCall.id];
-                                                            toolCallsExpanded = { ...toolCallsExpanded };
+                                                            toolCallsExpanded = {
+                                                                ...toolCallsExpanded,
+                                                            };
                                                         }}
                                                     >
                                                         <div class="ai-message__tool-call-name">
@@ -10381,11 +10554,15 @@
                                                             </svg>
                                                             <span>{toolDisplayName}</span>
                                                             {#if isCompleted}
-                                                                <span class="ai-message__tool-call-status">
+                                                                <span
+                                                                    class="ai-message__tool-call-status"
+                                                                >
                                                                     ✅
                                                                 </span>
                                                             {:else}
-                                                                <span class="ai-message__tool-call-status">
+                                                                <span
+                                                                    class="ai-message__tool-call-status"
+                                                                >
                                                                     ⏳
                                                                 </span>
                                                             {/if}
@@ -10395,18 +10572,23 @@
                                                     {#if !toolCallCollapsed}
                                                         {@const paramsKey = `${toolCall.id}_params`}
                                                         {@const paramsExpanded =
-                                                            toolCallResultsExpanded[paramsKey] !== false}
+                                                            toolCallResultsExpanded[paramsKey] !==
+                                                            false}
                                                         {@const resultKey = `${toolCall.id}_result`}
                                                         {@const resultExpanded =
-                                                            toolCallResultsExpanded[resultKey] !== false}
+                                                            toolCallResultsExpanded[resultKey] !==
+                                                            false}
                                                         <div class="ai-message__tool-call-details">
                                                             <!-- 工具参数 -->
-                                                            <div class="ai-message__tool-call-params">
+                                                            <div
+                                                                class="ai-message__tool-call-params"
+                                                            >
                                                                 <div
                                                                     class="ai-message__tool-call-section-header"
                                                                     on:click={() => {
-                                                                        toolCallResultsExpanded[paramsKey] =
-                                                                            !paramsExpanded;
+                                                                        toolCallResultsExpanded[
+                                                                            paramsKey
+                                                                        ] = !paramsExpanded;
                                                                         toolCallResultsExpanded = {
                                                                             ...toolCallResultsExpanded,
                                                                         };
@@ -10416,39 +10598,52 @@
                                                                         class="ai-message__tool-call-icon"
                                                                         class:collapsed={!paramsExpanded}
                                                                     >
-                                                                        <use xlink:href="#iconRight"></use>
+                                                                        <use
+                                                                            xlink:href="#iconRight"
+                                                                        ></use>
                                                                     </svg>
                                                                     <strong>
-                                                                        {t('tools.selector.parameters')}
+                                                                        {t(
+                                                                            'tools.selector.parameters'
+                                                                        )}
                                                                     </strong>
                                                                 </div>
                                                                 {#if paramsExpanded}
                                                                     <pre
                                                                         class="ai-message__tool-call-code">{toolCall
-                                                                            .function.arguments}</pre>
+                                                                            .function
+                                                                            .arguments}</pre>
                                                                 {/if}
                                                             </div>
 
                                                             <!-- 工具结果 -->
                                                             {#if toolResult}
-                                                                <div class="ai-message__tool-call-result">
+                                                                <div
+                                                                    class="ai-message__tool-call-result"
+                                                                >
                                                                     <div
                                                                         class="ai-message__tool-call-section-header"
                                                                         on:click={() => {
-                                                                            toolCallResultsExpanded[resultKey] =
-                                                                                !resultExpanded;
-                                                                            toolCallResultsExpanded = {
-                                                                                ...toolCallResultsExpanded,
-                                                                            };
+                                                                            toolCallResultsExpanded[
+                                                                                resultKey
+                                                                            ] = !resultExpanded;
+                                                                            toolCallResultsExpanded =
+                                                                                {
+                                                                                    ...toolCallResultsExpanded,
+                                                                                };
                                                                         }}
                                                                     >
                                                                         <svg
                                                                             class="ai-message__tool-call-icon"
                                                                             class:collapsed={!resultExpanded}
                                                                         >
-                                                                            <use xlink:href="#iconRight"></use>
+                                                                            <use
+                                                                                xlink:href="#iconRight"
+                                                                            ></use>
                                                                         </svg>
-                                                                        <strong>{t('tools.result')}</strong>
+                                                                        <strong>
+                                                                            {t('tools.result')}
+                                                                        </strong>
                                                                     </div>
                                                                     {#if resultExpanded}
                                                                         <pre
@@ -10468,7 +10663,8 @@
                             <!-- 兼容旧数据：显示工具调用前的思考过程 -->
                             {#if message.role === 'assistant' && (message.thinkingBeforeToolCalls || (message.thinking && !message.tool_calls)) && !(message.multiModelResponses && message.multiModelResponses.length > 0)}
                                 {@const thinkingIndex = messageIndex + msgIndex}
-                                {@const thinkingContent = message.thinkingBeforeToolCalls || message.thinking}
+                                {@const thinkingContent =
+                                    message.thinkingBeforeToolCalls || message.thinking}
                                 <div class="ai-message__thinking">
                                     <div
                                         class="ai-message__thinking-header"
@@ -10501,7 +10697,9 @@
                                 {@const displayContent = getDisplayContent(message.content)}
                                 <div
                                     class="ai-message__content b3-typography"
-                                    style={messageFontSize ? `font-size: ${messageFontSize}px;` : ''}
+                                    style={messageFontSize
+                                        ? `font-size: ${messageFontSize}px;`
+                                        : ''}
                                 >
                                     {@html displayContent}
                                 </div>
@@ -10517,7 +10715,9 @@
                                         {@const toolResult = group.messages
                                             .slice(msgIndex + 1)
                                             .find(
-                                                m => m.role === 'tool' && m.tool_call_id === toolCall.id
+                                                m =>
+                                                    m.role === 'tool' &&
+                                                    m.tool_call_id === toolCall.id
                                             )}
                                         {@const toolName = toolCall.function.name}
                                         {@const toolDisplayName = getToolDisplayName(toolName)}
@@ -10596,8 +10796,9 @@
                                                             <div
                                                                 class="ai-message__tool-call-section-header"
                                                                 on:click={() => {
-                                                                    toolCallResultsExpanded[resultKey] =
-                                                                        !resultExpanded;
+                                                                    toolCallResultsExpanded[
+                                                                        resultKey
+                                                                    ] = !resultExpanded;
                                                                     toolCallResultsExpanded = {
                                                                         ...toolCallResultsExpanded,
                                                                     };
@@ -10607,7 +10808,9 @@
                                                                     class="ai-message__tool-call-icon"
                                                                     class:collapsed={!resultExpanded}
                                                                 >
-                                                                    <use xlink:href="#iconRight"></use>
+                                                                    <use
+                                                                        xlink:href="#iconRight"
+                                                                    ></use>
                                                                 </svg>
                                                                 <strong>{t('tools.result')}</strong>
                                                             </div>
@@ -10627,7 +10830,9 @@
                             <!-- 兼容旧数据：显示工具调用后的思考过程 -->
                             {#if message.role === 'assistant' && message.thinkingAfterToolCalls && !(message.multiModelResponses && message.multiModelResponses.length > 0)}
                                 {@const thinkingAfterIndex = messageIndex + msgIndex + '_after'}
-                                <div class="ai-message__thinking ai-message__thinking--after-toolcalls">
+                                <div
+                                    class="ai-message__thinking ai-message__thinking--after-toolcalls"
+                                >
                                     <div
                                         class="ai-message__thinking-header"
                                         on:click={() => {
@@ -10641,10 +10846,14 @@
                                         >
                                             <use xlink:href="#iconRight"></use>
                                         </svg>
-                                        <span class="ai-message__thinking-title">💭 思考过程（续）</span>
+                                        <span class="ai-message__thinking-title">
+                                            💭 思考过程（续）
+                                        </span>
                                     </div>
                                     {#if !thinkingCollapsed[thinkingAfterIndex]}
-                                        {@const thinkAfterDisplay = getDisplayContent(message.thinkingAfterToolCalls)}
+                                        {@const thinkAfterDisplay = getDisplayContent(
+                                            message.thinkingAfterToolCalls
+                                        )}
                                         <div class="ai-message__thinking-content b3-typography">
                                             {@html thinkAfterDisplay}
                                         </div>
@@ -10773,154 +10982,300 @@
                                                 </div>
 
                                                 <div class="ai-sidebar__multi-model-card-scroll">
-                                                <!-- 思考过程 -->
-                                                {#if response.thinking}
-                                                    {@const isCollapsed =
-                                                        response.thinkingCollapsed ?? true}
-                                                    <div class="ai-message__thinking">
-                                                        <div
-                                                            class="ai-message__thinking-header"
-                                                            on:click={() => {
-                                                                message.multiModelResponses[
-                                                                    index
-                                                                ].thinkingCollapsed = !isCollapsed;
-                                                                messages = [...messages];
-                                                            }}
-                                                        >
-                                                            <svg
-                                                                class="ai-message__thinking-icon"
-                                                                class:collapsed={isCollapsed}
-                                                            >
-                                                                <use xlink:href="#iconRight"></use>
-                                                            </svg>
-                                                            <span
-                                                                class="ai-message__thinking-title"
-                                                            >
-                                                                💭 {t(
-                                                                    'aiSidebar.messages.thinking'
-                                                                )}
-                                                            </span>
-                                                        </div>
-                                                        {#if !isCollapsed}
-                                                            {@const thinkingDisplay =
-                                                                getDisplayContent(
-                                                                    response.thinking
-                                                                )}
+                                                    <!-- 思考过程 -->
+                                                    {#if response.thinking}
+                                                        {@const isCollapsed =
+                                                            response.thinkingCollapsed ?? true}
+                                                        <div class="ai-message__thinking">
                                                             <div
-                                                                class="ai-message__thinking-content b3-typography"
+                                                                class="ai-message__thinking-header"
+                                                                on:click={() => {
+                                                                    message.multiModelResponses[
+                                                                        index
+                                                                    ].thinkingCollapsed =
+                                                                        !isCollapsed;
+                                                                    messages = [...messages];
+                                                                }}
                                                             >
-                                                                {@html thinkingDisplay}
+                                                                <svg
+                                                                    class="ai-message__thinking-icon"
+                                                                    class:collapsed={isCollapsed}
+                                                                >
+                                                                    <use
+                                                                        xlink:href="#iconRight"
+                                                                    ></use>
+                                                                </svg>
+                                                                <span
+                                                                    class="ai-message__thinking-title"
+                                                                >
+                                                                    💭 {t(
+                                                                        'aiSidebar.messages.thinking'
+                                                                    )}
+                                                                </span>
                                                             </div>
-                                                        {/if}
-                                                    </div>
-                                                {/if}
-                                                <!-- 按轮次显示工具调用 -->
-                                                {#if response.toolCalls && response.toolCalls.length > 0}
-                                                    {@const groupedToolCalls = response.toolCalls.reduce((acc, tc, i) => {
-                                                        const key = tc.thinkingBefore || '';
-                                                        if (acc.length === 0 || acc[acc.length - 1].thinking !== key) {
-                                                            acc.push({ thinking: key, toolCalls: [tc] });
-                                                        } else {
-                                                            acc[acc.length - 1].toolCalls.push(tc);
-                                                        }
-                                                        return acc;
-                                                    }, [])}
-                                                    
-                                                    {#each groupedToolCalls as group, groupIndex}
-                                                        <!-- 该轮工具调用前的思考 -->
-                                                        {#if group.thinking}
-                                                            <div class="ai-message__thinking">
+                                                            {#if !isCollapsed}
+                                                                {@const thinkingDisplay =
+                                                                    getDisplayContent(
+                                                                        response.thinking
+                                                                    )}
+                                                                <div
+                                                                    class="ai-message__thinking-content b3-typography"
+                                                                >
+                                                                    {@html thinkingDisplay}
+                                                                </div>
+                                                            {/if}
+                                                        </div>
+                                                    {/if}
+                                                    <!-- 按轮次显示工具调用 -->
+                                                    {#if response.toolCalls && response.toolCalls.length > 0}
+                                                        {@const groupedToolCalls =
+                                                            response.toolCalls.reduce(
+                                                                (acc, tc, i) => {
+                                                                    const key =
+                                                                        tc.thinkingBefore || '';
+                                                                    if (
+                                                                        acc.length === 0 ||
+                                                                        acc[acc.length - 1]
+                                                                            .thinking !== key
+                                                                    ) {
+                                                                        acc.push({
+                                                                            thinking: key,
+                                                                            toolCalls: [tc],
+                                                                        });
+                                                                    } else {
+                                                                        acc[
+                                                                            acc.length - 1
+                                                                        ].toolCalls.push(tc);
+                                                                    }
+                                                                    return acc;
+                                                                },
+                                                                []
+                                                            )}
+
+                                                        {#each groupedToolCalls as group, groupIndex}
+                                                            <!-- 该轮工具调用前的思考 -->
+                                                            {#if group.thinking}
+                                                                <div class="ai-message__thinking">
+                                                                    <div
+                                                                        class="ai-message__thinking-header"
+                                                                        on:click={() => {
+                                                                            const key = `hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`;
+                                                                            thinkingCollapsed[key] =
+                                                                                !thinkingCollapsed[
+                                                                                    key
+                                                                                ];
+                                                                            thinkingCollapsed = {
+                                                                                ...thinkingCollapsed,
+                                                                            };
+                                                                        }}
+                                                                    >
+                                                                        <svg
+                                                                            class="ai-message__thinking-icon"
+                                                                            class:collapsed={thinkingCollapsed[
+                                                                                `hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`
+                                                                            ]}
+                                                                        >
+                                                                            <use
+                                                                                xlink:href="#iconRight"
+                                                                            ></use>
+                                                                        </svg>
+                                                                        <span
+                                                                            class="ai-message__thinking-title"
+                                                                        >
+                                                                            💭 {t(
+                                                                                'aiSidebar.messages.thinking'
+                                                                            )}
+                                                                        </span>
+                                                                    </div>
+                                                                    {#if !thinkingCollapsed[`hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`]}
+                                                                        {@const groupThinkDisplay =
+                                                                            getDisplayContent(
+                                                                                group.thinking
+                                                                            )}
+                                                                        <div
+                                                                            class="ai-message__thinking-content b3-typography"
+                                                                        >
+                                                                            {@html groupThinkDisplay}
+                                                                        </div>
+                                                                    {/if}
+                                                                </div>
+                                                            {/if}
+
+                                                            <!-- 该轮工具调用 -->
+                                                            <div
+                                                                class="ai-message__tool-calls"
+                                                                style="margin-top: 8px;"
+                                                            >
+                                                                <div
+                                                                    class="ai-message__tool-calls-title"
+                                                                >
+                                                                    🔧 {t('tools.calling')} ({group
+                                                                        .toolCalls.length})
+                                                                </div>
+                                                                {#each group.toolCalls as toolCall}
+                                                                    {@const toolDisplayName =
+                                                                        getToolDisplayName(
+                                                                            toolCall.function.name
+                                                                        )}
+                                                                    {@const isCompleted =
+                                                                        toolCall.status ===
+                                                                        'completed'}
+                                                                    {@const isCollapsed =
+                                                                        !toolCallsExpanded[
+                                                                            toolCall.id
+                                                                        ]}
+
+                                                                    <div
+                                                                        class="ai-message__tool-call"
+                                                                    >
+                                                                        <div
+                                                                            class="ai-message__tool-call-header"
+                                                                            on:click={() => {
+                                                                                toolCallsExpanded[
+                                                                                    toolCall.id
+                                                                                ] =
+                                                                                    !toolCallsExpanded[
+                                                                                        toolCall.id
+                                                                                    ];
+                                                                                toolCallsExpanded =
+                                                                                    {
+                                                                                        ...toolCallsExpanded,
+                                                                                    };
+                                                                            }}
+                                                                        >
+                                                                            <div
+                                                                                class="ai-message__tool-call-name"
+                                                                            >
+                                                                                <svg
+                                                                                    class="ai-message__tool-call-icon"
+                                                                                    class:collapsed={isCollapsed}
+                                                                                >
+                                                                                    <use
+                                                                                        xlink:href="#iconRight"
+                                                                                    ></use>
+                                                                                </svg>
+                                                                                <span>
+                                                                                    {toolDisplayName}
+                                                                                </span>
+                                                                                {#if isCompleted}
+                                                                                    <span
+                                                                                        class="ai-message__tool-call-status"
+                                                                                    >
+                                                                                        ✅
+                                                                                    </span>
+                                                                                {:else}
+                                                                                    <span
+                                                                                        class="ai-message__tool-call-status"
+                                                                                    >
+                                                                                        ⏳
+                                                                                    </span>
+                                                                                {/if}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {#if !isCollapsed}
+                                                                            <div
+                                                                                class="ai-message__tool-call-details"
+                                                                            >
+                                                                                <div
+                                                                                    class="ai-message__tool-call-params"
+                                                                                >
+                                                                                    <div
+                                                                                        class="ai-message__tool-call-section-header"
+                                                                                    >
+                                                                                        {t(
+                                                                                            'aiSidebar.messages.params'
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div
+                                                                                        class="ai-message__tool-call-code-wrapper"
+                                                                                    >
+                                                                                        <pre
+                                                                                            class="ai-message__tool-call-code"><code>{toolCall
+                                                                                                    .function
+                                                                                                    .arguments}</code></pre>
+                                                                                    </div>
+                                                                                </div>
+                                                                                {#if toolCall.result}
+                                                                                    <div
+                                                                                        class="ai-message__tool-call-result"
+                                                                                    >
+                                                                                        <div
+                                                                                            class="ai-message__tool-call-section-header"
+                                                                                        >
+                                                                                            {t(
+                                                                                                'aiSidebar.messages.result'
+                                                                                            )}
+                                                                                        </div>
+                                                                                        <div
+                                                                                            class="ai-message__tool-call-code-wrapper"
+                                                                                        >
+                                                                                            <pre
+                                                                                                class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                {/if}
+                                                                            </div>
+                                                                        {/if}
+                                                                    </div>
+                                                                {/each}
+                                                            </div>
+                                                        {/each}
+
+                                                        <!-- 最终思考（如果有） -->
+                                                        {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
+                                                            <div
+                                                                class="ai-message__thinking"
+                                                                style="margin-top: 8px;"
+                                                            >
                                                                 <div
                                                                     class="ai-message__thinking-header"
                                                                     on:click={() => {
-                                                                        const key = `hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`;
-                                                                        thinkingCollapsed[key] = !thinkingCollapsed[key];
-                                                                        thinkingCollapsed = { ...thinkingCollapsed };
+                                                                        message.multiModelResponses[
+                                                                            index
+                                                                        ].thinkingCollapsed =
+                                                                            !response.thinkingCollapsed;
+                                                                        messages = [...messages];
                                                                     }}
                                                                 >
                                                                     <svg
                                                                         class="ai-message__thinking-icon"
-                                                                        class:collapsed={thinkingCollapsed[`hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`]}
+                                                                        class:collapsed={response.thinkingCollapsed}
                                                                     >
-                                                                        <use xlink:href="#iconRight"></use>
+                                                                        <use
+                                                                            xlink:href="#iconRight"
+                                                                        ></use>
                                                                     </svg>
-                                                                    <span class="ai-message__thinking-title">
-                                                                        💭 {t('aiSidebar.messages.thinking')}
+                                                                    <span
+                                                                        class="ai-message__thinking-title"
+                                                                    >
+                                                                        💭 {t(
+                                                                            'aiSidebar.messages.thinking'
+                                                                        )}
                                                                     </span>
                                                                 </div>
-                                                                {#if !thinkingCollapsed[`hist-mm-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`]}
-                                                                    {@const groupThinkDisplay = getDisplayContent(group.thinking)}
-                                                                    <div class="ai-message__thinking-content b3-typography">
-                                                                        {@html groupThinkDisplay}
+                                                                {#if !response.thinkingCollapsed}
+                                                                    {@const finalThinkDisplay =
+                                                                        getDisplayContent(
+                                                                            response.thinking
+                                                                        )}
+                                                                    <div
+                                                                        class="ai-message__thinking-content b3-typography"
+                                                                    >
+                                                                        {@html finalThinkDisplay}
                                                                     </div>
                                                                 {/if}
                                                             </div>
                                                         {/if}
-                                                        
-                                                        <!-- 该轮工具调用 -->
-                                                        <div class="ai-message__tool-calls" style="margin-top: 8px;">
-                                                            <div class="ai-message__tool-calls-title">
-                                                                🔧 {t('tools.calling')} ({group.toolCalls.length})
-                                                            </div>
-                                                            {#each group.toolCalls as toolCall}
-                                                                {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
-                                                                {@const isCompleted = toolCall.status === 'completed'}
-                                                                {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
-                                                                
-                                                                <div class="ai-message__tool-call">
-                                                                    <div class="ai-message__tool-call-header" 
-                                                                        on:click={() => {
-                                                                            toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
-                                                                            toolCallsExpanded = { ...toolCallsExpanded };
-                                                                        }}
-                                                                    >
-                                                                        <div class="ai-message__tool-call-name">
-                                                                            <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
-                                                                                <use xlink:href="#iconRight"></use>
-                                                                            </svg>
-                                                                            <span>{toolDisplayName}</span>
-                                                                            {#if isCompleted}
-                                                                                <span class="ai-message__tool-call-status">✅</span>
-                                                                            {:else}
-                                                                                <span class="ai-message__tool-call-status">⏳</span>
-                                                                            {/if}
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {#if !isCollapsed}
-                                                                        <div class="ai-message__tool-call-details">
-                                                                            <div class="ai-message__tool-call-params">
-                                                                                <div class="ai-message__tool-call-section-header">
-                                                                                    {t('aiSidebar.messages.params')}
-                                                                                </div>
-                                                                                <div class="ai-message__tool-call-code-wrapper">
-                                                                                    <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
-                                                                                </div>
-                                                                            </div>
-                                                                            {#if toolCall.result}
-                                                                                <div class="ai-message__tool-call-result">
-                                                                                    <div class="ai-message__tool-call-section-header">
-                                                                                        {t('aiSidebar.messages.result')}
-                                                                                    </div>
-                                                                                    <div class="ai-message__tool-call-code-wrapper">
-                                                                                        <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
-                                                                                    </div>
-                                                                                </div>
-                                                                            {/if}
-                                                                        </div>
-                                                                    {/if}
-                                                                </div>
-                                                            {/each}
-                                                        </div>
-                                                    {/each}
-                                                    
-                                                    <!-- 最终思考（如果有） -->
-                                                    {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
-                                                        <div class="ai-message__thinking" style="margin-top: 8px;">
+                                                    {:else if response.thinking}
+                                                        <!-- 没有工具调用时，只显示思考 -->
+                                                        <div class="ai-message__thinking">
                                                             <div
                                                                 class="ai-message__thinking-header"
                                                                 on:click={() => {
-                                                                    message.multiModelResponses[index].thinkingCollapsed =
+                                                                    message.multiModelResponses[
+                                                                        index
+                                                                    ].thinkingCollapsed =
                                                                         !response.thinkingCollapsed;
                                                                     messages = [...messages];
                                                                 }}
@@ -10929,77 +11284,56 @@
                                                                     class="ai-message__thinking-icon"
                                                                     class:collapsed={response.thinkingCollapsed}
                                                                 >
-                                                                    <use xlink:href="#iconRight"></use>
+                                                                    <use
+                                                                        xlink:href="#iconRight"
+                                                                    ></use>
                                                                 </svg>
-                                                                <span class="ai-message__thinking-title">
-                                                                    💭 {t('aiSidebar.messages.thinking')}
+                                                                <span
+                                                                    class="ai-message__thinking-title"
+                                                                >
+                                                                    💭 {t(
+                                                                        'aiSidebar.messages.thinking'
+                                                                    )}
                                                                 </span>
                                                             </div>
                                                             {#if !response.thinkingCollapsed}
-                                                                {@const finalThinkDisplay = getDisplayContent(response.thinking)}
-                                                                <div class="ai-message__thinking-content b3-typography">
-                                                                    {@html finalThinkDisplay}
+                                                                {@const thinkingDisplay =
+                                                                    getDisplayContent(
+                                                                        response.thinking
+                                                                    )}
+                                                                <div
+                                                                    class="ai-message__thinking-content b3-typography"
+                                                                >
+                                                                    {@html thinkingDisplay}
                                                                 </div>
                                                             {/if}
                                                         </div>
                                                     {/if}
-                                                {:else if response.thinking}
-                                                    <!-- 没有工具调用时，只显示思考 -->
-                                                    <div class="ai-message__thinking">
-                                                        <div
-                                                            class="ai-message__thinking-header"
-                                                            on:click={() => {
-                                                                message.multiModelResponses[index].thinkingCollapsed =
-                                                                    !response.thinkingCollapsed;
-                                                                messages = [...messages];
-                                                            }}
-                                                        >
-                                                            <svg
-                                                                class="ai-message__thinking-icon"
-                                                                class:collapsed={response.thinkingCollapsed}
+
+                                                    <div
+                                                        class="ai-sidebar__multi-model-card-content b3-typography"
+                                                        style={messageFontSize
+                                                            ? `font-size: ${messageFontSize}px;`
+                                                            : ''}
+                                                        on:contextmenu={e =>
+                                                            handleContextMenu(
+                                                                e,
+                                                                messageIndex + msgIndex,
+                                                                'assistant'
+                                                            )}
+                                                    >
+                                                        {#if response.error}
+                                                            <div
+                                                                class="ai-sidebar__multi-model-card-error"
                                                             >
-                                                                <use xlink:href="#iconRight"></use>
-                                                            </svg>
-                                                            <span class="ai-message__thinking-title">
-                                                                💭 {t('aiSidebar.messages.thinking')}
-                                                            </span>
-                                                        </div>
-                                                        {#if !response.thinkingCollapsed}
-                                                            {@const thinkingDisplay = getDisplayContent(response.thinking)}
-                                                            <div class="ai-message__thinking-content b3-typography">
-                                                                {@html thinkingDisplay}
+                                                                {response.error}
                                                             </div>
+                                                        {:else if response.content}
+                                                            {@const contentDisplay =
+                                                                getDisplayContent(response.content)}
+                                                            {@html contentDisplay}
                                                         {/if}
                                                     </div>
-                                                {/if}
-
-
-
-                                                <div
-                                                    class="ai-sidebar__multi-model-card-content b3-typography"
-                                                    style={messageFontSize
-                                                        ? `font-size: ${messageFontSize}px;`
-                                                        : ''}
-                                                    on:contextmenu={e =>
-                                                        handleContextMenu(
-                                                            e,
-                                                            messageIndex + msgIndex,
-                                                            'assistant'
-                                                        )}
-                                                >
-                                                    {#if response.error}
-                                                        <div
-                                                            class="ai-sidebar__multi-model-card-error"
-                                                        >
-                                                            {response.error}
-                                                        </div>
-                                                    {:else if response.content}
-                                                        {@const contentDisplay = getDisplayContent(
-                                                            response.content
-                                                        )}
-                                                        {@html contentDisplay}
-                                                    {/if}
-                                                </div>
                                                 </div>
                                             </div>
                                         {/each}
@@ -11156,94 +11490,197 @@
 
                                                         <!-- 按轮次显示工具调用 -->
                                                         {#if response.toolCalls && response.toolCalls.length > 0}
-                                                            {@const groupedToolCalls = response.toolCalls.reduce((acc, tc, i) => {
-                                                                const key = tc.thinkingBefore || '';
-                                                                if (acc.length === 0 || acc[acc.length - 1].thinking !== key) {
-                                                                    acc.push({ thinking: key, toolCalls: [tc] });
-                                                                } else {
-                                                                    acc[acc.length - 1].toolCalls.push(tc);
-                                                                }
-                                                                return acc;
-                                                            }, [])}
-                                                            
+                                                            {@const groupedToolCalls =
+                                                                response.toolCalls.reduce(
+                                                                    (acc, tc, i) => {
+                                                                        const key =
+                                                                            tc.thinkingBefore || '';
+                                                                        if (
+                                                                            acc.length === 0 ||
+                                                                            acc[acc.length - 1]
+                                                                                .thinking !== key
+                                                                        ) {
+                                                                            acc.push({
+                                                                                thinking: key,
+                                                                                toolCalls: [tc],
+                                                                            });
+                                                                        } else {
+                                                                            acc[
+                                                                                acc.length - 1
+                                                                            ].toolCalls.push(tc);
+                                                                        }
+                                                                        return acc;
+                                                                    },
+                                                                    []
+                                                                )}
+
                                                             {#each groupedToolCalls as group, groupIndex}
                                                                 <!-- 该轮工具调用前的思考 -->
                                                                 {#if group.thinking}
-                                                                    <div class="ai-message__thinking">
+                                                                    <div
+                                                                        class="ai-message__thinking"
+                                                                    >
                                                                         <div
                                                                             class="ai-message__thinking-header"
                                                                             on:click={() => {
                                                                                 const key = `hist-tab-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`;
-                                                                                thinkingCollapsed[key] = !thinkingCollapsed[key];
-                                                                                thinkingCollapsed = { ...thinkingCollapsed };
+                                                                                thinkingCollapsed[
+                                                                                    key
+                                                                                ] =
+                                                                                    !thinkingCollapsed[
+                                                                                        key
+                                                                                    ];
+                                                                                thinkingCollapsed =
+                                                                                    {
+                                                                                        ...thinkingCollapsed,
+                                                                                    };
                                                                             }}
                                                                         >
                                                                             <svg
                                                                                 class="ai-message__thinking-icon"
-                                                                                class:collapsed={thinkingCollapsed[`hist-tab-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`]}
+                                                                                class:collapsed={thinkingCollapsed[
+                                                                                    `hist-tab-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`
+                                                                                ]}
                                                                             >
-                                                                                <use xlink:href="#iconRight"></use>
+                                                                                <use
+                                                                                    xlink:href="#iconRight"
+                                                                                ></use>
                                                                             </svg>
-                                                                            <span class="ai-message__thinking-title">
-                                                                                💭 {t('aiSidebar.messages.thinking')}
+                                                                            <span
+                                                                                class="ai-message__thinking-title"
+                                                                            >
+                                                                                💭 {t(
+                                                                                    'aiSidebar.messages.thinking'
+                                                                                )}
                                                                             </span>
                                                                         </div>
                                                                         {#if !thinkingCollapsed[`hist-tab-${messageIndex}-${msgIndex}-${index}-group-${groupIndex}`]}
-                                                                            {@const groupThinkDisplay = getDisplayContent(group.thinking)}
-                                                                            <div class="ai-message__thinking-content b3-typography">
+                                                                            {@const groupThinkDisplay =
+                                                                                getDisplayContent(
+                                                                                    group.thinking
+                                                                                )}
+                                                                            <div
+                                                                                class="ai-message__thinking-content b3-typography"
+                                                                            >
                                                                                 {@html groupThinkDisplay}
                                                                             </div>
                                                                         {/if}
                                                                     </div>
                                                                 {/if}
-                                                                
+
                                                                 <!-- 该轮工具调用 -->
-                                                                <div class="ai-message__tool-calls" style="margin-top: 8px;">
-                                                                    <div class="ai-message__tool-calls-title">
-                                                                        🔧 {t('tools.calling')} ({group.toolCalls.length})
+                                                                <div
+                                                                    class="ai-message__tool-calls"
+                                                                    style="margin-top: 8px;"
+                                                                >
+                                                                    <div
+                                                                        class="ai-message__tool-calls-title"
+                                                                    >
+                                                                        🔧 {t('tools.calling')} ({group
+                                                                            .toolCalls.length})
                                                                     </div>
                                                                     {#each group.toolCalls as toolCall}
-                                                                        {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
-                                                                        {@const isCompleted = toolCall.status === 'completed'}
-                                                                        {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
-                                                                        
-                                                                        <div class="ai-message__tool-call">
-                                                                            <div class="ai-message__tool-call-header" 
+                                                                        {@const toolDisplayName =
+                                                                            getToolDisplayName(
+                                                                                toolCall.function
+                                                                                    .name
+                                                                            )}
+                                                                        {@const isCompleted =
+                                                                            toolCall.status ===
+                                                                            'completed'}
+                                                                        {@const isCollapsed =
+                                                                            !toolCallsExpanded[
+                                                                                toolCall.id
+                                                                            ]}
+
+                                                                        <div
+                                                                            class="ai-message__tool-call"
+                                                                        >
+                                                                            <div
+                                                                                class="ai-message__tool-call-header"
                                                                                 on:click={() => {
-                                                                                    toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
-                                                                                    toolCallsExpanded = { ...toolCallsExpanded };
+                                                                                    toolCallsExpanded[
+                                                                                        toolCall.id
+                                                                                    ] =
+                                                                                        !toolCallsExpanded[
+                                                                                            toolCall
+                                                                                                .id
+                                                                                        ];
+                                                                                    toolCallsExpanded =
+                                                                                        {
+                                                                                            ...toolCallsExpanded,
+                                                                                        };
                                                                                 }}
                                                                             >
-                                                                                <div class="ai-message__tool-call-name">
-                                                                                    <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
-                                                                                        <use xlink:href="#iconRight"></use>
+                                                                                <div
+                                                                                    class="ai-message__tool-call-name"
+                                                                                >
+                                                                                    <svg
+                                                                                        class="ai-message__tool-call-icon"
+                                                                                        class:collapsed={isCollapsed}
+                                                                                    >
+                                                                                        <use
+                                                                                            xlink:href="#iconRight"
+                                                                                        ></use>
                                                                                     </svg>
-                                                                                    <span>{toolDisplayName}</span>
+                                                                                    <span>
+                                                                                        {toolDisplayName}
+                                                                                    </span>
                                                                                     {#if isCompleted}
-                                                                                        <span class="ai-message__tool-call-status">✅</span>
+                                                                                        <span
+                                                                                            class="ai-message__tool-call-status"
+                                                                                        >
+                                                                                            ✅
+                                                                                        </span>
                                                                                     {:else}
-                                                                                        <span class="ai-message__tool-call-status">⏳</span>
+                                                                                        <span
+                                                                                            class="ai-message__tool-call-status"
+                                                                                        >
+                                                                                            ⏳
+                                                                                        </span>
                                                                                     {/if}
                                                                                 </div>
                                                                             </div>
 
                                                                             {#if !isCollapsed}
-                                                                                <div class="ai-message__tool-call-details">
-                                                                                    <div class="ai-message__tool-call-params">
-                                                                                        <div class="ai-message__tool-call-section-header">
-                                                                                            {t('aiSidebar.messages.params')}
+                                                                                <div
+                                                                                    class="ai-message__tool-call-details"
+                                                                                >
+                                                                                    <div
+                                                                                        class="ai-message__tool-call-params"
+                                                                                    >
+                                                                                        <div
+                                                                                            class="ai-message__tool-call-section-header"
+                                                                                        >
+                                                                                            {t(
+                                                                                                'aiSidebar.messages.params'
+                                                                                            )}
                                                                                         </div>
-                                                                                        <div class="ai-message__tool-call-code-wrapper">
-                                                                                            <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
+                                                                                        <div
+                                                                                            class="ai-message__tool-call-code-wrapper"
+                                                                                        >
+                                                                                            <pre
+                                                                                                class="ai-message__tool-call-code"><code>{toolCall
+                                                                                                        .function
+                                                                                                        .arguments}</code></pre>
                                                                                         </div>
                                                                                     </div>
                                                                                     {#if toolCall.result}
-                                                                                        <div class="ai-message__tool-call-result">
-                                                                                            <div class="ai-message__tool-call-section-header">
-                                                                                                {t('aiSidebar.messages.result')}
+                                                                                        <div
+                                                                                            class="ai-message__tool-call-result"
+                                                                                        >
+                                                                                            <div
+                                                                                                class="ai-message__tool-call-section-header"
+                                                                                            >
+                                                                                                {t(
+                                                                                                    'aiSidebar.messages.result'
+                                                                                                )}
                                                                                             </div>
-                                                                                            <div class="ai-message__tool-call-code-wrapper">
-                                                                                                <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                                            <div
+                                                                                                class="ai-message__tool-call-code-wrapper"
+                                                                                            >
+                                                                                                <pre
+                                                                                                    class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
                                                                                             </div>
                                                                                         </div>
                                                                                     {/if}
@@ -11253,31 +11690,49 @@
                                                                     {/each}
                                                                 </div>
                                                             {/each}
-                                                            
+
                                                             <!-- 最终思考（如果有） -->
                                                             {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
-                                                                <div class="ai-message__thinking" style="margin-top: 8px;">
+                                                                <div
+                                                                    class="ai-message__thinking"
+                                                                    style="margin-top: 8px;"
+                                                                >
                                                                     <div
                                                                         class="ai-message__thinking-header"
                                                                         on:click={() => {
-                                                                            message.multiModelResponses[index].thinkingCollapsed =
+                                                                            message.multiModelResponses[
+                                                                                index
+                                                                            ].thinkingCollapsed =
                                                                                 !response.thinkingCollapsed;
-                                                                            messages = [...messages];
+                                                                            messages = [
+                                                                                ...messages,
+                                                                            ];
                                                                         }}
                                                                     >
                                                                         <svg
                                                                             class="ai-message__thinking-icon"
                                                                             class:collapsed={response.thinkingCollapsed}
                                                                         >
-                                                                            <use xlink:href="#iconRight"></use>
+                                                                            <use
+                                                                                xlink:href="#iconRight"
+                                                                            ></use>
                                                                         </svg>
-                                                                        <span class="ai-message__thinking-title">
-                                                                            💭 {t('aiSidebar.messages.thinking')}
+                                                                        <span
+                                                                            class="ai-message__thinking-title"
+                                                                        >
+                                                                            💭 {t(
+                                                                                'aiSidebar.messages.thinking'
+                                                                            )}
                                                                         </span>
                                                                     </div>
                                                                     {#if !response.thinkingCollapsed}
-                                                                        {@const finalThinkDisplay = getDisplayContent(response.thinking)}
-                                                                        <div class="ai-message__thinking-content b3-typography">
+                                                                        {@const finalThinkDisplay =
+                                                                            getDisplayContent(
+                                                                                response.thinking
+                                                                            )}
+                                                                        <div
+                                                                            class="ai-message__thinking-content b3-typography"
+                                                                        >
                                                                             {@html finalThinkDisplay}
                                                                         </div>
                                                                     {/if}
@@ -11289,7 +11744,9 @@
                                                                 <div
                                                                     class="ai-message__thinking-header"
                                                                     on:click={() => {
-                                                                        message.multiModelResponses[index].thinkingCollapsed =
+                                                                        message.multiModelResponses[
+                                                                            index
+                                                                        ].thinkingCollapsed =
                                                                             !response.thinkingCollapsed;
                                                                         messages = [...messages];
                                                                     }}
@@ -11298,21 +11755,31 @@
                                                                         class="ai-message__thinking-icon"
                                                                         class:collapsed={response.thinkingCollapsed}
                                                                     >
-                                                                        <use xlink:href="#iconRight"></use>
+                                                                        <use
+                                                                            xlink:href="#iconRight"
+                                                                        ></use>
                                                                     </svg>
-                                                                    <span class="ai-message__thinking-title">
-                                                                        💭 {t('aiSidebar.messages.thinking')}
+                                                                    <span
+                                                                        class="ai-message__thinking-title"
+                                                                    >
+                                                                        💭 {t(
+                                                                            'aiSidebar.messages.thinking'
+                                                                        )}
                                                                     </span>
                                                                 </div>
                                                                 {#if !response.thinkingCollapsed}
-                                                                    {@const thinkingDisplay = getDisplayContent(response.thinking)}
-                                                                    <div class="ai-message__thinking-content b3-typography">
+                                                                    {@const thinkingDisplay =
+                                                                        getDisplayContent(
+                                                                            response.thinking
+                                                                        )}
+                                                                    <div
+                                                                        class="ai-message__thinking-content b3-typography"
+                                                                    >
                                                                         {@html thinkingDisplay}
                                                                     </div>
                                                                 {/if}
                                                             </div>
                                                         {/if}
-
 
                                                         <div
                                                             class="ai-message__multi-model-tab-panel-content b3-typography"
@@ -11383,7 +11850,9 @@
                                                     <button
                                                         class="b3-button b3-button--text ai-message__attachment-copy"
                                                         on:click={() => {
-                                                            platformUtils.writeText(attachment.data);
+                                                            platformUtils.writeText(
+                                                                attachment.data
+                                                            );
                                                             pushMsg('已复制图片URL');
                                                         }}
                                                         title="复制图片URL"
@@ -11416,7 +11885,9 @@
                                                         <button
                                                             class="b3-button b3-button--text ai-message__attachment-copy"
                                                             on:click={() => {
-                                                                platformUtils.writeText(attachment.data);
+                                                                platformUtils.writeText(
+                                                                    attachment.data
+                                                                );
                                                                 pushMsg(
                                                                     attachment.isWebPage
                                                                         ? '已复制网页Markdown内容'
@@ -11495,7 +11966,9 @@
                                     >
                                         <div class="ai-message__edit-operation-header">
                                             <span class="ai-message__edit-operation-id">
-                                                📄 {operation.docTitle || operation.docId || operation.blockId}
+                                                📄 {operation.docTitle ||
+                                                    operation.docId ||
+                                                    operation.blockId}
                                             </span>
                                             <span class="ai-message__edit-operation-status">
                                                 {#if operation.status === 'applied'}
@@ -11544,14 +12017,14 @@
                         <button
                             class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
                             on:click={() => copyMessage(getActualMessageContent(firstMessage))}
-                            aria-label={t('aiSidebar.actions.copyMessage')}
+                            title={t('aiSidebar.actions.copyMessage')}
                         >
                             <svg class="b3-button__icon"><use xlink:href="#iconCopy"></use></svg>
                         </button>
                         <button
                             class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
                             on:click={() => openSaveToNoteDialog(messageIndex)}
-                            aria-label={t('aiSidebar.actions.saveToNote')}
+                            title={t('aiSidebar.actions.saveToNote')}
                         >
                             <svg class="b3-button__icon">
                                 <use xlink:href="#iconDownload"></use>
@@ -11560,14 +12033,14 @@
                         <button
                             class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
                             on:click={() => startEditMessage(messageIndex)}
-                            aria-label={t('aiSidebar.actions.editMessage')}
+                            title={t('aiSidebar.actions.editMessage')}
                         >
                             <svg class="b3-button__icon"><use xlink:href="#iconEdit"></use></svg>
                         </button>
                         <button
                             class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
                             on:click={() => deleteMessage(messageIndex)}
-                            aria-label={t('aiSidebar.actions.deleteMessage')}
+                            title={t('aiSidebar.actions.deleteMessage')}
                         >
                             <svg class="b3-button__icon">
                                 <use xlink:href="#iconTrashcan"></use>
@@ -11576,7 +12049,7 @@
                         <button
                             class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
                             on:click={() => regenerateMessage(messageIndex)}
-                            aria-label={group.type === 'user'
+                            title={group.type === 'user'
                                 ? t('aiSidebar.actions.resend')
                                 : t('aiSidebar.actions.regenerate')}
                         >
@@ -11758,33 +12231,190 @@
                                 </div>
 
                                 <div class="ai-sidebar__multi-model-card-scroll">
-                                <!-- 按轮次显示思考、工具调用和回复 -->
-                                {#if response.toolCalls && response.toolCalls.length > 0}
-                                    {@const groupedToolCalls = response.toolCalls.reduce((acc, tc, i) => {
-                                        const key = tc.thinkingBefore || '';
-                                        if (acc.length === 0 || acc[acc.length - 1].thinking !== key) {
-                                            acc.push({ thinking: key, toolCalls: [tc] });
-                                        } else {
-                                            acc[acc.length - 1].toolCalls.push(tc);
-                                        }
-                                        return acc;
-                                    }, [])}
-                                    
-                                    {#each groupedToolCalls as group, groupIndex}
-                                        <!-- 该轮工具调用前的思考 -->
-                                        {#if group.thinking}
-                                            <div class="ai-message__thinking">
+                                    <!-- 按轮次显示思考、工具调用和回复 -->
+                                    {#if response.toolCalls && response.toolCalls.length > 0}
+                                        {@const groupedToolCalls = response.toolCalls.reduce(
+                                            (acc, tc, i) => {
+                                                const key = tc.thinkingBefore || '';
+                                                if (
+                                                    acc.length === 0 ||
+                                                    acc[acc.length - 1].thinking !== key
+                                                ) {
+                                                    acc.push({ thinking: key, toolCalls: [tc] });
+                                                } else {
+                                                    acc[acc.length - 1].toolCalls.push(tc);
+                                                }
+                                                return acc;
+                                            },
+                                            []
+                                        )}
+
+                                        {#each groupedToolCalls as group, groupIndex}
+                                            <!-- 该轮工具调用前的思考 -->
+                                            {#if group.thinking}
+                                                <div class="ai-message__thinking">
+                                                    <div
+                                                        class="ai-message__thinking-header"
+                                                        on:click={() => {
+                                                            const key = `mm-${index}-group-${groupIndex}`;
+                                                            thinkingCollapsed[key] =
+                                                                !thinkingCollapsed[key];
+                                                            thinkingCollapsed = {
+                                                                ...thinkingCollapsed,
+                                                            };
+                                                        }}
+                                                    >
+                                                        <svg
+                                                            class="ai-message__thinking-icon"
+                                                            class:collapsed={thinkingCollapsed[
+                                                                `mm-${index}-group-${groupIndex}`
+                                                            ]}
+                                                        >
+                                                            <use xlink:href="#iconRight"></use>
+                                                        </svg>
+                                                        <span class="ai-message__thinking-title">
+                                                            💭 {t('aiSidebar.messages.thinking')}
+                                                        </span>
+                                                    </div>
+                                                    {#if !thinkingCollapsed[`mm-${index}-group-${groupIndex}`]}
+                                                        {@const streamCardThink = getDisplayContent(
+                                                            group.thinking
+                                                        )}
+                                                        <div
+                                                            class="ai-message__thinking-content b3-typography"
+                                                        >
+                                                            {@html streamCardThink}
+                                                        </div>
+                                                    {/if}
+                                                </div>
+                                            {/if}
+
+                                            <!-- 该轮工具调用 -->
+                                            <div
+                                                class="ai-message__tool-calls"
+                                                style="margin-top: 8px;"
+                                            >
+                                                <div class="ai-message__tool-calls-title">
+                                                    🔧 {t('tools.calling')} ({group.toolCalls
+                                                        .length})
+                                                </div>
+                                                {#each group.toolCalls as toolCall}
+                                                    {@const toolDisplayName = getToolDisplayName(
+                                                        toolCall.function.name
+                                                    )}
+                                                    {@const isCompleted =
+                                                        toolCall.status === 'completed'}
+                                                    {@const isCollapsed =
+                                                        !toolCallsExpanded[toolCall.id]}
+
+                                                    <div class="ai-message__tool-call">
+                                                        <div
+                                                            class="ai-message__tool-call-header"
+                                                            on:click={() => {
+                                                                toolCallsExpanded[toolCall.id] =
+                                                                    !toolCallsExpanded[toolCall.id];
+                                                                toolCallsExpanded = {
+                                                                    ...toolCallsExpanded,
+                                                                };
+                                                            }}
+                                                        >
+                                                            <div class="ai-message__tool-call-name">
+                                                                <svg
+                                                                    class="ai-message__tool-call-icon"
+                                                                    class:collapsed={isCollapsed}
+                                                                >
+                                                                    <use
+                                                                        xlink:href="#iconRight"
+                                                                    ></use>
+                                                                </svg>
+                                                                <span>{toolDisplayName}</span>
+                                                                {#if isCompleted}
+                                                                    <span
+                                                                        class="ai-message__tool-call-status"
+                                                                    >
+                                                                        ✅
+                                                                    </span>
+                                                                {:else}
+                                                                    <span
+                                                                        class="ai-message__tool-call-status"
+                                                                    >
+                                                                        ⏳
+                                                                    </span>
+                                                                {/if}
+                                                            </div>
+                                                        </div>
+
+                                                        {#if !isCollapsed}
+                                                            <div
+                                                                class="ai-message__tool-call-details"
+                                                            >
+                                                                <div
+                                                                    class="ai-message__tool-call-params"
+                                                                >
+                                                                    <div
+                                                                        class="ai-message__tool-call-section-header"
+                                                                    >
+                                                                        {t(
+                                                                            'aiSidebar.messages.params'
+                                                                        )}
+                                                                    </div>
+                                                                    <div
+                                                                        class="ai-message__tool-call-code-wrapper"
+                                                                    >
+                                                                        <pre
+                                                                            class="ai-message__tool-call-code"><code>{toolCall
+                                                                                    .function
+                                                                                    .arguments}</code></pre>
+                                                                    </div>
+                                                                </div>
+                                                                {#if toolCall.result}
+                                                                    <div
+                                                                        class="ai-message__tool-call-result"
+                                                                    >
+                                                                        <div
+                                                                            class="ai-message__tool-call-section-header"
+                                                                        >
+                                                                            {t(
+                                                                                'aiSidebar.messages.result'
+                                                                            )}
+                                                                        </div>
+                                                                        <div
+                                                                            class="ai-message__tool-call-code-wrapper"
+                                                                        >
+                                                                            <pre
+                                                                                class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                        </div>
+                                                                    </div>
+                                                                {/if}
+                                                            </div>
+                                                        {/if}
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {/each}
+
+                                        <!-- 最终思考（如果有） -->
+                                        {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
+                                            <div
+                                                class="ai-message__thinking"
+                                                style="margin-top: 8px;"
+                                            >
                                                 <div
                                                     class="ai-message__thinking-header"
                                                     on:click={() => {
-                                                        const key = `mm-${index}-group-${groupIndex}`;
-                                                        thinkingCollapsed[key] = !thinkingCollapsed[key];
-                                                        thinkingCollapsed = { ...thinkingCollapsed };
+                                                        multiModelResponses[
+                                                            index
+                                                        ].thinkingCollapsed =
+                                                            !multiModelResponses[index]
+                                                                .thinkingCollapsed;
+                                                        multiModelResponses = [
+                                                            ...multiModelResponses,
+                                                        ];
                                                     }}
                                                 >
                                                     <svg
                                                         class="ai-message__thinking-icon"
-                                                        class:collapsed={thinkingCollapsed[`mm-${index}-group-${groupIndex}`]}
+                                                        class:collapsed={response.thinkingCollapsed}
                                                     >
                                                         <use xlink:href="#iconRight"></use>
                                                     </svg>
@@ -11792,80 +12422,27 @@
                                                         💭 {t('aiSidebar.messages.thinking')}
                                                     </span>
                                                 </div>
-                                                {#if !thinkingCollapsed[`mm-${index}-group-${groupIndex}`]}
-                                                    {@const streamCardThink = getDisplayContent(group.thinking)}
-                                                    <div class="ai-message__thinking-content b3-typography">
+                                                {#if !response.thinkingCollapsed}
+                                                    {@const streamCardThink = getDisplayContent(
+                                                        response.thinking
+                                                    )}
+                                                    <div
+                                                        class="ai-message__thinking-content b3-typography"
+                                                    >
                                                         {@html streamCardThink}
                                                     </div>
                                                 {/if}
                                             </div>
                                         {/if}
-                                        
-                                        <!-- 该轮工具调用 -->
-                                        <div class="ai-message__tool-calls" style="margin-top: 8px;">
-                                            <div class="ai-message__tool-calls-title">
-                                                🔧 {t('tools.calling')} ({group.toolCalls.length})
-                                            </div>
-                                            {#each group.toolCalls as toolCall}
-                                                {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
-                                                {@const isCompleted = toolCall.status === 'completed'}
-                                                {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
-                                                
-                                                <div class="ai-message__tool-call">
-                                                    <div class="ai-message__tool-call-header" 
-                                                        on:click={() => {
-                                                            toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
-                                                            toolCallsExpanded = { ...toolCallsExpanded };
-                                                        }}
-                                                    >
-                                                        <div class="ai-message__tool-call-name">
-                                                            <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
-                                                                <use xlink:href="#iconRight"></use>
-                                                            </svg>
-                                                            <span>{toolDisplayName}</span>
-                                                            {#if isCompleted}
-                                                                <span class="ai-message__tool-call-status">✅</span>
-                                                            {:else}
-                                                                <span class="ai-message__tool-call-status">⏳</span>
-                                                            {/if}
-                                                        </div>
-                                                    </div>
-
-                                                    {#if !isCollapsed}
-                                                        <div class="ai-message__tool-call-details">
-                                                            <div class="ai-message__tool-call-params">
-                                                                <div class="ai-message__tool-call-section-header">
-                                                                    {t('aiSidebar.messages.params')}
-                                                                </div>
-                                                                <div class="ai-message__tool-call-code-wrapper">
-                                                                    <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
-                                                                </div>
-                                                            </div>
-                                                            {#if toolCall.result}
-                                                                <div class="ai-message__tool-call-result">
-                                                                    <div class="ai-message__tool-call-section-header">
-                                                                        {t('aiSidebar.messages.result')}
-                                                                    </div>
-                                                                    <div class="ai-message__tool-call-code-wrapper">
-                                                                        <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
-                                                                    </div>
-                                                                </div>
-                                                            {/if}
-                                                        </div>
-                                                    {/if}
-                                                </div>
-                                            {/each}
-                                        </div>
-                                    {/each}
-                                    
-                                    <!-- 最终思考（如果有） -->
-                                    {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
-                                        <div class="ai-message__thinking" style="margin-top: 8px;">
+                                    {:else if response.thinking}
+                                        <!-- 没有工具调用时，只显示思考 -->
+                                        <div class="ai-message__thinking">
                                             <div
                                                 class="ai-message__thinking-header"
                                                 on:click={() => {
                                                     multiModelResponses[index].thinkingCollapsed =
-                                                        !multiModelResponses[index].thinkingCollapsed;
+                                                        !multiModelResponses[index]
+                                                            .thinkingCollapsed;
                                                     multiModelResponses = [...multiModelResponses];
                                                 }}
                                             >
@@ -11880,70 +12457,45 @@
                                                 </span>
                                             </div>
                                             {#if !response.thinkingCollapsed}
-                                                {@const streamCardThink = getDisplayContent(response.thinking)}
-                                                <div class="ai-message__thinking-content b3-typography">
+                                                {@const streamCardThink = getDisplayContent(
+                                                    response.thinking
+                                                )}
+                                                <div
+                                                    class="ai-message__thinking-content b3-typography"
+                                                >
                                                     {@html streamCardThink}
                                                 </div>
                                             {/if}
                                         </div>
                                     {/if}
-                                {:else if response.thinking}
-                                    <!-- 没有工具调用时，只显示思考 -->
-                                    <div class="ai-message__thinking">
-                                        <div
-                                            class="ai-message__thinking-header"
-                                            on:click={() => {
-                                                multiModelResponses[index].thinkingCollapsed =
-                                                    !multiModelResponses[index].thinkingCollapsed;
-                                                multiModelResponses = [...multiModelResponses];
-                                            }}
-                                        >
-                                            <svg
-                                                class="ai-message__thinking-icon"
-                                                class:collapsed={response.thinkingCollapsed}
-                                            >
-                                                <use xlink:href="#iconRight"></use>
-                                            </svg>
-                                            <span class="ai-message__thinking-title">
-                                                💭 {t('aiSidebar.messages.thinking')}
-                                            </span>
-                                        </div>
-                                        {#if !response.thinkingCollapsed}
-                                            {@const streamCardThink = getDisplayContent(response.thinking)}
-                                            <div class="ai-message__thinking-content b3-typography">
-                                                {@html streamCardThink}
+
+                                    <div
+                                        class="ai-sidebar__multi-model-card-content b3-typography"
+                                        style={messageFontSize
+                                            ? `font-size: ${messageFontSize}px;`
+                                            : ''}
+                                        on:contextmenu={e =>
+                                            handleContextMenu(e, index, 'assistant', true)}
+                                    >
+                                        {#if response.error}
+                                            <div class="ai-sidebar__multi-model-card-error">
+                                                {response.error}
+                                            </div>
+                                        {:else if response.content}
+                                            {@const streamCardContent = getDisplayContent(
+                                                response.content
+                                            )}
+                                            {@html streamCardContent}
+                                        {:else if response.isLoading}
+                                            <div class="ai-sidebar__multi-model-card-loading">
+                                                <span class="jumping-dots">
+                                                    <span class="dot"></span>
+                                                    <span class="dot"></span>
+                                                    <span class="dot"></span>
+                                                </span>
                                             </div>
                                         {/if}
                                     </div>
-                                {/if}
-
-                                <div
-                                    class="ai-sidebar__multi-model-card-content b3-typography"
-                                    style={messageFontSize
-                                        ? `font-size: ${messageFontSize}px;`
-                                        : ''}
-                                    on:contextmenu={e =>
-                                        handleContextMenu(e, index, 'assistant', true)}
-                                >
-                                    {#if response.error}
-                                        <div class="ai-sidebar__multi-model-card-error">
-                                            {response.error}
-                                        </div>
-                                    {:else if response.content}
-                                        {@const streamCardContent = getDisplayContent(
-                                            response.content
-                                        )}
-                                        {@html streamCardContent}
-                                    {:else if response.isLoading}
-                                        <div class="ai-sidebar__multi-model-card-loading">
-                                            <span class="jumping-dots">
-                                                <span class="dot"></span>
-                                                <span class="dot"></span>
-                                                <span class="dot"></span>
-                                            </span>
-                                        </div>
-                                    {/if}
-                                </div>
                                 </div>
                             </div>
                         {/each}
@@ -12065,16 +12617,22 @@
 
                                     <!-- 按轮次显示思考、工具调用和回复 -->
                                     {#if response.toolCalls && response.toolCalls.length > 0}
-                                        {@const groupedToolCalls = response.toolCalls.reduce((acc, tc, i) => {
-                                            const key = tc.thinkingBefore || '';
-                                            if (acc.length === 0 || acc[acc.length - 1].thinking !== key) {
-                                                acc.push({ thinking: key, toolCalls: [tc] });
-                                            } else {
-                                                acc[acc.length - 1].toolCalls.push(tc);
-                                            }
-                                            return acc;
-                                        }, [])}
-                                        
+                                        {@const groupedToolCalls = response.toolCalls.reduce(
+                                            (acc, tc, i) => {
+                                                const key = tc.thinkingBefore || '';
+                                                if (
+                                                    acc.length === 0 ||
+                                                    acc[acc.length - 1].thinking !== key
+                                                ) {
+                                                    acc.push({ thinking: key, toolCalls: [tc] });
+                                                } else {
+                                                    acc[acc.length - 1].toolCalls.push(tc);
+                                                }
+                                                return acc;
+                                            },
+                                            []
+                                        )}
+
                                         {#each groupedToolCalls as group, groupIndex}
                                             <!-- 该轮工具调用前的思考 -->
                                             {#if group.thinking}
@@ -12083,13 +12641,18 @@
                                                         class="ai-message__thinking-header"
                                                         on:click={() => {
                                                             const key = `mm-tab-${selectedTabIndex}-group-${groupIndex}`;
-                                                            thinkingCollapsed[key] = !thinkingCollapsed[key];
-                                                            thinkingCollapsed = { ...thinkingCollapsed };
+                                                            thinkingCollapsed[key] =
+                                                                !thinkingCollapsed[key];
+                                                            thinkingCollapsed = {
+                                                                ...thinkingCollapsed,
+                                                            };
                                                         }}
                                                     >
                                                         <svg
                                                             class="ai-message__thinking-icon"
-                                                            class:collapsed={thinkingCollapsed[`mm-tab-${selectedTabIndex}-group-${groupIndex}`]}
+                                                            class:collapsed={thinkingCollapsed[
+                                                                `mm-tab-${selectedTabIndex}-group-${groupIndex}`
+                                                            ]}
                                                         >
                                                             <use xlink:href="#iconRight"></use>
                                                         </svg>
@@ -12098,61 +12661,112 @@
                                                         </span>
                                                     </div>
                                                     {#if !thinkingCollapsed[`mm-tab-${selectedTabIndex}-group-${groupIndex}`]}
-                                                        {@const streamTabThink = getDisplayContent(group.thinking)}
-                                                        <div class="ai-message__thinking-content b3-typography">
+                                                        {@const streamTabThink = getDisplayContent(
+                                                            group.thinking
+                                                        )}
+                                                        <div
+                                                            class="ai-message__thinking-content b3-typography"
+                                                        >
                                                             {@html streamTabThink}
                                                         </div>
                                                     {/if}
                                                 </div>
                                             {/if}
-                                            
+
                                             <!-- 该轮工具调用 -->
-                                            <div class="ai-message__tool-calls" style="margin-top: 8px;">
+                                            <div
+                                                class="ai-message__tool-calls"
+                                                style="margin-top: 8px;"
+                                            >
                                                 <div class="ai-message__tool-calls-title">
-                                                    🔧 {t('tools.calling')} ({group.toolCalls.length})
+                                                    🔧 {t('tools.calling')} ({group.toolCalls
+                                                        .length})
                                                 </div>
                                                 {#each group.toolCalls as toolCall}
-                                                    {@const toolDisplayName = getToolDisplayName(toolCall.function.name)}
-                                                    {@const isCompleted = toolCall.status === 'completed'}
-                                                    {@const isCollapsed = !toolCallsExpanded[toolCall.id]}
-                                                    
+                                                    {@const toolDisplayName = getToolDisplayName(
+                                                        toolCall.function.name
+                                                    )}
+                                                    {@const isCompleted =
+                                                        toolCall.status === 'completed'}
+                                                    {@const isCollapsed =
+                                                        !toolCallsExpanded[toolCall.id]}
+
                                                     <div class="ai-message__tool-call">
-                                                        <div class="ai-message__tool-call-header" 
+                                                        <div
+                                                            class="ai-message__tool-call-header"
                                                             on:click={() => {
-                                                                toolCallsExpanded[toolCall.id] = !toolCallsExpanded[toolCall.id];
-                                                                toolCallsExpanded = { ...toolCallsExpanded };
+                                                                toolCallsExpanded[toolCall.id] =
+                                                                    !toolCallsExpanded[toolCall.id];
+                                                                toolCallsExpanded = {
+                                                                    ...toolCallsExpanded,
+                                                                };
                                                             }}
                                                         >
                                                             <div class="ai-message__tool-call-name">
-                                                                <svg class="ai-message__tool-call-icon" class:collapsed={isCollapsed}>
-                                                                    <use xlink:href="#iconRight"></use>
+                                                                <svg
+                                                                    class="ai-message__tool-call-icon"
+                                                                    class:collapsed={isCollapsed}
+                                                                >
+                                                                    <use
+                                                                        xlink:href="#iconRight"
+                                                                    ></use>
                                                                 </svg>
                                                                 <span>{toolDisplayName}</span>
                                                                 {#if isCompleted}
-                                                                    <span class="ai-message__tool-call-status">✅</span>
+                                                                    <span
+                                                                        class="ai-message__tool-call-status"
+                                                                    >
+                                                                        ✅
+                                                                    </span>
                                                                 {:else}
-                                                                    <span class="ai-message__tool-call-status">⏳</span>
+                                                                    <span
+                                                                        class="ai-message__tool-call-status"
+                                                                    >
+                                                                        ⏳
+                                                                    </span>
                                                                 {/if}
                                                             </div>
                                                         </div>
 
                                                         {#if !isCollapsed}
-                                                            <div class="ai-message__tool-call-details">
-                                                                <div class="ai-message__tool-call-params">
-                                                                    <div class="ai-message__tool-call-section-header">
-                                                                        {t('aiSidebar.messages.params')}
+                                                            <div
+                                                                class="ai-message__tool-call-details"
+                                                            >
+                                                                <div
+                                                                    class="ai-message__tool-call-params"
+                                                                >
+                                                                    <div
+                                                                        class="ai-message__tool-call-section-header"
+                                                                    >
+                                                                        {t(
+                                                                            'aiSidebar.messages.params'
+                                                                        )}
                                                                     </div>
-                                                                    <div class="ai-message__tool-call-code-wrapper">
-                                                                        <pre class="ai-message__tool-call-code"><code>{toolCall.function.arguments}</code></pre>
+                                                                    <div
+                                                                        class="ai-message__tool-call-code-wrapper"
+                                                                    >
+                                                                        <pre
+                                                                            class="ai-message__tool-call-code"><code>{toolCall
+                                                                                    .function
+                                                                                    .arguments}</code></pre>
                                                                     </div>
                                                                 </div>
                                                                 {#if toolCall.result}
-                                                                    <div class="ai-message__tool-call-result">
-                                                                        <div class="ai-message__tool-call-section-header">
-                                                                            {t('aiSidebar.messages.result')}
+                                                                    <div
+                                                                        class="ai-message__tool-call-result"
+                                                                    >
+                                                                        <div
+                                                                            class="ai-message__tool-call-section-header"
+                                                                        >
+                                                                            {t(
+                                                                                'aiSidebar.messages.result'
+                                                                            )}
                                                                         </div>
-                                                                        <div class="ai-message__tool-call-code-wrapper">
-                                                                            <pre class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
+                                                                        <div
+                                                                            class="ai-message__tool-call-code-wrapper"
+                                                                        >
+                                                                            <pre
+                                                                                class="ai-message__tool-call-code"><code>{toolCall.result}</code></pre>
                                                                         </div>
                                                                     </div>
                                                                 {/if}
@@ -12162,10 +12776,13 @@
                                                 {/each}
                                             </div>
                                         {/each}
-                                        
+
                                         <!-- 最终思考（如果有） -->
                                         {#if response.thinking && !response.toolCalls.some(tc => tc.thinkingBefore === response.thinking)}
-                                            <div class="ai-message__thinking" style="margin-top: 8px;">
+                                            <div
+                                                class="ai-message__thinking"
+                                                style="margin-top: 8px;"
+                                            >
                                                 <div
                                                     class="ai-message__thinking-header"
                                                     on:click={() => {
@@ -12174,7 +12791,9 @@
                                                         ].thinkingCollapsed =
                                                             !multiModelResponses[selectedTabIndex]
                                                                 .thinkingCollapsed;
-                                                        multiModelResponses = [...multiModelResponses];
+                                                        multiModelResponses = [
+                                                            ...multiModelResponses,
+                                                        ];
                                                     }}
                                                 >
                                                     <svg
@@ -12188,8 +12807,12 @@
                                                     </span>
                                                 </div>
                                                 {#if !response.thinkingCollapsed}
-                                                    {@const streamTabThink = getDisplayContent(response.thinking)}
-                                                    <div class="ai-message__thinking-content b3-typography">
+                                                    {@const streamTabThink = getDisplayContent(
+                                                        response.thinking
+                                                    )}
+                                                    <div
+                                                        class="ai-message__thinking-content b3-typography"
+                                                    >
                                                         {@html streamTabThink}
                                                     </div>
                                                 {/if}
@@ -12220,8 +12843,12 @@
                                                 </span>
                                             </div>
                                             {#if !response.thinkingCollapsed}
-                                                {@const streamTabThink = getDisplayContent(response.thinking)}
-                                                <div class="ai-message__thinking-content b3-typography">
+                                                {@const streamTabThink = getDisplayContent(
+                                                    response.thinking
+                                                )}
+                                                <div
+                                                    class="ai-message__thinking-content b3-typography"
+                                                >
                                                     {@html streamTabThink}
                                                 </div>
                                             {/if}
@@ -12591,7 +13218,7 @@
                 class="b3-button b3-button--text ai-sidebar__upload-btn b3-tooltips b3-tooltips__n"
                 on:click={triggerFileUpload}
                 disabled={isUploadingFile || isLoading}
-                aria-label={t('aiSidebar.actions.upload')}
+                title={t('aiSidebar.actions.upload')}
             >
                 {#if isUploadingFile}
                     <svg class="b3-button__icon ai-sidebar__loading-icon">
@@ -12605,7 +13232,7 @@
                 class="b3-button b3-button--text ai-sidebar__weblink-btn b3-tooltips b3-tooltips__n"
                 on:click={openWebLinkDialog}
                 disabled={isFetchingWebContent || isLoading}
-                aria-label={t('aiSidebar.actions.addWebLink')}
+                title={t('aiSidebar.actions.addWebLink')}
             >
                 {#if isFetchingWebContent}
                     <svg class="b3-button__icon ai-sidebar__loading-icon">
@@ -12618,7 +13245,7 @@
             <button
                 class="b3-button b3-button--text ai-sidebar__add-current-doc-btn b3-tooltips b3-tooltips__n"
                 on:click={addCurrentDocToContext}
-                aria-label={t('aiSidebar.actions.addCurrentDoc')}
+                title={t('aiSidebar.actions.addCurrentDoc')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
             </button>
@@ -12631,7 +13258,7 @@
                         searchDocuments();
                     }
                 }}
-                aria-label={t('aiSidebar.actions.search')}
+                title={t('aiSidebar.actions.search')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconSearch"></use></svg>
             </button>
@@ -12639,7 +13266,7 @@
                 <button
                     class="b3-button b3-button--text b3-tooltips b3-tooltips__n"
                     on:click={() => (isPromptSelectorOpen = !isPromptSelectorOpen)}
-                    aria-label={t('aiSidebar.prompt.title')}
+                    title={t('aiSidebar.prompt.title')}
                 >
                     <svg class="b3-button__icon"><use xlink:href="#iconQuote"></use></svg>
                 </button>
@@ -13067,7 +13694,9 @@
                                         <button
                                             class="b3-button b3-button--text b3-button--small"
                                             on:click={() => {
-                                                platformUtils.writeText(currentDiffOperation.oldContent);
+                                                platformUtils.writeText(
+                                                    currentDiffOperation.oldContent
+                                                );
                                                 pushMsg(t('aiSidebar.success.copySuccess'));
                                             }}
                                             title={t('aiSidebar.actions.copyOldContent')}
@@ -13078,7 +13707,9 @@
                                         </button>
                                     </div>
                                     <div class="ai-sidebar__diff-split-content b3-typography">
-                                        {@html renderMarkdownForSplitDiff(currentDiffOperation.oldContent)}
+                                        {@html renderMarkdownForSplitDiff(
+                                            currentDiffOperation.oldContent
+                                        )}
                                     </div>
                                 </div>
                                 <div class="ai-sidebar__diff-split-column">
@@ -13087,7 +13718,9 @@
                                         <button
                                             class="b3-button b3-button--text b3-button--small"
                                             on:click={() => {
-                                                platformUtils.writeText(currentDiffOperation.newContent);
+                                                platformUtils.writeText(
+                                                    currentDiffOperation.newContent
+                                                );
                                                 pushMsg(t('aiSidebar.success.copySuccess'));
                                             }}
                                             title={t('aiSidebar.actions.copyNewContent')}
@@ -13098,7 +13731,9 @@
                                         </button>
                                     </div>
                                     <div class="ai-sidebar__diff-split-content b3-typography">
-                                        {@html renderMarkdownForSplitDiff(currentDiffOperation.newContent)}
+                                        {@html renderMarkdownForSplitDiff(
+                                            currentDiffOperation.newContent
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -13461,7 +14096,13 @@
                         on:click={toggleImageViewerFullscreen}
                         title={isImageViewerFullscreen ? '退出全屏' : '全屏查看'}
                     >
-                        <svg class="b3-button__icon"><use xlink:href={isImageViewerFullscreen ? '#iconFullscreenExit' : '#iconFullscreen'}></use></svg>
+                        <svg class="b3-button__icon">
+                            <use
+                                xlink:href={isImageViewerFullscreen
+                                    ? '#iconFullscreenExit'
+                                    : '#iconFullscreen'}
+                            ></use>
+                        </svg>
                         <span>{isImageViewerFullscreen ? '退出全屏' : '全屏'}</span>
                     </button>
                     <button

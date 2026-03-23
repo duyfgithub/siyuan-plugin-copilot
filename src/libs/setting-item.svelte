@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { createEventDispatcher } from "svelte";
+    import { createEventDispatcher } from 'svelte';
     export let type: string; // Setting Type
     export let title: string; // Displayint Setting Title
     export let text: string; // Displaying Setting Text
@@ -7,7 +7,7 @@
     export let settingValue: any;
 
     //Optional
-    export let placeholder: string = ""; // Use it if type is input
+    export let placeholder: string = ''; // Use it if type is input
     export let options: { [key: string]: string } = {}; // Use it if type is select
     export let slider: {
         min: number;
@@ -18,11 +18,11 @@
     const dispatch = createEventDispatcher();
 
     function clicked() {
-        dispatch("clicked");
+        dispatch('clicked');
     }
 
     function changed() {
-        dispatch("changed", { key: settingKey, value: settingValue });
+        dispatch('changed', { key: settingKey, value: settingValue });
     }
 </script>
 
@@ -35,7 +35,7 @@
     </div>
     <span class="fn__space" />
     <!-- <slot /> -->
-    {#if type === "checkbox"}
+    {#if type === 'checkbox'}
         <!-- Checkbox -->
         <input
             class="b3-switch fn__flex-center"
@@ -44,7 +44,7 @@
             bind:checked={settingValue}
             on:change={changed}
         />
-    {:else if type === "input"}
+    {:else if type === 'input'}
         <!-- Text Input -->
         <input
             class="b3-text-field fn__flex-center fn__size200"
@@ -53,7 +53,7 @@
             bind:value={settingValue}
             on:change={changed}
         />
-    {:else if type === "button"}
+    {:else if type === 'button'}
         <!-- Button Input -->
         <button
             class="b3-button b3-button--outline fn__flex-center fn__size200"
@@ -62,7 +62,7 @@
         >
             {settingValue}
         </button>
-    {:else if type === "select"}
+    {:else if type === 'select'}
         <!-- Dropdown select -->
         <select
             class="b3-select fn__flex-center fn__size200"
@@ -74,9 +74,9 @@
                 <option {value}>{text}</option>
             {/each}
         </select>
-    {:else if type == "slider"}
+    {:else if type == 'slider'}
         <!-- Slider -->
-        <div class="b3-tooltips b3-tooltips__n" aria-label={settingValue}>
+        <div class="b3-tooltips b3-tooltips__n" title={settingValue}>
             <input
                 class="b3-slider fn__size200"
                 id="fontSize"

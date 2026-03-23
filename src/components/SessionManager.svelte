@@ -349,7 +349,7 @@
         bind:this={buttonElement}
         class="session-manager__button b3-button b3-button--text b3-tooltips b3-tooltips__s"
         on:click|stopPropagation={() => (isOpen = !isOpen)}
-        aria-label={t('aiSidebar.session.title')}
+        title={t('aiSidebar.session.title')}
     >
         <svg class="b3-button__icon"><use xlink:href="#iconHistory"></use></svg>
     </button>

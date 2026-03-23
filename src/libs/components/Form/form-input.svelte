@@ -59,7 +59,7 @@
         class="b3-text-field fn__block"
         id={key}
         spellcheck="false"
-        rows={rows}
+        {rows}
         style={`resize: vertical;  white-space: nowrap; ${style}`}
         bind:value
         on:change={changed}
@@ -105,7 +105,7 @@
     </select>
 {:else if type == 'slider'}
     <!-- Slider -->
-    <div class="b3-tooltips b3-tooltips__n" aria-label={value}>
+    <div class="b3-tooltips b3-tooltips__n" title={value}>
         <input
             class:b3-slider={true}
             class:fn__size200={fnSize}
