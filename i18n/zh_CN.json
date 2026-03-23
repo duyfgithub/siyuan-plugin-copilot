@@ -251,7 +251,8 @@
             "rejectEdit": "拒绝",
             "viewDiff": "查看差异",
             "applied": "已应用",
-            "rejected": "已拒绝"
+            "rejected": "已拒绝",
+            "openWindow": "新窗口打开"
         },
         "translate": {
             "title": "翻译",

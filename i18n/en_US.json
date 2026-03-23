@@ -252,7 +252,8 @@
             "rejectEdit": "Reject",
             "viewDiff": "View Diff",
             "applied": "Applied",
-            "rejected": "Rejected"
+            "rejected": "Rejected",
+            "openWindow": "Open in New Window"
         },
         "translate": {
             "title": "Translation",
