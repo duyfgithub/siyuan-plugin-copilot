@@ -105,7 +105,7 @@
     </select>
 {:else if type == 'slider'}
     <!-- Slider -->
-    <div class="b3-tooltips b3-tooltips__n" title={value}>
+    <div class="" title={value}>
         <input
             class:b3-slider={true}
             class:fn__size200={fnSize}

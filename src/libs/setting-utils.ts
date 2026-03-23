@@ -67,7 +67,7 @@ const createDefaultSetter = (type: TSettingItemType) => {
             };
             break;
         default:
-            setter = () => {};
+            setter = () => { };
             break;
     }
     return setter;
@@ -319,7 +319,7 @@ export class SettingUtils {
             case 'slider':
                 let sliderElement: HTMLInputElement = document.createElement('input');
                 sliderElement.type = 'range';
-                sliderElement.className = 'b3-slider fn__size200 b3-tooltips b3-tooltips__n';
+                sliderElement.className = 'b3-slider fn__size200';
                 sliderElement.ariaLabel = item.value;
                 sliderElement.min = item.slider?.min.toString() ?? '0';
                 sliderElement.max = item.slider?.max.toString() ?? '100';

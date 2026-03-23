@@ -347,7 +347,7 @@
 <div class="session-manager">
     <button
         bind:this={buttonElement}
-        class="session-manager__button b3-button b3-button--text b3-tooltips b3-tooltips__s"
+        class="session-manager__button b3-button b3-button--text"
         on:click|stopPropagation={() => (isOpen = !isOpen)}
         title={t('aiSidebar.session.title')}
     >

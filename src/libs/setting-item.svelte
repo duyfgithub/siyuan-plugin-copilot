@@ -76,7 +76,7 @@
         </select>
     {:else if type == 'slider'}
         <!-- Slider -->
-        <div class="b3-tooltips b3-tooltips__n" title={settingValue}>
+        <div class="" title={settingValue}>
             <input
                 class="b3-slider fn__size200"
                 id="fontSize"

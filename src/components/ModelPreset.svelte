@@ -844,7 +844,7 @@
 <div class="model-settings-button">
     <button
         bind:this={buttonElement}
-        class="b3-button b3-button--text model-settings-button__trigger b3-tooltips b3-tooltips__n"
+        class="b3-button b3-button--text model-settings-button__trigger"
         on:click|stopPropagation={toggleDropdown}
         title={currentPresetName || t('aiSidebar.modelSettings.title')}
     >

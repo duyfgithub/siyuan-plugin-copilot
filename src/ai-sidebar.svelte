@@ -10300,7 +10300,7 @@
     <div class="ai-sidebar__header">
         <h3 class="ai-sidebar__title">
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={openTranslateDialog}
                 title={t('aiSidebar.translate.openDialog') || '翻译'}
             >
@@ -10308,7 +10308,7 @@
             </button>
             <div class="ai-sidebar__webapp-menu-container">
                 <button
-                    class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                    class="b3-button b3-button--text"
                     bind:this={webAppMenuButton}
                     on:click={toggleWebAppMenu}
                     title={t('aiSidebar.webapp.title') || '小程序'}
@@ -10360,7 +10360,7 @@
 
         <div class="ai-sidebar__actions">
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={newSession}
                 title={t('aiSidebar.session.new')}
             >
@@ -10379,21 +10379,21 @@
                 on:saveToNote={e => handleSaveSessionToNote(e.detail.sessionId)}
             />
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={copyAsMarkdown}
                 title={t('aiSidebar.actions.copyAllChat')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconCopy"></use></svg>
             </button>
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={() => openSaveToNoteDialog()}
                 title={t('aiSidebar.actions.saveToNote')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconDownload"></use></svg>
             </button>
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={clearChat}
                 title={t('aiSidebar.actions.clear')}
             >
@@ -10401,7 +10401,7 @@
             </button>
             <div class="ai-sidebar__open-window-menu-container" style="position: relative;">
                 <button
-                    class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                    class="b3-button b3-button--text"
                     bind:this={openWindowMenuButton}
                     on:click={toggleOpenWindowMenu}
                     title={t('aiSidebar.actions.openWindow') || '在新窗口打开'}
@@ -10426,7 +10426,7 @@
                 {/if}
             </div>
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={toggleFullscreen}
                 title={isFullscreen ? '退出全屏' : '全屏查看'}
             >
@@ -10437,7 +10437,7 @@
                 </svg>
             </button>
             <button
-                class="b3-button b3-button--text b3-tooltips b3-tooltips__s"
+                class="b3-button b3-button--text"
                 on:click={openSettings}
                 title={t('aiSidebar.actions.settings')}
             >
@@ -12015,14 +12015,14 @@
                 {#if !isLoading && (!firstMessage.multiModelResponses || (firstMessage.multiModelResponses && firstMessage.multiModelResponses.some(r => r.isSelected)))}
                     <div class="ai-message__actions">
                         <button
-                            class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
+                            class="b3-button b3-button--text ai-message__action"
                             on:click={() => copyMessage(getActualMessageContent(firstMessage))}
                             title={t('aiSidebar.actions.copyMessage')}
                         >
                             <svg class="b3-button__icon"><use xlink:href="#iconCopy"></use></svg>
                         </button>
                         <button
-                            class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
+                            class="b3-button b3-button--text ai-message__action"
                             on:click={() => openSaveToNoteDialog(messageIndex)}
                             title={t('aiSidebar.actions.saveToNote')}
                         >
@@ -12031,14 +12031,14 @@
                             </svg>
                         </button>
                         <button
-                            class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
+                            class="b3-button b3-button--text ai-message__action"
                             on:click={() => startEditMessage(messageIndex)}
                             title={t('aiSidebar.actions.editMessage')}
                         >
                             <svg class="b3-button__icon"><use xlink:href="#iconEdit"></use></svg>
                         </button>
                         <button
-                            class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
+                            class="b3-button b3-button--text ai-message__action"
                             on:click={() => deleteMessage(messageIndex)}
                             title={t('aiSidebar.actions.deleteMessage')}
                         >
@@ -12047,7 +12047,7 @@
                             </svg>
                         </button>
                         <button
-                            class="b3-button b3-button--text ai-message__action b3-tooltips b3-tooltips__n"
+                            class="b3-button b3-button--text ai-message__action"
                             on:click={() => regenerateMessage(messageIndex)}
                             title={group.type === 'user'
                                 ? t('aiSidebar.actions.resend')
@@ -13215,7 +13215,7 @@
         />
         <div class="ai-sidebar__bottom-row">
             <button
-                class="b3-button b3-button--text ai-sidebar__upload-btn b3-tooltips b3-tooltips__n"
+                class="b3-button b3-button--text ai-sidebar__upload-btn"
                 on:click={triggerFileUpload}
                 disabled={isUploadingFile || isLoading}
                 title={t('aiSidebar.actions.upload')}
@@ -13229,7 +13229,7 @@
                 {/if}
             </button>
             <button
-                class="b3-button b3-button--text ai-sidebar__weblink-btn b3-tooltips b3-tooltips__n"
+                class="b3-button b3-button--text ai-sidebar__weblink-btn"
                 on:click={openWebLinkDialog}
                 disabled={isFetchingWebContent || isLoading}
                 title={t('aiSidebar.actions.addWebLink')}
@@ -13243,14 +13243,14 @@
                 {/if}
             </button>
             <button
-                class="b3-button b3-button--text ai-sidebar__add-current-doc-btn b3-tooltips b3-tooltips__n"
+                class="b3-button b3-button--text ai-sidebar__add-current-doc-btn"
                 on:click={addCurrentDocToContext}
                 title={t('aiSidebar.actions.addCurrentDoc')}
             >
                 <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
             </button>
             <button
-                class="b3-button b3-button--text ai-sidebar__search-btn b3-tooltips b3-tooltips__n"
+                class="b3-button b3-button--text ai-sidebar__search-btn"
                 on:click={() => {
                     isSearchDialogOpen = !isSearchDialogOpen;
                     // 打开对话框时，如果搜索关键词为空，自动加载当前文档
@@ -13264,7 +13264,7 @@
             </button>
             <div class="ai-sidebar__prompt-actions">
                 <button
-                    class="b3-button b3-button--text b3-tooltips b3-tooltips__n"
+                    class="b3-button b3-button--text"
                     on:click={() => (isPromptSelectorOpen = !isPromptSelectorOpen)}
                     title={t('aiSidebar.prompt.title')}
                 >
