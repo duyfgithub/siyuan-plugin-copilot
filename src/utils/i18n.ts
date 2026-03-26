@@ -27,7 +27,7 @@ export function getCurrentLanguage(): string {
 /**
  * 翻译函数
  */
-export function t(key: string, params?: { [key: string]: string }): string {
+export function i18n(key: string, params?: { [key: string]: string }): string {
     // 首先尝试从插件实例获取i18n数据
     let i18nData = null;
 
@@ -122,7 +122,7 @@ export function hasTranslation(key: string): boolean {
  * 格式化带参数的翻译文本
  */
 export function tf(key: string, ...args: any[]): string {
-    const text = t(key);
+    const text = i18n(key);
 
     if (args.length === 0) {
         return text;
@@ -158,5 +158,5 @@ export function tp(key: string, count: number, params?: { [key: string]: string 
     // 添加count参数
     const finalParams = { count: count.toString(), ...params };
 
-    return t(pluralKey, finalParams);
+    return i18n(pluralKey, finalParams);
 }

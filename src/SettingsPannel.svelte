@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import SettingPanel from '@/libs/components/setting-panel.svelte';
-    import { t } from './utils/i18n';
+    import { i18n } from './utils/i18n';
     import { getDefaultSettings } from './defaultSettings';
     import { pushMsg, pushErrMsg, lsNotebooks, getBlockByID } from './api';
     import { confirm } from 'siyuan';
@@ -29,12 +29,12 @@
     }
 
     const builtInProviderNames: Record<string, string> = {
-        Achuan: t('platform.builtIn.Achuan'),
-        gemini: t('platform.builtIn.gemini'),
-        openai: t('platform.builtIn.openai'),
-        deepseek: t('platform.builtIn.deepseek'),
-        moonshot: t('platform.builtIn.moonshot'),
-        volcano: t('platform.builtIn.volcano'),
+        Achuan: i18n('platform.builtIn.Achuan'),
+        gemini: i18n('platform.builtIn.gemini'),
+        openai: i18n('platform.builtIn.openai'),
+        deepseek: i18n('platform.builtIn.deepseek'),
+        moonshot: i18n('platform.builtIn.moonshot'),
+        volcano: i18n('platform.builtIn.volcano'),
     };
 
     // 内置平台的默认 API 地址
@@ -116,7 +116,7 @@
         };
 
         saveSettings();
-        pushMsg(t('platform.reorderSuccess') || '平台顺序已更新');
+        pushMsg(i18n('platform.reorderSuccess') || '平台顺序已更新');
     }
 
     // 处理拖拽悬停（防止默认行为）
@@ -155,7 +155,7 @@
     // 添加自定义平台
     function addCustomPlatform() {
         if (!newPlatformName.trim()) {
-            pushErrMsg(t('platform.nameRequired'));
+            pushErrMsg(i18n('platform.nameRequired'));
             return;
         }
 
@@ -184,7 +184,7 @@
         newPlatformName = '';
         showAddPlatform = false;
         saveSettings();
-        pushMsg(t('aiSidebar.success.addPromptSuccess') + `: ${newPlatform.name}`);
+        pushMsg(i18n('aiSidebar.success.addPromptSuccess') + `: ${newPlatform.name}`);
     }
 
     // 删除平台（内置平台也可删除）
@@ -192,11 +192,11 @@
         const platformName =
             builtInProviderNames[providerId] ||
             settings.aiProviders?.customProviders?.find(p => p.id === providerId)?.name ||
-            t('platform.unknown');
+            i18n('platform.unknown');
 
         confirm(
-            t('aiSidebar.confirm.deletePlatform.title'),
-            t('aiSidebar.confirm.deletePlatform.message', { platformName }),
+            i18n('aiSidebar.confirm.deletePlatform.title'),
+            i18n('aiSidebar.confirm.deletePlatform.message', { platformName }),
             async () => {
                 // 检查是否需要清空当前选中的模型
                 // 只有当删除的平台是当前正在使用的平台时才清空模型选择
@@ -245,7 +245,7 @@
                 }
 
                 saveSettings();
-                pushMsg(t('aiSidebar.success.deletePromptSuccess') + `: ${platformName}`);
+                pushMsg(i18n('aiSidebar.success.deletePromptSuccess') + `: ${platformName}`);
             }
         );
     }
@@ -296,7 +296,7 @@
 
     // 获取当前选中平台的名称 - 使用响应式语句
     $: selectedProviderName = (() => {
-        if (!selectedProviderId) return t('platform.select');
+        if (!selectedProviderId) return i18n('platform.select');
 
         if (builtInProviderNames[selectedProviderId]) {
             return builtInProviderNames[selectedProviderId];
@@ -305,7 +305,7 @@
         const customProvider = settings.aiProviders?.customProviders?.find(
             (p: CustomProviderConfig) => p.id === selectedProviderId
         );
-        return customProvider?.name || t('platform.unknown');
+        return customProvider?.name || i18n('platform.unknown');
     })();
 
     // 保存选中的平台ID（仅在设置面板中选择平台，不影响对话中的当前平台）
@@ -320,44 +320,44 @@
 
     let groups: ISettingGroup[] = [
         {
-            name: t('settings.settingsGroup.systemPrompt'),
+            name: i18n('settings.settingsGroup.systemPrompt'),
             items: [
                 {
                     key: 'aiSystemPrompt',
                     value: settings.aiSystemPrompt,
                     type: 'textarea',
-                    title: t('settings.ai.systemPrompt.title'),
-                    description: t('settings.ai.systemPrompt.description'),
+                    title: i18n('settings.ai.systemPrompt.title'),
+                    description: i18n('settings.ai.systemPrompt.description'),
                     direction: 'row',
                     rows: 4,
-                    placeholder: t('settings.ai.systemPrompt.placeholder'),
+                    placeholder: i18n('settings.ai.systemPrompt.placeholder'),
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.platformManagement'),
+            name: i18n('settings.settingsGroup.platformManagement'),
             items: [],
         },
         {
-            name: t('settings.settingsGroup.displayAndOperation'),
+            name: i18n('settings.settingsGroup.displayAndOperation'),
             items: [
                 {
                     key: 'sendMessageShortcut',
                     value: settings.sendMessageShortcut,
                     type: 'select',
-                    title: t('settings.sendMessageShortcut.title'),
-                    description: t('settings.sendMessageShortcut.description'),
+                    title: i18n('settings.sendMessageShortcut.title'),
+                    description: i18n('settings.sendMessageShortcut.description'),
                     options: {
-                        'ctrl+enter': t('settings.sendMessageShortcut.options.ctrlEnter'),
-                        enter: t('settings.sendMessageShortcut.options.enter'),
+                        'ctrl+enter': i18n('settings.sendMessageShortcut.options.ctrlEnter'),
+                        enter: i18n('settings.sendMessageShortcut.options.enter'),
                     },
                 },
                 {
                     key: 'messageFontSize',
                     value: settings.messageFontSize,
                     type: 'number',
-                    title: t('settings.messageFontSize.title'),
-                    description: t('settings.messageFontSize.description'),
+                    title: i18n('settings.messageFontSize.title'),
+                    description: i18n('settings.messageFontSize.description'),
                     number: {
                         min: 5,
                         max: 32,
@@ -368,60 +368,60 @@
                     key: 'multiModelViewMode',
                     value: settings.multiModelViewMode,
                     type: 'select',
-                    title: t('settings.multiModelViewMode.title'),
-                    description: t('settings.multiModelViewMode.description'),
+                    title: i18n('settings.multiModelViewMode.title'),
+                    description: i18n('settings.multiModelViewMode.description'),
                     options: {
-                        tab: t('settings.multiModelViewMode.options.tab'),
-                        card: t('settings.multiModelViewMode.options.card'),
+                        tab: i18n('settings.multiModelViewMode.options.tab'),
+                        card: i18n('settings.multiModelViewMode.options.card'),
                     },
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.noteExport'),
+            name: i18n('settings.settingsGroup.noteExport'),
             items: [
                 {
                     key: 'exportNotebook',
                     value: settings.exportNotebook,
                     type: 'select',
-                    title: t('settings.exportNotebook.title'),
-                    description: t('settings.exportNotebook.description'),
+                    title: i18n('settings.exportNotebook.title'),
+                    description: i18n('settings.exportNotebook.description'),
                     options: notebookOptions,
                 },
                 {
                     key: 'exportDefaultPath',
                     value: settings.exportDefaultPath,
                     type: 'textinput',
-                    title: t('settings.exportDefaultPath.title'),
-                    description: t('settings.exportDefaultPath.description'),
-                    placeholder: t('settings.exportDefaultPath.placeholder'),
+                    title: i18n('settings.exportDefaultPath.title'),
+                    description: i18n('settings.exportDefaultPath.description'),
+                    placeholder: i18n('settings.exportDefaultPath.placeholder'),
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.sessionManagement') || '会话管理',
+            name: i18n('settings.settingsGroup.sessionManagement') || '会话管理',
             items: [
                 {
                     key: 'autoRenameSession',
                     value: settings.autoRenameSession,
                     type: 'checkbox',
-                    title: t('settings.autoRenameSession.title') || '会话自动重命名',
+                    title: i18n('settings.autoRenameSession.title') || '会话自动重命名',
                     description:
-                        t('settings.autoRenameSession.description') ||
+                        i18n('settings.autoRenameSession.description') ||
                         '在首次发送消息时，自动使用AI生成会话标题',
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.translate') || '翻译设置',
+            name: i18n('settings.settingsGroup.translate') || '翻译设置',
             items: [
                 {
                     key: 'translateTemperature',
                     value: settings.translateTemperature,
                     type: 'number',
-                    title: t('settings.translate.temperature.title') || '翻译 Temperature',
+                    title: i18n('settings.translate.temperature.title') || '翻译 Temperature',
                     description:
-                        t('settings.translate.temperature.description') ||
+                        i18n('settings.translate.temperature.description') ||
                         '翻译专用的 temperature 参数（0-2），为空则使用模型默认值。值越小，翻译越准确一致；值越大，翻译越灵活多样',
                     number: {
                         min: 0,
@@ -433,61 +433,61 @@
                     key: 'translatePrompt',
                     value: settings.translatePrompt,
                     type: 'textarea',
-                    title: t('settings.translate.prompt.title') || '翻译提示词',
+                    title: i18n('settings.translate.prompt.title') || '翻译提示词',
                     description:
-                        t('settings.translate.prompt.description') ||
+                        i18n('settings.translate.prompt.description') ||
                         '翻译时使用的提示词模板，${content} 会被替换为要翻译的内容',
                     direction: 'row',
                     rows: 8,
                     placeholder:
-                        t('settings.translate.prompt.placeholder') || '输入翻译提示词模板...',
+                        i18n('settings.translate.prompt.placeholder') || '输入翻译提示词模板...',
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.tools') || '工具设置',
+            name: i18n('settings.settingsGroup.tools') || '工具设置',
             items: [
                 {
                     key: 'pythonPath',
                     value: settings.pythonPath,
                     type: 'textinput',
-                    title: t('settings.pythonPath.title') || 'Python 解释器路径',
+                    title: i18n('settings.pythonPath.title') || 'Python 解释器路径',
                     description:
-                        t('settings.pythonPath.description') ||
+                        i18n('settings.pythonPath.description') ||
                         '设置 Python 可执行文件的路径，用于运行 Python 代码工具。留空则使用系统默认的 python 命令',
                     placeholder:
-                        t('settings.pythonPath.placeholder') ||
+                        i18n('settings.pythonPath.placeholder') ||
                         '例如：C:\\Python311\\python.exe 或 /usr/bin/python3',
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.soul') || 'SOUL 文档',
+            name: i18n('settings.settingsGroup.soul') || 'SOUL 文档',
             items: [
                 {
                     key: 'soulDocId',
                     value: settings.soulDocId,
                     type: 'textinput',
-                    title: t('settings.soulDocId.title') || 'SOUL 文档 ID',
+                    title: i18n('settings.soulDocId.title') || 'SOUL 文档 ID',
                     description:
-                        t('settings.soulDocId.description') ||
+                        i18n('settings.soulDocId.description') ||
                         '设置 SOUL 数据存储的文档 ID。SOUL 工具只能在此文档内进行增删改查操作。',
                     placeholder:
-                        t('settings.soulDocId.placeholder') ||
+                        i18n('settings.soulDocId.placeholder') ||
                         '输入文档块 ID，如 20260312120000-xxxxxxxx',
                 },
             ],
         },
         {
-            name: t('settings.settingsGroup.webApp') || '网页小程序',
+            name: i18n('settings.settingsGroup.webApp') || '网页小程序',
             items: [
                 {
                     key: 'openLinksInWebView',
                     value: settings.openLinksInWebView,
                     type: 'checkbox',
-                    title: t('settings.openLinksInWebView.title') || '在 WebView 中打开链接',
+                    title: i18n('settings.openLinksInWebView.title') || '在 WebView 中打开链接',
                     description:
-                        t('settings.openLinksInWebView.description') ||
+                        i18n('settings.openLinksInWebView.description') ||
                         '点击思源笔记中的 https 链接时，在内置 WebView 标签页中打开，而不是外部浏览器',
                 },
                 {
@@ -504,28 +504,29 @@
             ],
         },
         {
-            name: t('settings.settingsGroup.reset') || 'Reset Settings',
+            name: i18n('settings.settingsGroup.reset') || 'Reset Settings',
             items: [
                 {
                     key: 'reset',
                     value: '',
                     type: 'button',
-                    title: t('settings.reset.title') || 'Reset Settings',
+                    title: i18n('settings.reset.title') || 'Reset Settings',
                     description:
-                        t('settings.reset.description') || 'Reset all settings to default values',
+                        i18n('settings.reset.description') ||
+                        'Reset all settings to default values',
                     button: {
-                        label: t('settings.reset.label') || 'Reset',
+                        label: i18n('settings.reset.label') || 'Reset',
                         callback: async () => {
                             confirm(
-                                t('settings.reset.title') || 'Reset Settings',
-                                t('settings.reset.confirmMessage') ||
+                                i18n('settings.reset.title') || 'Reset Settings',
+                                i18n('settings.reset.confirmMessage') ||
                                     'Are you sure you want to reset all settings to default values? This action cannot be undone.',
                                 async () => {
                                     // 确认回调
                                     settings = { ...getDefaultSettings() };
                                     updateGroupItems();
                                     await saveSettings();
-                                    await pushMsg(t('settings.reset.message'));
+                                    await pushMsg(i18n('settings.reset.message'));
                                 },
                                 () => {
                                     // 取消回调（可选）
@@ -669,7 +670,7 @@
                 // 构建笔记本选项对象 { id: name }，只显示 closed=false 的笔记本
                 notebookOptions = {};
                 notebookOptions[''] =
-                    t('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --';
+                    i18n('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --';
                 notebooks.notebooks
                     .filter(notebook => notebook.closed === false)
                     .forEach(notebook => {
@@ -677,13 +678,13 @@
                     });
             } else {
                 notebookOptions = {
-                    '': t('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --',
+                    '': i18n('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --',
                 };
             }
         } catch (error) {
             console.error('Load notebooks error:', error);
             notebookOptions = {
-                '': t('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --',
+                '': i18n('settings.exportNotebook.placeholder') || '-- 请选择笔记本 --',
             };
         }
     }
@@ -700,7 +701,7 @@
 
         soulDocValidation = {
             status: 'checking',
-            message: t('settings.soulDocId.validating') || '验证中...',
+            message: i18n('settings.soulDocId.validating') || '验证中...',
         };
 
         try {
@@ -708,7 +709,7 @@
             if (!block) {
                 soulDocValidation = {
                     status: 'invalid',
-                    message: t('settings.soulDocId.notFound') || '块不存在，请检查 ID 是否正确',
+                    message: i18n('settings.soulDocId.notFound') || '块不存在，请检查 ID 是否正确',
                 };
                 return;
             }
@@ -717,7 +718,7 @@
                 soulDocValidation = {
                     status: 'invalid',
                     message:
-                        t('settings.soulDocId.notDoc') ||
+                        i18n('settings.soulDocId.notDoc') ||
                         `该 ID 不是文档类型，当前类型: ${block.type}`,
                 };
                 return;
@@ -726,12 +727,13 @@
             soulDocValidation = {
                 status: 'valid',
                 message:
-                    t('settings.soulDocId.valid') || `✓ 有效文档: ${block.content || '未命名'}`,
+                    i18n('settings.soulDocId.valid') || `✓ 有效文档: ${block.content || '未命名'}`,
             };
         } catch (error) {
             soulDocValidation = {
                 status: 'invalid',
-                message: t('settings.soulDocId.error') || '验证失败: ' + (error as Error).message,
+                message:
+                    i18n('settings.soulDocId.error') || '验证失败: ' + (error as Error).message,
             };
         }
     }
@@ -779,37 +781,37 @@
         {/each}
     </ul>
     <div class="config__tab-wrap">
-        {#if focusGroup === t('settings.settingsGroup.systemPrompt')}
+        {#if focusGroup === i18n('settings.settingsGroup.systemPrompt')}
             <SettingPanel
                 group={currentGroup?.name || ''}
                 settingItems={currentGroup?.items || []}
                 display={true}
                 on:changed={onChanged}
             />
-        {:else if focusGroup === t('settings.settingsGroup.platformManagement')}
+        {:else if focusGroup === i18n('settings.settingsGroup.platformManagement')}
             <!-- 新的侧边栏布局：左侧为平台列表/操作，右侧为平台配置主区域 -->
             <div class="platform-management-layout">
                 <aside class="platform-sidebar">
                     <div class="unified-platform-manager">
                         <div class="manager-header">
-                            <h5>{t('platform.management')}</h5>
+                            <h5>{i18n('platform.management')}</h5>
                             <button
                                 class="b3-button b3-button--outline"
                                 on:click={() => (showAddPlatform = !showAddPlatform)}
                             >
-                                {showAddPlatform ? t('platform.cancel') : t('platform.add')}
+                                {showAddPlatform ? i18n('platform.cancel') : i18n('platform.add')}
                             </button>
                         </div>
 
                         {#if showAddPlatform}
                             <div class="add-platform-form">
                                 <div>
-                                    <div>{t('platform.name')}</div>
+                                    <div>{i18n('platform.name')}</div>
                                     <input
                                         class="b3-text-field fn__flex-1"
                                         type="text"
                                         bind:value={newPlatformName}
-                                        placeholder={t('platform.namePlaceholder')}
+                                        placeholder={i18n('platform.namePlaceholder')}
                                         on:keydown={e => e.key === 'Enter' && addCustomPlatform()}
                                     />
                                 </div>
@@ -818,7 +820,7 @@
                                     on:click={addCustomPlatform}
                                     disabled={!newPlatformName.trim()}
                                 >
-                                    {t('platform.confirmAdd')}
+                                    {i18n('platform.confirmAdd')}
                                 </button>
                             </div>
                         {/if}
@@ -855,7 +857,7 @@
                                     on:drop={e => handleDrop(e, index)}
                                     role="button"
                                     tabindex="0"
-                                    title={t('platform.dragToReorder') || '拖动以排序'}
+                                    title={i18n('platform.dragToReorder') || '拖动以排序'}
                                 >
                                     <div class="platform-item__drag-handle">
                                         <svg class="b3-button__icon">
@@ -866,8 +868,8 @@
                                         <span class="platform-item__name">{platform.name}</span>
                                         <span class="platform-item__type">
                                             {platform.type === 'built-in'
-                                                ? t('platform.type.builtin')
-                                                : t('platform.type.custom')}
+                                                ? i18n('platform.type.builtin')
+                                                : i18n('platform.type.custom')}
                                         </span>
                                     </div>
                                     <button
@@ -926,12 +928,12 @@
                         {/if}
                     {:else}
                         <div class="no-selection">
-                            {t('platform.selectHint') || '请选择一个平台以查看或编辑其配置'}
+                            {i18n('platform.selectHint') || '请选择一个平台以查看或编辑其配置'}
                         </div>
                     {/if}
                 </main>
             </div>
-        {:else if focusGroup === (t('settings.settingsGroup.sessionManagement') || '会话管理')}
+        {:else if focusGroup === (i18n('settings.settingsGroup.sessionManagement') || '会话管理')}
             <div class="session-management-panel">
                 <SettingPanel
                     group={currentGroup?.name || ''}
@@ -945,10 +947,10 @@
                         <div class="config__item">
                             <div class="config__item-label">
                                 <div class="config__item-title">
-                                    {t('settings.autoRenameSession.modelTitle') || '重命名模型'}
+                                    {i18n('settings.autoRenameSession.modelTitle') || '重命名模型'}
                                 </div>
                                 <div class="config__item-description">
-                                    {t('settings.autoRenameSession.modelDescription') ||
+                                    {i18n('settings.autoRenameSession.modelDescription') ||
                                         '选择用于生成会话标题的AI模型'}
                                 </div>
                             </div>
@@ -965,7 +967,7 @@
                                     }}
                                 >
                                     <option value="">
-                                        {t('settings.autoRenameSession.selectProvider') ||
+                                        {i18n('settings.autoRenameSession.selectProvider') ||
                                             '-- 选择平台 --'}
                                     </option>
                                     {#each allProviderOptions as provider}
@@ -982,7 +984,7 @@
                                         on:change={saveSettings}
                                     >
                                         <option value="">
-                                            {t('settings.autoRenameSession.selectModel') ||
+                                            {i18n('settings.autoRenameSession.selectModel') ||
                                                 '-- 选择模型 --'}
                                         </option>
                                         {#if builtInProviderNames[settings.autoRenameProvider]}
@@ -1007,10 +1009,11 @@
                         <div class="config__item" style="margin-top: 16px;">
                             <div class="config__item-label">
                                 <div class="config__item-title">
-                                    {t('settings.autoRenameSession.promptTitle') || '自定义提示词'}
+                                    {i18n('settings.autoRenameSession.promptTitle') ||
+                                        '自定义提示词'}
                                 </div>
                                 <div class="config__item-description">
-                                    {t('settings.autoRenameSession.promptDescription') ||
+                                    {i18n('settings.autoRenameSession.promptDescription') ||
                                         '自定义生成会话标题的提示词，使用 {message} 作为用户消息的占位符'}
                                 </div>
                             </div>
@@ -1020,7 +1023,7 @@
                                     rows="4"
                                     bind:value={settings.autoRenamePrompt}
                                     on:change={saveSettings}
-                                    placeholder={t(
+                                    placeholder={i18n(
                                         'settings.autoRenameSession.promptPlaceholder'
                                     ) ||
                                         '请根据以下用户消息生成一个简洁的会话标题（不超过20个字，不要使用引号）：\n\n{message}'}
@@ -1030,16 +1033,17 @@
                     </div>
                 {/if}
             </div>
-        {:else if focusGroup === (t('settings.settingsGroup.soul') || 'SOUL 文档')}
+        {:else if focusGroup === (i18n('settings.settingsGroup.soul') || 'SOUL 文档')}
             <!-- SOUL 文档设置特殊处理 -->
             <div class="soul-settings-panel">
                 <div class="config__item">
                     <div class="config__item-label">
                         <div class="config__item-title">
-                            {t('settings.soulDocId.title') || 'SOUL 文档 ID'}
+                            {i18n('settings.soulDocId.title') || 'SOUL 文档 ID'}
                         </div>
                         <div class="config__item-description">
-                            {t('settings.soulDocId.description') || '设置 SOUL 数据存储的文档 ID'}
+                            {i18n('settings.soulDocId.description') ||
+                                '设置 SOUL 数据存储的文档 ID'}
                         </div>
                     </div>
                     <div class="config__item-control">
@@ -1051,7 +1055,7 @@
                                 await saveSettings();
                                 await validateSoulDocId();
                             }}
-                            placeholder={t('settings.soulDocId.placeholder') ||
+                            placeholder={i18n('settings.soulDocId.placeholder') ||
                                 '输入文档块 ID，如 20260312120000-xxxxxxxx'}
                         />
                         <button
@@ -1060,8 +1064,8 @@
                             disabled={soulDocValidation.status === 'checking'}
                         >
                             {soulDocValidation.status === 'checking'
-                                ? t('settings.soulDocId.validating') || '验证中...'
-                                : t('settings.soulDocId.validate') || '验证'}
+                                ? i18n('settings.soulDocId.validating') || '验证中...'
+                                : i18n('settings.soulDocId.validate') || '验证'}
                         </button>
                     </div>
                     {#if soulDocValidation.message}

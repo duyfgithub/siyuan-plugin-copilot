@@ -1,7 +1,7 @@
 import { Dialog } from "siyuan";
 import { getFile } from "../api";
 import versionInfo from "../../plugin.json";
-import { t as i18n } from "./i18n";
+import { i18n as i18n } from "./i18n";
 
 export class ChangelogUtils {
     /**

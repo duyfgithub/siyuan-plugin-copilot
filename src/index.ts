@@ -24,7 +24,7 @@ import "@/index.scss";
 
 import SettingPanel from "./SettingsPannel.svelte";
 import { getDefaultSettings } from "./defaultSettings";
-import { setPluginInstance, t, getCurrentLanguage } from "./utils/i18n";
+import { setPluginInstance, i18n, getCurrentLanguage } from "./utils/i18n";
 import AISidebar from "./ai-sidebar.svelte";
 import ChatDialog from "./components/ChatDialog.svelte";
 import { updateSettings, getSettings } from "./stores/settings";
@@ -1874,7 +1874,7 @@ export default class PluginSample extends Plugin {
 
         // 创建对话框
         const dialog = new Dialog({
-            title: t("toolbar.aiChatDialog"),
+            title: i18n("toolbar.aiChatDialog"),
             content: `<div id="${dialogId}" style="height: 100%;"></div>`,
             width: "800px",
             height: "700px",
@@ -1920,7 +1920,7 @@ export default class PluginSample extends Plugin {
 
         menu.addItem({
             icon: "iconCopilot",
-            label: t('menu.summarizeDoc'),
+            label: i18n('menu.summarizeDoc'),
             click: () => {
                 this.summarizeDocInSidebar(docId);
             }
@@ -1935,7 +1935,7 @@ export default class PluginSample extends Plugin {
 
         menu.addItem({
             icon: "iconCopilot",
-            label: t('menu.summarizeDoc'),
+            label: i18n('menu.summarizeDoc'),
             click: () => {
                 this.summarizeDocInSidebar(docId);
             }
@@ -1952,7 +1952,7 @@ export default class PluginSample extends Plugin {
 
         menu.addItem({
             icon: "iconCopilotWebApp",
-            label: t('menu.openLinkInTab'),
+            label: i18n('menu.openLinkInTab'),
             click: () => {
                 const linkTitle = element.textContent?.trim() || href;
                 const appData = {
@@ -2019,7 +2019,7 @@ export default class PluginSample extends Plugin {
     // 重写 openSetting 方法
     async openSetting() {
         let dialog = new Dialog({
-            title: t("settings.settingsPanel"),
+            title: i18n("settings.settingsPanel"),
             content: `<div id="SettingPanel" style="height: 100%;"></div>`,
             width: "800px",
             height: "700px",
@@ -2168,7 +2168,7 @@ export default class PluginSample extends Plugin {
         // 如果是首次安装（settings.json 不存在或为空，或只有 dataTransfer 字段），不需要保存
         // 注意：dataTransfer 是迁移标志，不计入用户实际配置
         const settingsKeys = Object.keys(settings);
-        const isFirstInstall = !settings || settingsKeys.length === 0 || 
+        const isFirstInstall = !settings || settingsKeys.length === 0 ||
             (settingsKeys.length === 1 && settingsKeys[0] === 'dataTransfer');
 
         // 只有非首次安装且 webApps 为空时，才需要补充内置 webApps
@@ -2228,55 +2228,55 @@ export default class PluginSample extends Plugin {
                         session.messages.map(async (msg: any) => {
                             const newAttachments = msg.attachments
                                 ? await Promise.all(
-                                      msg.attachments.map(async (att: any) => {
-                                          // 如果有 data 且没有 path，尝试保存为资源
-                                          if (
-                                              att.data &&
-                                              att.data.startsWith('data:') &&
-                                              !att.path
-                                          ) {
-                                              try {
-                                                  const blob = base64ToBlob(
-                                                      att.data,
-                                                      att.mimeType || 'image/png'
-                                                  );
-                                                  const assetPath = await saveAsset(blob, att.name);
-                                                  return { ...att, data: '', path: assetPath };
-                                              } catch (e) {
-                                                  console.error('Failed to migrate attachment:', e);
-                                                  return att;
-                                              }
-                                          }
-                                          return att;
-                                      })
-                                  )
+                                    msg.attachments.map(async (att: any) => {
+                                        // 如果有 data 且没有 path，尝试保存为资源
+                                        if (
+                                            att.data &&
+                                            att.data.startsWith('data:') &&
+                                            !att.path
+                                        ) {
+                                            try {
+                                                const blob = base64ToBlob(
+                                                    att.data,
+                                                    att.mimeType || 'image/png'
+                                                );
+                                                const assetPath = await saveAsset(blob, att.name);
+                                                return { ...att, data: '', path: assetPath };
+                                            } catch (e) {
+                                                console.error('Failed to migrate attachment:', e);
+                                                return att;
+                                            }
+                                        }
+                                        return att;
+                                    })
+                                )
                                 : undefined;
 
                             const newGeneratedImages = msg.generatedImages
                                 ? await Promise.all(
-                                      msg.generatedImages.map(async (img: any) => {
-                                          if (img.data && img.data.length > 50 && !img.path) {
-                                              try {
-                                                  const blob = base64ToBlob(
-                                                      img.data,
-                                                      img.mimeType || 'image/png'
-                                                  );
-                                                  const assetPath = await saveAsset(
-                                                      blob,
-                                                      'generated-image.png'
-                                                  );
-                                                  return { ...img, data: '', path: assetPath };
-                                              } catch (e) {
-                                                  console.error(
-                                                      'Failed to migrate generated image:',
-                                                      e
-                                                  );
-                                                  return img;
-                                              }
-                                          }
-                                          return img;
-                                      })
-                                  )
+                                    msg.generatedImages.map(async (img: any) => {
+                                        if (img.data && img.data.length > 50 && !img.path) {
+                                            try {
+                                                const blob = base64ToBlob(
+                                                    img.data,
+                                                    img.mimeType || 'image/png'
+                                                );
+                                                const assetPath = await saveAsset(
+                                                    blob,
+                                                    'generated-image.png'
+                                                );
+                                                return { ...img, data: '', path: assetPath };
+                                            } catch (e) {
+                                                console.error(
+                                                    'Failed to migrate generated image:',
+                                                    e
+                                                );
+                                                return img;
+                                            }
+                                        }
+                                        return img;
+                                    })
+                                )
                                 : undefined;
 
                             return {

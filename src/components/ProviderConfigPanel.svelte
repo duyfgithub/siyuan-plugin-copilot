@@ -3,7 +3,7 @@
     import { fetchModels } from '../ai-chat';
     import { pushMsg, pushErrMsg } from '../api';
     import type { ProviderConfig, ModelConfig } from '../defaultSettings';
-    import { t } from '../utils/i18n';
+    import { i18n } from '../utils/i18n';
     import { getModelCapabilities } from '../utils/modelCapabilities';
 
     export let providerId: string;
@@ -146,7 +146,7 @@
     // 获取模型列表
     async function loadModels() {
         if (!config.apiKey) {
-            pushErrMsg(t('aiSidebar.errors.noApiKey'));
+            pushErrMsg(i18n('aiSidebar.errors.noApiKey'));
             return;
         }
 
@@ -171,9 +171,11 @@
             );
             showModelSearchModal = true;
             searchQuery = '';
-            pushMsg(t('models.fetchSuccess').replace('{count}', availableModels.length.toString()));
+            pushMsg(
+                i18n('models.fetchSuccess').replace('{count}', availableModels.length.toString())
+            );
         } catch (error) {
-            pushErrMsg(`${t('models.fetchFailed')}: ${error.message}`);
+            pushErrMsg(`${i18n('models.fetchFailed')}: ${error.message}`);
             console.error('Load models error:', error);
         } finally {
             isLoadingModels = false;
@@ -226,7 +228,7 @@
     // 手动添加模型
     function addManualModel() {
         if (!manualModelId.trim()) {
-            pushErrMsg(t('models.idRequired'));
+            pushErrMsg(i18n('models.idRequired'));
             return;
         }
 
@@ -382,7 +384,7 @@
                 </div>
                 {#if providerId === 'Achuan'}
                     <div class="provider-description">
-                        {t('platform.builtIn.AchuanDescription')}
+                        {i18n('platform.builtIn.AchuanDescription')}
                     </div>
                     <div style="margin-top:6px;">
                         <a
@@ -417,18 +419,18 @@
     <div class="provider-config__section">
         <div>
             <div class="b3-label__text">
-                {t('platform.apiUrl')}
+                {i18n('platform.apiUrl')}
             </div>
             <input
                 class="b3-text-field fn__flex-1"
                 type="text"
                 style="width: 100%"
                 value={config.customApiUrl || defaultApiUrl || ''}
-                on:input={(e) => {
+                on:input={e => {
                     config.customApiUrl = e.currentTarget.value;
                     dispatch('change');
                 }}
-                placeholder={t('platform.apiUrlPlaceholder')}
+                placeholder={i18n('platform.apiUrlPlaceholder')}
             />
             {#if apiPreview}
                 <div class="api-preview">
@@ -436,7 +438,7 @@
                 </div>
             {/if}
             <div class="b3-label__text label-description">
-                {t('platform.apiUrlHint')}
+                {i18n('platform.apiUrlHint')}
             </div>
         </div>
 
@@ -449,7 +451,7 @@
                         type="text"
                         bind:value={config.apiKey}
                         on:change={() => dispatch('change')}
-                        placeholder={t('settings.ai.apiKey.description')}
+                        placeholder={i18n('settings.ai.apiKey.description')}
                     />
                 {:else}
                     <input
@@ -457,7 +459,7 @@
                         type="password"
                         bind:value={config.apiKey}
                         on:change={() => dispatch('change')}
-                        placeholder={t('settings.ai.apiKey.description')}
+                        placeholder={i18n('settings.ai.apiKey.description')}
                     />
                 {/if}
                 <button
@@ -473,14 +475,14 @@
 
         {#if isCustomProvider}
             <div>
-                <div class="b3-label__text">{t('platform.websiteUrl')}</div>
+                <div class="b3-label__text">{i18n('platform.websiteUrl')}</div>
                 <div class="website-url-input-wrapper">
                     <input
                         class="b3-text-field fn__flex-1"
                         type="text"
                         bind:value={config.customWebsiteUrl}
                         on:change={() => dispatch('change')}
-                        placeholder={t('platform.websiteUrlPlaceholder')}
+                        placeholder={i18n('platform.websiteUrlPlaceholder')}
                     />
                     <button
                         class="b3-button b3-button--text website-url-open"
@@ -499,23 +501,23 @@
                     </button>
                 </div>
                 <div class="b3-label__text label-description">
-                    {t('platform.websiteUrlHint')}
+                    {i18n('platform.websiteUrlHint')}
                 </div>
             </div>
         {/if}
 
         <div>
-            <div class="b3-label__text">{t('models.management')}</div>
+            <div class="b3-label__text">{i18n('models.management')}</div>
             <div class="provider-config__model-buttons">
                 <button
                     class="b3-button b3-button--outline"
                     on:click={openModelSearchModal}
                     disabled={isLoadingModels || !config.apiKey}
                 >
-                    {isLoadingModels ? t('common.loading') : t('common.searchAndAdd')}
+                    {isLoadingModels ? i18n('common.loading') : i18n('common.searchAndAdd')}
                 </button>
                 <button class="b3-button b3-button--outline" on:click={openAddModelModal}>
-                    {t('models.manualAdd')}
+                    {i18n('models.manualAdd')}
                 </button>
             </div>
         </div>
@@ -529,36 +531,38 @@
                 <svg class="b3-button__icon" style="transition: transform 0.2s">
                     <use xlink:href={showAdvancedConfig ? '#iconDown' : '#iconRight'}></use>
                 </svg>
-                <span>{t('platform.advanced')}</span>
+                <span>{i18n('platform.advanced')}</span>
             </button>
 
             {#if showAdvancedConfig}
                 <div class="advanced-config-content">
                     <div class="b3-label__text advanced-hint">
-                        {t('platform.advancedConfig.hint')}
+                        {i18n('platform.advancedConfig.hint')}
                     </div>
 
                     <div>
-                        <div class="b3-label__text">{t('platform.advancedConfig.modelsUrl')}</div>
+                        <div class="b3-label__text">
+                            {i18n('platform.advancedConfig.modelsUrl')}
+                        </div>
                         <input
                             class="b3-text-field fn__flex-1"
                             type="text"
                             style="width: 100%"
                             bind:value={config.advancedConfig.customModelsUrl}
                             on:change={() => dispatch('change')}
-                            placeholder={t('platform.advancedConfig.modelsUrlPlaceholder')}
+                            placeholder={i18n('platform.advancedConfig.modelsUrlPlaceholder')}
                         />
                     </div>
 
                     <div>
-                        <div class="b3-label__text">{t('platform.advancedConfig.chatUrl')}</div>
+                        <div class="b3-label__text">{i18n('platform.advancedConfig.chatUrl')}</div>
                         <input
                             class="b3-text-field fn__flex-1"
                             type="text"
                             style="width: 100%"
                             bind:value={config.advancedConfig.customChatUrl}
                             on:change={() => dispatch('change')}
-                            placeholder={t('platform.advancedConfig.chatUrlPlaceholder')}
+                            placeholder={i18n('platform.advancedConfig.chatUrlPlaceholder')}
                         />
                     </div>
                 </div>
@@ -571,7 +575,7 @@
         <div class="modal-overlay" on:click={closeModelSearchModal}>
             <div class="modal-content modal-content--large" on:click|stopPropagation>
                 <div class="modal-header">
-                    <h4>{t('common.searchAndAdd')}</h4>
+                    <h4>{i18n('common.searchAndAdd')}</h4>
                     <button class="modal-close" on:click={closeModelSearchModal}>
                         <svg class="b3-button__icon" style="width: 13px;height: 13px">
                             <use xlink:href="#iconClose"></use>
@@ -586,7 +590,7 @@
                                 style="width: 100%"
                                 type="text"
                                 bind:value={searchQuery}
-                                placeholder={t('models.searchPlaceholder')}
+                                placeholder={i18n('models.searchPlaceholder')}
                             />
                         </div>
 
@@ -610,25 +614,25 @@
                                         on:click={() => toggleModel(model.id, model.name)}
                                     >
                                         {config.models.some(m => m.id === model.id)
-                                            ? t('models.remove') || '移除'
-                                            : t('models.add')}
+                                            ? i18n('models.remove') || '移除'
+                                            : i18n('models.add')}
                                     </button>
                                 </div>
                             {/each}
                             {#if filteredModels.length === 0}
-                                <div class="model-search-empty">{t('models.noMatch')}</div>
+                                <div class="model-search-empty">{i18n('models.noMatch')}</div>
                             {/if}
                         </div>
                     {:else}
                         <div class="loading-models">
                             <div class="loading-spinner"></div>
-                            <span>{t('models.fetching')}</span>
+                            <span>{i18n('models.fetching')}</span>
                         </div>
                     {/if}
                 </div>
                 <div class="modal-footer">
                     <button class="b3-button b3-button--text" on:click={closeModelSearchModal}>
-                        {t('common.close')}
+                        {i18n('common.close')}
                     </button>
                 </div>
             </div>
@@ -637,7 +641,7 @@
 
     {#if config.models.length > 0}
         <div class="provider-config__models">
-            <h5>{t('models.added')}</h5>
+            <h5>{i18n('models.added')}</h5>
             {#each config.models as model}
                 <div class="model-item">
                     <div class="model-item__header">
@@ -654,7 +658,7 @@
                     </div>
                     <div class="model-item__config">
                         <div class="model-config-item">
-                            <span>{t('models.temperature')}: {model.temperature}</span>
+                            <span>{i18n('models.temperature')}: {model.temperature}</span>
                             <input
                                 type="range"
                                 min="0"
@@ -666,7 +670,7 @@
                             />
                         </div>
                         <div class="model-config-item">
-                            <span>{t('models.maxTokens')}</span>
+                            <span>{i18n('models.maxTokens')}</span>
                             <input
                                 class="b3-text-field"
                                 type="number"
@@ -678,7 +682,7 @@
                             />
                         </div>
                         <div class="model-config-item">
-                            <span>{t('models.capabilities')}</span>
+                            <span>{i18n('models.capabilities')}</span>
                             <div class="model-capabilities">
                                 <label class="">
                                     <input
@@ -695,7 +699,9 @@
                                             );
                                         }}
                                     />
-                                    <span class="capability-label">💡 {t('models.thinking')}</span>
+                                    <span class="capability-label">
+                                        💡 {i18n('models.thinking')}
+                                    </span>
                                 </label>
                                 <label class="">
                                     <input
@@ -712,7 +718,7 @@
                                             );
                                         }}
                                     />
-                                    <span class="capability-label">👀 {t('models.vision')}</span>
+                                    <span class="capability-label">👀 {i18n('models.vision')}</span>
                                 </label>
                                 <label class="">
                                     <input
@@ -731,7 +737,7 @@
                                         }}
                                     />
                                     <span class="capability-label">
-                                        🖼️ {t('models.imageGeneration')}
+                                        🖼️ {i18n('models.imageGeneration')}
                                     </span>
                                 </label>
                                 <label class="">
@@ -751,7 +757,7 @@
                                         }}
                                     />
                                     <span class="capability-label">
-                                        🛠️ {t('models.toolCalling')}
+                                        🛠️ {i18n('models.toolCalling')}
                                     </span>
                                 </label>
                                 <label class="">
@@ -769,7 +775,9 @@
                                             );
                                         }}
                                     />
-                                    <span class="capability-label">🌐 {t('models.webSearch')}</span>
+                                    <span class="capability-label">
+                                        🌐 {i18n('models.webSearch')}
+                                    </span>
                                 </label>
                             </div>
                         </div>
@@ -788,7 +796,7 @@
                                             : '#iconRight'}
                                     ></use>
                                 </svg>
-                                <span>{t('models.customBody')}</span>
+                                <span>{i18n('models.customBody')}</span>
                             </button>
 
                             {#if showCustomBodyForModel[model.id]}
@@ -845,7 +853,7 @@
         <div class="modal-overlay" on:click={closeAddModelModal}>
             <div class="modal-content" on:click|stopPropagation>
                 <div class="modal-header">
-                    <h4>{t('models.manual')}</h4>
+                    <h4>{i18n('models.manual')}</h4>
                     <button class="modal-close" on:click={closeAddModelModal}>
                         <svg class="b3-button__icon" style="width: 13px;height: 13px">
                             <use xlink:href="#iconClose"></use>
@@ -854,36 +862,36 @@
                 </div>
                 <div class="modal-body">
                     <div>
-                        <div class="b3-label__text">{t('models.id')}</div>
+                        <div class="b3-label__text">{i18n('models.id')}</div>
                         <input
                             class="b3-text-field fn__flex-1"
                             type="text"
                             bind:value={manualModelId}
-                            placeholder={t('models.idPlaceholder')}
+                            placeholder={i18n('models.idPlaceholder')}
                             on:keydown={e => e.key === 'Enter' && addManualModel()}
                         />
                     </div>
                     <div>
-                        <div class="b3-label__text">{t('models.name')}</div>
+                        <div class="b3-label__text">{i18n('models.name')}</div>
                         <input
                             class="b3-text-field fn__flex-1"
                             type="text"
                             bind:value={manualModelName}
-                            placeholder={t('models.namePlaceholder')}
+                            placeholder={i18n('models.namePlaceholder')}
                             on:keydown={e => e.key === 'Enter' && addManualModel()}
                         />
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button class="b3-button b3-button--text" on:click={closeAddModelModal}>
-                        {t('common.cancel')}
+                        {i18n('common.cancel')}
                     </button>
                     <button
                         class="b3-button b3-button--outline"
                         on:click={addManualModel}
                         disabled={!manualModelId.trim()}
                     >
-                        {t('models.addModel')}
+                        {i18n('models.addModel')}
                     </button>
                 </div>
             </div>

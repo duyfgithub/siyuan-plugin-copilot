@@ -8,7 +8,7 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { AVAILABLE_TOOLS, TOOL_CATEGORIES, type Tool } from '../tools';
-    import { t } from '../utils/i18n';
+    import { i18n } from '../utils/i18n';
 
     export let selectedTools: ToolConfig[] = [];
     export let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置
@@ -56,7 +56,10 @@
         } else {
             // 添加工具，使用持久化的 autoApprove 配置（默认 false）
             const savedAutoApprove = toolAutoApproveMap.get(toolName) ?? false;
-            localSelectedTools = [...localSelectedTools, { name: toolName, autoApprove: savedAutoApprove }];
+            localSelectedTools = [
+                ...localSelectedTools,
+                { name: toolName, autoApprove: savedAutoApprove },
+            ];
         }
         // 通知父组件更新
         selectedTools = [...localSelectedTools];
@@ -68,10 +71,10 @@
         const index = localSelectedTools.findIndex(t => t.name === toolName);
         const currentValue = toolAutoApproveMap.get(toolName) ?? false;
         const newValue = !currentValue;
-        
+
         // 更新本地 Map
         toolAutoApproveMap.set(toolName, newValue);
-        
+
         // 将 Map 转换为对象，通知父组件更新
         const newSettings: Record<string, boolean> = {};
         toolAutoApproveMap.forEach((value, key) => {
@@ -79,7 +82,7 @@
         });
         toolAutoApproveSettings = newSettings;
         dispatch('autoApproveChange', { toolName, value: newValue, settings: newSettings });
-        
+
         if (index >= 0) {
             // 工具已选中,更新其自动批准状态
             localSelectedTools = localSelectedTools.map((tool, i) =>
@@ -93,23 +96,19 @@
     }
 
     // 用户可选择的工具列表（基于当前分类配置，排除系统工具 get_siyuan_skills）
-    $: userSelectableTools = Object.values(categorizedTools).flat().filter(
-        tool => tool.function.name !== 'get_siyuan_skills'
-    );
+    $: userSelectableTools = Object.values(categorizedTools)
+        .flat()
+        .filter(tool => tool.function.name !== 'get_siyuan_skills');
 
     // 用户选中的工具数量（排除系统工具）
-    $: userSelectedCount = localSelectedTools.filter(
-        t => t.name !== 'get_siyuan_skills'
-    ).length;
+    $: userSelectedCount = localSelectedTools.filter(t => t.name !== 'get_siyuan_skills').length;
 
     // 全选/取消全选
     function toggleAll() {
         if (userSelectedCount === userSelectableTools.length) {
             // 取消全选（保留系统工具，如果存在）
             // 注意：不清除 toolAutoApproveMap，保留自动批准配置
-            localSelectedTools = localSelectedTools.filter(
-                t => t.name === 'get_siyuan_skills'
-            );
+            localSelectedTools = localSelectedTools.filter(t => t.name === 'get_siyuan_skills');
         } else {
             // 全选用户可选工具（保留系统工具，如果存在）
             const systemTool = localSelectedTools.find(t => t.name === 'get_siyuan_skills');
@@ -144,7 +143,7 @@
     // 获取工具的友好名称
     function getToolDisplayName(toolName: string): string {
         const key = `tools.${toolName}.name`;
-        const name = t(key);
+        const name = i18n(key);
         return name === key ? toolName : name;
     }
 
@@ -182,13 +181,11 @@
     // 切换类别的全选/取消全选
     function toggleCategory(tools: Tool[]) {
         const allSelected = isCategoryFullySelected(tools);
-        
+
         if (allSelected) {
             // 取消全选该类别：从 localSelectedTools 中移除该类别的所有工具
             const toolNamesToRemove = new Set(tools.map(t => t.function.name));
-            localSelectedTools = localSelectedTools.filter(
-                t => !toolNamesToRemove.has(t.name)
-            );
+            localSelectedTools = localSelectedTools.filter(t => !toolNamesToRemove.has(t.name));
         } else {
             // 全选该类别：添加该类别的所有未选中工具
             const toolNamesInCategory = new Set(tools.map(t => t.function.name));
@@ -203,7 +200,7 @@
             }));
             localSelectedTools = [...toolsOutsideCategory, ...newCategorySelections];
         }
-        
+
         // 同步到导出 prop
         selectedTools = [...localSelectedTools];
         // 通知父组件更新
@@ -214,15 +211,15 @@
 <div class="tool-selector__overlay" on:click={close}></div>
 <div class="tool-selector">
     <div class="tool-selector__header">
-        <h3>{t('tools.selector.title')}</h3>
+        <h3>{i18n('tools.selector.title')}</h3>
         <div class="tool-selector__actions">
             <button class="b3-button b3-button--text" on:click={toggleAll}>
                 {userSelectedCount === userSelectableTools.length
-                    ? t('tools.selector.deselectAll')
-                    : t('tools.selector.selectAll')}
+                    ? i18n('tools.selector.deselectAll')
+                    : i18n('tools.selector.selectAll')}
             </button>
             <button class="b3-button b3-button--cancel" on:click={close}>
-                {t('common.close')}
+                {i18n('common.close')}
             </button>
         </div>
     </div>
@@ -230,21 +227,23 @@
     <div class="tool-selector__content">
         <div class="tool-selector__info">
             <svg class="svg"><use xlink:href="#iconInfo"></use></svg>
-            <span>{t('tools.selector.info')}</span>
+            <span>{i18n('tools.selector.info')}</span>
         </div>
 
         {#each Object.entries(categorizedTools) as [category, tools] (category)}
             <div class="tool-category">
                 <div class="tool-category__header">
-                    <h4 class="tool-category__title">{t(`tools.category.${category}`)}</h4>
+                    <h4 class="tool-category__title">{i18n(`tools.category.${category}`)}</h4>
                     <button
                         class="b3-button b3-button--text tool-category__select-btn"
-                        class:tool-category__select-btn--partial={isCategoryPartiallySelected(tools)}
+                        class:tool-category__select-btn--partial={isCategoryPartiallySelected(
+                            tools
+                        )}
                         on:click={() => toggleCategory(tools)}
                     >
                         {isCategoryFullySelected(tools)
-                            ? t('tools.selector.deselectAll')
-                            : t('tools.selector.selectAll')}
+                            ? i18n('tools.selector.deselectAll')
+                            : i18n('tools.selector.selectAll')}
                     </button>
                 </div>
                 <div class="tool-list">
@@ -270,7 +269,7 @@
                                 <div class="tool-item__header-right">
                                     <label
                                         class="tool-item__auto-approve"
-                                        title={t('tools.autoApprove.tooltip')}
+                                        title={i18n('tools.autoApprove.tooltip')}
                                     >
                                         <input
                                             type="checkbox"
@@ -279,15 +278,15 @@
                                             on:change={() => toggleToolAutoApprove(toolName)}
                                         />
                                         <span class="tool-item__auto-approve-text">
-                                            {t('tools.autoApprove.label')}
+                                            {i18n('tools.autoApprove.label')}
                                         </span>
                                     </label>
                                     <button
                                         class="tool-item__expand b3-button b3-button--text"
                                         on:click={() => toggleExpand(toolName)}
                                         title={isExpanded
-                                            ? t('common.collapse')
-                                            : t('common.expand')}
+                                            ? i18n('common.collapse')
+                                            : i18n('common.expand')}
                                     >
                                         <svg
                                             class="svg"
@@ -309,14 +308,14 @@
                                             .description}</pre>
 
                                     <div class="tool-item__parameters">
-                                        <strong>{t('tools.selector.parameters')}:</strong>
+                                        <strong>{i18n('tools.selector.parameters')}:</strong>
                                         <ul>
                                             {#each Object.entries(tool.function.parameters.properties) as [paramName, param]}
                                                 <li>
                                                     <code>{paramName}</code>
                                                     {#if tool.function.parameters.required.includes(paramName)}
                                                         <span class="tool-item__required">
-                                                            ({t('common.required')})
+                                                            ({i18n('common.required')})
                                                         </span>
                                                     {/if}
                                                     : {param.description}
@@ -337,11 +336,11 @@
         <div class="tool-selector__footer-left">
             <div class="tool-selector__footer-info">
                 <svg class="svg"><use xlink:href="#iconInfo"></use></svg>
-                <span>{t('tools.autoApprove.footerInfo')}</span>
+                <span>{i18n('tools.autoApprove.footerInfo')}</span>
             </div>
         </div>
         <span class="tool-selector__count">
-            {t('tools.selector.selected')}: {userSelectedCount}/{userSelectableTools.length}
+            {i18n('tools.selector.selected')}: {userSelectedCount}/{userSelectableTools.length}
         </span>
     </div>
 </div>

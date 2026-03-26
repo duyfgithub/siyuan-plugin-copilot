@@ -3,7 +3,7 @@
     import type { ProviderConfig, CustomProviderConfig } from '../defaultSettings';
     import type { ThinkingEffort } from '../ai-chat';
     import { isGemini3Model } from '../ai-chat';
-    import { t } from '../utils/i18n';
+    import { i18n } from '../utils/i18n';
 
     export let providers: Record<string, any>;
     export let selectedModels: Array<{
@@ -27,12 +27,12 @@
     }
 
     const builtInProviderNames: Record<string, string> = {
-        Achuan: t('platform.builtIn.Achuan'),
-        gemini: t('platform.builtIn.gemini'),
-        deepseek: t('platform.builtIn.deepseek'),
-        openai: t('platform.builtIn.openai'),
-        volcano: t('platform.builtIn.volcano'),
-        moonshot: t('platform.builtIn.moonshot'),
+        Achuan: i18n('platform.builtIn.Achuan'),
+        gemini: i18n('platform.builtIn.gemini'),
+        deepseek: i18n('platform.builtIn.deepseek'),
+        openai: i18n('platform.builtIn.openai'),
+        volcano: i18n('platform.builtIn.volcano'),
+        moonshot: i18n('platform.builtIn.moonshot'),
     };
 
     let expandedProviders: Set<string> = new Set();
@@ -477,19 +477,21 @@
     // 单选模式：获取当前选中的模型名称
     function getCurrentModelName(): string {
         if (!currentProvider || !currentModelId) {
-            return t('models.selectPlaceholder');
+            return i18n('models.selectPlaceholder');
         }
         return getModelName(currentProvider, currentModelId);
     }
 
     // 完整模型名称（响应式）— 直接引用 currentProvider/currentModelId 确保 Svelte 追踪依赖
-    $: fullModelName = currentProvider && currentModelId
-        ? getModelName(currentProvider, currentModelId)
-        : t('models.selectPlaceholder');
+    $: fullModelName =
+        currentProvider && currentModelId
+            ? getModelName(currentProvider, currentModelId)
+            : i18n('models.selectPlaceholder');
 
     // 根据容器宽度自适应截断的模型名称（单选模式）
     $: displayModelName = (() => {
-        if (!fullModelName || fullModelName === t('models.selectPlaceholder')) return fullModelName;
+        if (!fullModelName || fullModelName === i18n('models.selectPlaceholder'))
+            return fullModelName;
         if (containerWidth > 0 && containerWidth < 200 && fullModelName.length > 10) {
             return fullModelName.substring(0, 10) + '...';
         }
@@ -619,7 +621,7 @@
         class="multi-model-selector__button b3-button b3-button--text"
         class:multi-model-selector__button--active={enableMultiModel}
         on:click|stopPropagation={() => (isOpen = !isOpen)}
-        title={enableMultiModel ? t('multiModel.title') : fullModelName}
+        title={enableMultiModel ? i18n('multiModel.title') : fullModelName}
     >
         <svg class="b3-button__icon">
             <use xlink:href="#iconLayout"></use>
@@ -627,9 +629,9 @@
         <span class="multi-model-selector__label">
             {#if enableMultiModel}
                 {#if selectedModels.length > 0}
-                    {t('multiModel.enabled')} ({selectedModels.length})
+                    {i18n('multiModel.enabled')} ({selectedModels.length})
                 {:else}
-                    {t('multiModel.title')}
+                    {i18n('multiModel.title')}
                 {/if}
             {:else}
                 {displayModelName}
@@ -642,8 +644,8 @@
             <div class="multi-model-selector__header">
                 <div class="multi-model-selector__title">
                     {enableMultiModel
-                        ? t('multiModel.selectModels')
-                        : t('models.selectPlaceholder')}
+                        ? i18n('multiModel.selectModels')
+                        : i18n('models.selectPlaceholder')}
                 </div>
                 <div
                     class="multi-model-selector__toggle"
@@ -661,7 +663,7 @@
                             disabled={chatMode === 'agent'}
                         />
                         <span class="multi-model-selector__toggle-label">
-                            {t('multiModel.enable')}
+                            {i18n('multiModel.enable')}
                         </span>
                     </label>
                 </div>
@@ -671,9 +673,9 @@
                 <div class="multi-model-selector__count-header">
                     <div class="multi-model-selector__count">
                         {#if selectedModels.length > 0}
-                            {t('multiModel.selected')}: {selectedModels.length} ({selectedModelNames})
+                            {i18n('multiModel.selected')}: {selectedModels.length} ({selectedModelNames})
                         {:else}
-                            {t('multiModel.selected')}: {selectedModels.length}
+                            {i18n('multiModel.selected')}: {selectedModels.length}
                         {/if}
                     </div>
                 </div>
@@ -681,7 +683,7 @@
                 {#if selectedModels.length > 0}
                     <div class="multi-model-selector__selected-header">
                         <div class="multi-model-selector__selected-title">
-                            {t('multiModel.selectedModels')}
+                            {i18n('multiModel.selectedModels')}
                         </div>
                     </div>
 
@@ -775,7 +777,7 @@
                                             class="multi-model-selector__move-btn"
                                             disabled={index === 0}
                                             on:click|stopPropagation={() => moveModelUp(index)}
-                                            title={t('multiModel.moveUp')}
+                                            title={i18n('multiModel.moveUp')}
                                         >
                                             <svg class="multi-model-selector__move-icon">
                                                 <use xlink:href="#iconUp"></use>
@@ -785,7 +787,7 @@
                                             class="multi-model-selector__move-btn"
                                             disabled={index === selectedModels.length - 1}
                                             on:click|stopPropagation={() => moveModelDown(index)}
-                                            title={t('multiModel.moveDown')}
+                                            title={i18n('multiModel.moveDown')}
                                         >
                                             <svg class="multi-model-selector__move-icon">
                                                 <use xlink:href="#iconDown"></use>
@@ -794,7 +796,7 @@
                                         <button
                                             class="multi-model-selector__remove-btn"
                                             on:click|stopPropagation={() => removeModel(index)}
-                                            title={t('multiModel.remove')}
+                                            title={i18n('multiModel.remove')}
                                         >
                                             <svg class="multi-model-selector__remove-icon">
                                                 <use xlink:href="#iconClose"></use>
@@ -821,7 +823,7 @@
                     <input
                         type="text"
                         class="b3-text-field"
-                        placeholder={t('multiModel.searchModels') || '搜索模型'}
+                        placeholder={i18n('multiModel.searchModels') || '搜索模型'}
                         bind:value={modelSearchQuery}
                         spellcheck="false"
                     />
@@ -829,7 +831,7 @@
 
                 {#if modelSearchQuery.trim() && filteredProviders.length === 0}
                     <div class="multi-model-selector__no-results">
-                        {t('multiModel.noResults') || '无匹配结果'}
+                        {i18n('multiModel.noResults') || '无匹配结果'}
                     </div>
                 {/if}
 

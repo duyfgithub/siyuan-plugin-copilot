@@ -1,4 +1,4 @@
-import { t } from "./utils/i18n";
+import { i18n } from "./utils/i18n";
 import type { ThinkingEffort } from "./ai-chat";
 
 export interface ModelConfig {
