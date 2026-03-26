@@ -1,7 +1,7 @@
 import { Dialog } from "siyuan";
 import { getFile } from "../api";
 import versionInfo from "../../plugin.json";
-import { i18n } from "../pluginInstance";
+import { t as i18n } from "./i18n";
 
 export class ChangelogUtils {
     /**
@@ -12,7 +12,7 @@ export class ChangelogUtils {
         const currentVersion = versionInfo.version;
         const storageFile = "changelogNotify.json";
 
-        
+
         let notifiedData: { lastNotifiedVersion?: string } = {};
         try {
             const data = await plugin.loadData(storageFile);
@@ -28,7 +28,7 @@ export class ChangelogUtils {
         }
 
         // 获取更新内容
-        const pluginId = plugin.name; 
+        const pluginId = plugin.name;
         const changelogPath = `/data/plugins/${pluginId}/CHANGELOG.md`;
         let changelogContent: any = "";
         try {
@@ -58,7 +58,7 @@ export class ChangelogUtils {
         const escapedVersion = version.replace(/\./g, "\\.");
         const regex = new RegExp(`## v${escapedVersion}[^\\n]*[\\s\\S]*?(?=\\n## |$)`, "i");
         const match = content.match(regex);
-        
+
         if (match && match[0]) {
             return match[0].trim();
         }
@@ -99,8 +99,7 @@ export class ChangelogUtils {
         const dialog = new Dialog({
             title: `${i18n("changelogNotification") || "版本更新提醒"}`,
             content: contentHtml,
-            width: "500px",
-            height: "500px",
+            width: "min(600px,95%)",
         });
 
         const confirmBtn = dialog.element.querySelector("#changelogConfirmBtn");
