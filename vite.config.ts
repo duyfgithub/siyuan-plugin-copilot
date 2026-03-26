@@ -32,6 +32,7 @@ export default defineConfig({
         viteStaticCopy({
             targets: [
                 { src: "./README*.md", dest: "./" },
+                { src: "./CHANGELOG.md", dest: "./" },
                 { src: "./plugin.json", dest: "./" },
                 { src: "./preview.png", dest: "./" },
                 { src: "./icon.png", dest: "./" },
@@ -86,8 +87,8 @@ export default defineConfig({
                         async buildStart() {
                             const files = await fg([
                                 './i18n/**',
-                                './mindmap-embed/**',
                                 './README*.md',
+                                './CHANGELOG.md',
                                 './plugin.json'
                             ]);
                             for (let file of files) {
@@ -119,6 +120,9 @@ export default defineConfig({
                     }
                     return assetInfo.name
                 },
+                // 禁用代码分割，将所有代码打包到单个文件中
+                manualChunks: undefined,
+                inlineDynamicImports: true,
             },
         },
     }
