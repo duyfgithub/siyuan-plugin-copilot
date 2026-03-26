@@ -87,7 +87,7 @@ export class ChangelogUtils {
                     ${htmlNotes}
                     <div style="margin-top: 16px; border-top: 1px solid var(--b3-border-color); padding-top: 8px; font-size: 13px; color: var(--b3-theme-on-surface-light);">
                         ${i18n("moreChangelog") || "更多版本更新日志请查看："}
-                        <a href="https://cdn.jsdelivr.net/gh/Achuan-2/siyuan-plugin-task-note-management@main/CHANGELOG.md" target="_blank">CHANGELOG.md</a>
+                        <a href="https://cdn.jsdelivr.net/gh/Achuan-2/siyuan-plugin-copilot@main/CHANGELOG.md" target="_blank">CHANGELOG.md</a>
                     </div>
                 </div>
             </div>

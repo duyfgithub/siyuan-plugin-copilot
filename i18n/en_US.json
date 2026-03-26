@@ -702,5 +702,9 @@
     "fullscreen": {
         "title": "Fullscreen View",
         "exit": "Exit Fullscreen"
-    }
+    },
+    "changelogNotification": "Copilot Plugin: Update Notification",
+    "noUpdateNotes": "No update notes",
+    "iKnow": "I know",
+    "moreChangelog": "For more update logs, please visit: "
 }
