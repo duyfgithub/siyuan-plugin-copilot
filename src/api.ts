@@ -551,7 +551,6 @@ export async function putFile(path: string, isDir: boolean, file: any) {
     let form = new FormData();
     form.append('path', path);
     form.append('isDir', isDir.toString());
-    form.append('modTime', Date.now().toString());
     form.append('file', file);
 
     // 使用 fetch 直接发送 FormData，避免 fetchSyncPost 可能的 JSON 处理问题
