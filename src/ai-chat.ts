@@ -1756,7 +1756,7 @@ export async function chat(
         // 强制使用 Gemini 原生图片生成接口（支持多轮）
         let customModalities = ["TEXT", "IMAGE"]; // 默认图文并茂
 
-        const imageUrl = `${baseUrlForGemini}/v1beta/models/${options.model}:generateContent`;
+        const imageUrl = `${baseUrlForGemini}/v1beta/models/${options.model}:generateContent?key=${options.apiKey}`;
         
         let contents = [];
         try {
@@ -1776,8 +1776,7 @@ export async function chat(
         };
 
         const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${options.apiKey}`
+            'Content-Type': 'application/json'
         };
 
         try {
