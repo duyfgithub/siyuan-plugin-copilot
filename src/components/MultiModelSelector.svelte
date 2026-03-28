@@ -36,6 +36,7 @@
     };
 
     let expandedProviders: Set<string> = new Set();
+    let collapsedProviders: Set<string> = new Set();
     // 移除 selectedModelSet，因为现在允许重复选择同一个模型
 
     // 模型搜索筛选
@@ -132,31 +133,31 @@
         }
     })();
 
-    // 展开逻辑：明确追踪所有依赖
+    // 展开逻辑：
+    // 1. 搜索时，自动展开所有命中的平台（忽略手动折叠状态）
+    // 2. 非搜索时，默认展开所有平台，但保留手动折叠状态
     $: if (isOpen) {
-        // 下拉框打开时的展开逻辑
         const query = modelSearchQuery.trim();
 
         if (query) {
-            // 有搜索内容时，展开所有匹配的提供商
-            const newExpanded = new Set<string>();
-            filteredProviders.forEach(provider => {
-                newExpanded.add(provider.id);
-            });
-            expandedProviders = newExpanded;
+            expandedProviders = new Set(filteredProviders.map(provider => provider.id));
         } else {
-            // 没有搜索内容时，始终展开所有提供商
-            expandedProviders = new Set(filteredProviders.map(p => p.id));
+            expandedProviders = new Set(
+                filteredProviders
+                    .map(provider => provider.id)
+                    .filter(providerId => !collapsedProviders.has(providerId))
+            );
         }
     }
 
     function toggleProvider(providerId: string) {
-        if (expandedProviders.has(providerId)) {
-            expandedProviders.delete(providerId);
+        const nextCollapsedProviders = new Set(collapsedProviders);
+        if (nextCollapsedProviders.has(providerId)) {
+            nextCollapsedProviders.delete(providerId);
         } else {
-            expandedProviders.add(providerId);
+            nextCollapsedProviders.add(providerId);
         }
-        expandedProviders = expandedProviders;
+        collapsedProviders = nextCollapsedProviders;
     }
 
     function addModel(provider: string, modelId: string) {
@@ -842,7 +843,12 @@
                             role="button"
                             tabindex="0"
                             on:click={() => toggleProvider(provider.id)}
-                            on:keydown={() => {}}
+                            on:keydown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleProvider(provider.id);
+                                }
+                            }}
                         >
                             <svg
                                 class="multi-model-selector__expand-icon"
