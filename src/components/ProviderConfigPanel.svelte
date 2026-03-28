@@ -1096,7 +1096,6 @@
         flex-wrap: wrap;
 
         button {
-            flex: 1;
             min-width: 0;
         }
     }
