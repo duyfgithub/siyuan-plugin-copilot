@@ -2055,7 +2055,8 @@ export default class PluginSample extends Plugin {
                     name: legacy.name || 'V3 API',
                     apiKey: legacy.apiKey || settings.aiApiKey || '',
                     customApiUrl: legacy.customApiUrl || 'https://api.gpt.ge',
-                    models: legacy.models || []
+                    models: legacy.models || [],
+                    enabled: true,
                 };
 
                 settings.aiProviders.customProviders.push(newPlatform);

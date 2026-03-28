@@ -65,7 +65,7 @@
         // 添加内置平台
         Object.keys(builtInProviderNames).forEach(id => {
             const config = providers[id];
-            if (config && config.models && config.models.length > 0) {
+            if (config && config.enabled !== false && config.models && config.models.length > 0) {
                 list.push({
                     id,
                     name: builtInProviderNames[id],
@@ -77,7 +77,11 @@
         // 添加自定义平台
         if (providers.customProviders && Array.isArray(providers.customProviders)) {
             providers.customProviders.forEach((customProvider: CustomProviderConfig) => {
-                if (customProvider.models && customProvider.models.length > 0) {
+                if (
+                    customProvider.enabled !== false &&
+                    customProvider.models &&
+                    customProvider.models.length > 0
+                ) {
                     list.push({
                         id: customProvider.id,
                         name: customProvider.name,

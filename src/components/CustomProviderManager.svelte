@@ -26,6 +26,7 @@
             apiKey: '',
             customApiUrl: '',
             models: [],
+            enabled: true,
         };
 
         customProviders = [...customProviders, newProvider];

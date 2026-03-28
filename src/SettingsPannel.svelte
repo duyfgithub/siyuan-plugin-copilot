@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onDestroy, onMount } from 'svelte';
     import SettingPanel from '@/libs/components/setting-panel.svelte';
     import { i18n } from './utils/i18n';
     import { getDefaultSettings } from './defaultSettings';
@@ -63,11 +63,49 @@
     // 新增自定义平台相关状态
     let showAddPlatform = false;
     let newPlatformName = '';
+    let platformSearchQuery = '';
 
     // 拖拽排序相关状态
     let dragOverIndex: number | null = null;
     let dragSourceIndex: number | null = null;
     let dragSourceId: string | null = null;
+
+    // 平台右键菜单状态
+    let contextMenuPlatformId: string | null = null;
+    let contextMenuPosition = { x: 0, y: 0 };
+
+    function closePlatformContextMenu() {
+        contextMenuPlatformId = null;
+    }
+
+    function openPlatformContextMenu(event: MouseEvent, platformId: string) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const menuWidth = 140;
+        const menuHeight = 44;
+        const gap = 8;
+
+        let x = event.clientX;
+        let y = event.clientY;
+
+        if (x + menuWidth > window.innerWidth - gap) {
+            x = Math.max(gap, window.innerWidth - menuWidth - gap);
+        }
+        if (y + menuHeight > window.innerHeight - gap) {
+            y = Math.max(gap, window.innerHeight - menuHeight - gap);
+        }
+
+        contextMenuPosition = { x, y };
+        contextMenuPlatformId = platformId;
+    }
+
+    function deletePlatformFromContextMenu() {
+        if (!contextMenuPlatformId) return;
+        const providerId = contextMenuPlatformId;
+        closePlatformContextMenu();
+        removePlatform(providerId);
+    }
 
     // 处理拖拽开始
     function handleDragStart(e: DragEvent, index: number, providerId: string) {
@@ -93,6 +131,9 @@
 
     // 处理放置
     function handleDrop(e: DragEvent, targetIndex: number) {
+        if (platformSearchQuery.trim()) {
+            return;
+        }
         e.preventDefault();
         dragOverIndex = null;
 
@@ -165,6 +206,7 @@
             apiKey: '',
             customApiUrl: '',
             models: [],
+            enabled: true,
         };
 
         // 使用响应式更新确保 Svelte 检测到变化
@@ -187,7 +229,51 @@
         pushMsg(i18n('aiSidebar.success.addPromptSuccess') + `: ${newPlatform.name}`);
     }
 
-    // 删除平台（内置平台也可删除）
+    function updateProviderEnabled(providerId: string, enabled: boolean) {
+        if (builtInProviderNames[providerId]) {
+            const providerConfig = settings.aiProviders?.[providerId];
+            if (!providerConfig) return;
+
+            settings = {
+                ...settings,
+                aiProviders: {
+                    ...settings.aiProviders,
+                    [providerId]: {
+                        ...providerConfig,
+                        enabled,
+                    },
+                },
+            };
+            saveSettings();
+            return;
+        }
+
+        const customProviders = settings.aiProviders?.customProviders || [];
+        const providerIndex = customProviders.findIndex(p => p.id === providerId);
+        if (providerIndex === -1) return;
+
+        const updatedProviders = [...customProviders];
+        updatedProviders[providerIndex] = {
+            ...updatedProviders[providerIndex],
+            enabled,
+        };
+
+        settings = {
+            ...settings,
+            aiProviders: {
+                ...settings.aiProviders,
+                customProviders: updatedProviders,
+            },
+        };
+        saveSettings();
+    }
+
+    function handleProviderEnabledChange(providerId: string, event: Event) {
+        const target = event.currentTarget as HTMLInputElement;
+        updateProviderEnabled(providerId, target.checked);
+    }
+
+    // 删除平台（由右键菜单触发）
     function removePlatform(providerId: string) {
         const platformName =
             builtInProviderNames[providerId] ||
@@ -202,15 +288,23 @@
                 // 只有当删除的平台是当前正在使用的平台时才清空模型选择
                 const shouldClearModel = settings.currentProvider === providerId;
 
-                // 如果是内置平台，将其添加到禁用列表
+                // 内置平台：仅禁用；自定义平台：从列表中移除
                 if (builtInProviderNames[providerId]) {
-                    const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
-                    if (!disabledBuiltIn.includes(providerId)) {
+                    const providerConfig = settings.aiProviders?.[providerId];
+                    if (providerConfig) {
+                        const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
+                        const nextDisabledBuiltIn = disabledBuiltIn.includes(providerId)
+                            ? disabledBuiltIn
+                            : [...disabledBuiltIn, providerId];
                         settings = {
                             ...settings,
                             aiProviders: {
                                 ...settings.aiProviders,
-                                disabledBuiltInProviders: [...disabledBuiltIn, providerId],
+                                [providerId]: {
+                                    ...providerConfig,
+                                    enabled: false,
+                                },
+                                disabledBuiltInProviders: nextDisabledBuiltIn,
                             },
                         };
                     }
@@ -252,15 +346,14 @@
 
     // 获取所有平台选项（内置+自定义） - 使用响应式语句
     $: allProviderOptions = (() => {
-        // 获取被禁用的内置平台列表
-        const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
-
+        const deletedBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
         const builtIn = Object.keys(builtInProviderNames)
-            .filter(id => !disabledBuiltIn.includes(id)) // 过滤掉被禁用的内置平台
+            .filter(id => !deletedBuiltIn.includes(id))
             .map(id => ({
                 id,
                 name: builtInProviderNames[id],
                 type: 'built-in' as const,
+                enabled: settings.aiProviders?.[id]?.enabled !== false,
             }));
 
         const custom = (settings.aiProviders?.customProviders || []).map(
@@ -268,6 +361,7 @@
                 id: p.id,
                 name: p.name,
                 type: 'custom' as const,
+                enabled: p.enabled !== false,
             })
         );
 
@@ -292,6 +386,17 @@
         }
 
         return allProviders;
+    })();
+
+    // 平台搜索过滤（保留原始索引，便于拖拽排序）
+    $: displayedProviderOptions = (() => {
+        const query = platformSearchQuery.trim().toLowerCase();
+        const withIndex = allProviderOptions.map((platform, index) => ({ platform, index }));
+        if (!query) return withIndex;
+
+        return withIndex.filter(({ platform }) =>
+            `${platform.name} ${platform.id}`.toLowerCase().includes(query)
+        );
     })();
 
     // 获取当前选中平台的名称 - 使用响应式语句
@@ -589,6 +694,13 @@
 
     onMount(async () => {
         await runload();
+        document.addEventListener('click', closePlatformContextMenu);
+        window.addEventListener('blur', closePlatformContextMenu);
+    });
+
+    onDestroy(() => {
+        document.removeEventListener('click', closePlatformContextMenu);
+        window.removeEventListener('blur', closePlatformContextMenu);
     });
 
     async function runload() {
@@ -598,12 +710,12 @@
         // 确保 aiProviders 存在
         if (!settings.aiProviders) {
             settings.aiProviders = {
-                gemini: { apiKey: '', customApiUrl: '', models: [] },
-                deepseek: { apiKey: '', customApiUrl: '', models: [] },
-                openai: { apiKey: '', customApiUrl: '', models: [] },
-                moonshot: { apiKey: '', customApiUrl: '', models: [] },
-                volcano: { apiKey: '', customApiUrl: '', models: [] },
-                Achuan: { apiKey: '', customApiUrl: '', models: [] },
+                gemini: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                deepseek: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                openai: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                moonshot: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                volcano: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                Achuan: { apiKey: '', customApiUrl: '', models: [], enabled: true },
                 customProviders: [],
                 disabledBuiltInProviders: [],
                 providerOrder: [],
@@ -611,7 +723,6 @@
         }
 
         // 确保每个内置平台都存在（支持旧配置升级）
-        // 但被用户删除（禁用）的内置平台除外
         const builtInPlatformIds = [
             'Achuan',
             'gemini',
@@ -620,10 +731,17 @@
             'moonshot',
             'volcano',
         ];
-        const disabledBuiltIn = settings.aiProviders.disabledBuiltInProviders || [];
         for (const platformId of builtInPlatformIds) {
-            if (!settings.aiProviders[platformId] && !disabledBuiltIn.includes(platformId)) {
-                settings.aiProviders[platformId] = { apiKey: '', customApiUrl: '', models: [] };
+            if (!settings.aiProviders[platformId]) {
+                settings.aiProviders[platformId] = {
+                    apiKey: '',
+                    customApiUrl: '',
+                    models: [],
+                    enabled: true,
+                };
+            }
+            if (typeof settings.aiProviders[platformId].enabled !== 'boolean') {
+                settings.aiProviders[platformId].enabled = true;
             }
         }
 
@@ -631,10 +749,21 @@
         if (!settings.aiProviders.customProviders) {
             settings.aiProviders.customProviders = [];
         }
+        settings.aiProviders.customProviders = settings.aiProviders.customProviders.map(provider => ({
+            ...provider,
+            enabled: provider.enabled !== false,
+        }));
 
         // 确保 disabledBuiltInProviders 数组存在
         if (!settings.aiProviders.disabledBuiltInProviders) {
             settings.aiProviders.disabledBuiltInProviders = [];
+        }
+        // 兼容旧配置：disabledBuiltInProviders -> provider.enabled = false
+        const disabledBuiltIn = settings.aiProviders.disabledBuiltInProviders || [];
+        for (const platformId of disabledBuiltIn) {
+            if (settings.aiProviders[platformId]) {
+                settings.aiProviders[platformId].enabled = false;
+            }
         }
 
         // 确保 providerOrder 数组存在
@@ -825,39 +954,59 @@
                             </div>
                         {/if}
 
+                        <div class="platform-search">
+                            <svg class="platform-search__icon">
+                                <use xlink:href="#iconSearch"></use>
+                            </svg>
+                            <input
+                                class="b3-text-field fn__flex-1"
+                                type="text"
+                                bind:value={platformSearchQuery}
+                                placeholder={i18n('common.search') + '平台名称 / ID'}
+                            />
+                        </div>
+
                         <div class="platform-list">
-                            {#each allProviderOptions as platform, index (platform.id)}
+                            {#each displayedProviderOptions as item (item.platform.id)}
                                 <div
                                     class="platform-item"
                                     class:platform-item--selected={selectedProviderId ===
-                                        platform.id}
-                                    class:platform-item--dragging={dragSourceIndex === index}
-                                    class:platform-item--drag-over-top={dragOverIndex === index &&
+                                        item.platform.id}
+                                    class:platform-item--dragging={dragSourceIndex === item.index}
+                                    class:platform-item--drag-over-top={dragOverIndex ===
+                                        item.index &&
                                         dragSourceIndex !== null &&
-                                        dragSourceIndex > index}
+                                        dragSourceIndex > item.index}
                                     class:platform-item--drag-over-bottom={dragOverIndex ===
-                                        index &&
+                                        item.index &&
                                         dragSourceIndex !== null &&
-                                        dragSourceIndex < index}
-                                    draggable="true"
+                                        dragSourceIndex < item.index}
+                                    draggable={!platformSearchQuery.trim()}
                                     on:click={() => {
-                                        selectedProviderId = platform.id;
+                                        selectedProviderId = item.platform.id;
                                         handleProviderSelect();
                                     }}
                                     on:keydown={e => {
                                         if (e.key === 'Enter' || e.key === ' ') {
-                                            selectedProviderId = platform.id;
+                                            selectedProviderId = item.platform.id;
                                             handleProviderSelect();
                                         }
                                     }}
-                                    on:dragstart={e => handleDragStart(e, index, platform.id)}
-                                    on:dragenter={() => handleDragEnter(index)}
+                                    on:dragstart={e =>
+                                        !platformSearchQuery.trim() &&
+                                        handleDragStart(e, item.index, item.platform.id)}
+                                    on:dragenter={() =>
+                                        !platformSearchQuery.trim() && handleDragEnter(item.index)}
                                     on:dragend={handleDragEnd}
-                                    on:dragover={handleDragOver}
-                                    on:drop={e => handleDrop(e, index)}
+                                    on:dragover={e =>
+                                        !platformSearchQuery.trim() && handleDragOver(e)}
+                                    on:drop={e =>
+                                        !platformSearchQuery.trim() && handleDrop(e, item.index)}
+                                    on:contextmenu={e =>
+                                        openPlatformContextMenu(e, item.platform.id)}
                                     role="button"
                                     tabindex="0"
-                                    title={i18n('platform.dragToReorder') || '拖动以排序'}
+                                    title={`${platformSearchQuery.trim() ? '搜索中暂不支持拖拽排序' : i18n('platform.dragToReorder') || '拖动以排序'} · ${i18n('common.delete') || '删除'}：右键`}
                                 >
                                     <div class="platform-item__drag-handle">
                                         <svg class="b3-button__icon">
@@ -865,30 +1014,56 @@
                                         </svg>
                                     </div>
                                     <div class="platform-item__info">
-                                        <span class="platform-item__name">{platform.name}</span>
+                                        <span class="platform-item__name">{item.platform.name}</span>
                                         <span class="platform-item__type">
-                                            {platform.type === 'built-in'
+                                            {item.platform.type === 'built-in'
                                                 ? i18n('platform.type.builtin')
                                                 : i18n('platform.type.custom')}
                                         </span>
                                     </div>
-                                    <button
-                                        class="b3-button b3-button--text b3-button--error"
-                                        on:click|stopPropagation={() => removePlatform(platform.id)}
-                                        title="删除平台"
+                                    <label
+                                        class="platform-item__switch"
+                                        title={item.platform.enabled
+                                            ? '平台已启用，关闭后不会在模型选择里显示'
+                                            : '平台已停用，开启后会在模型选择里显示'}
                                     >
-                                        <svg class="b3-button__icon">
-                                            <use xlink:href="#iconTrashcan"></use>
-                                        </svg>
-                                    </button>
+                                        <input
+                                            class="b3-switch"
+                                            type="checkbox"
+                                            checked={item.platform.enabled}
+                                            on:click|stopPropagation
+                                            on:change={e =>
+                                                handleProviderEnabledChange(item.platform.id, e)}
+                                        />
+                                    </label>
                                 </div>
                             {/each}
+                            {#if displayedProviderOptions.length === 0 && allProviderOptions.length > 0}
+                                <div class="empty-hint">无匹配平台</div>
+                            {/if}
                             {#if allProviderOptions.length === 0}
                                 <div class="empty-hint">暂无可用平台</div>
                             {/if}
                         </div>
                     </div>
                 </aside>
+                {#if contextMenuPlatformId}
+                    <div
+                        class="platform-context-menu"
+                        style={`left:${contextMenuPosition.x}px;top:${contextMenuPosition.y}px;`}
+                        on:click|stopPropagation
+                    >
+                        <button
+                            class="platform-context-menu__item platform-context-menu__item--danger"
+                            on:click={deletePlatformFromContextMenu}
+                        >
+                            <svg class="b3-button__icon">
+                                <use xlink:href="#iconTrashcan"></use>
+                            </svg>
+                            <span>{i18n('common.delete') || '删除'}</span>
+                        </button>
+                    </div>
+                {/if}
 
                 <main class="platform-main">
                     {#if selectedProviderId}
@@ -1189,6 +1364,27 @@
         min-height: 0;
     }
 
+    .platform-search {
+        position: relative;
+        margin-bottom: 10px;
+
+        .platform-search__icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            width: 14px;
+            height: 14px;
+            transform: translateY(-50%);
+            color: var(--b3-theme-on-surface-light);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .b3-text-field {
+            padding-left: 32px;
+        }
+    }
+
     .platform-item {
         display: flex;
         align-items: center;
@@ -1292,6 +1488,52 @@
         background: var(--b3-theme-surface);
         border-radius: 10px;
         align-self: flex-start;
+    }
+
+    .platform-item__switch {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 8px;
+        flex-shrink: 0;
+    }
+
+    .platform-context-menu {
+        position: fixed;
+        z-index: 1200;
+        min-width: 120px;
+        background: var(--b3-theme-background);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        box-shadow: var(--b3-dialog-shadow);
+        padding: 6px;
+    }
+
+    .platform-context-menu__item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        border: none;
+        background: transparent;
+        border-radius: 4px;
+        padding: 6px 8px;
+        cursor: pointer;
+        color: var(--b3-theme-on-background);
+        font-size: 13px;
+
+        &:hover {
+            background: var(--b3-theme-surface);
+        }
+
+        .b3-button__icon {
+            width: 14px;
+            height: 14px;
+        }
+    }
+
+    .platform-context-menu__item--danger {
+        color: var(--b3-theme-error);
     }
 
     .empty-hint {

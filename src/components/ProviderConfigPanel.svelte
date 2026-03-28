@@ -24,6 +24,7 @@
     let availableModels: { id: string; name: string }[] = [];
     let showModelSearchModal = false;
     let showAddModelModal = false;
+    let addedModelsSearchQuery = '';
     let manualModelId = '';
     let manualModelName = '';
     let isEditingName = false;
@@ -89,6 +90,13 @@
                 customModelsUrl: '',
                 customChatUrl: '',
             };
+        }
+    }
+
+    // 兼容旧配置：默认启用平台
+    $: {
+        if (typeof config.enabled !== 'boolean') {
+            config.enabled = true;
         }
     }
 
@@ -302,6 +310,14 @@
             );
         })
         .sort((a, b) => a.id.localeCompare(b.id));
+
+    // 已添加模型过滤
+    $: filteredAddedModels = config.models.filter(model => {
+        const query = addedModelsSearchQuery.trim().toLowerCase();
+        if (!query) return true;
+        const text = `${model.name} ${model.id}`.toLowerCase();
+        return text.includes(query);
+    });
 
     // 开始编辑名称
     function startEditName() {
@@ -649,7 +665,18 @@
     {#if config.models.length > 0}
         <div class="provider-config__models">
             <h5>{i18n('models.added')}</h5>
-            {#each config.models as model}
+            <div class="added-models-search">
+                <input
+                    class="b3-text-field fn__flex-1"
+                    type="text"
+                    bind:value={addedModelsSearchQuery}
+                    placeholder={i18n('models.searchPlaceholder') || '搜索模型...'}
+                />
+            </div>
+            {#if filteredAddedModels.length === 0}
+                <div class="model-search-empty">{i18n('models.noMatch')}</div>
+            {/if}
+            {#each filteredAddedModels as model}
                 <div class="model-item">
                     <div class="model-item__header">
                         <span class="model-item__name">{model.name}</span>
@@ -1121,6 +1148,10 @@
             font-weight: 600;
             color: var(--b3-theme-on-surface);
         }
+    }
+
+    .added-models-search {
+        margin-bottom: 10px;
     }
 
     .model-item {

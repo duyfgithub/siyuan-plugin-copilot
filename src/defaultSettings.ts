@@ -24,6 +24,7 @@ export interface ProviderConfig {
     apiKey: string;
     customApiUrl: string;
     models: ModelConfig[];
+    enabled?: boolean; // 平台是否启用
     customWebsiteUrl?: string; // 自定义官网链接
     advancedConfig?: {
         customModelsUrl?: string; // 自定义模型列表 URL
@@ -42,32 +43,38 @@ export const getDefaultSettings = () => ({
         Achuan: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         gemini: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         deepseek: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         openai: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         moonshot: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         volcano: {
             apiKey: '',
             customApiUrl: '',
-            models: []
+            models: [],
+            enabled: true,
         },
         customProviders: [] as CustomProviderConfig[],
         disabledBuiltInProviders: [] as string[],
