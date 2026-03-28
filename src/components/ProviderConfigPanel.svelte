@@ -1230,6 +1230,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 12px;
+        overflow-y: auto;
         z-index: 1000;
     }
 
@@ -1237,8 +1239,13 @@
         background: var(--b3-theme-background);
         border-radius: 8px;
         box-shadow: var(--b3-dialog-shadow);
-        min-width: 400px;
+        width: min(600px, calc(100vw - 24px));
+        min-width: 0;
         max-width: 600px;
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - 24px);
+        display: flex;
+        flex-direction: column;
         animation: modalShow 0.2s ease-out;
     }
 
@@ -1276,6 +1283,8 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
+        overflow-y: auto;
+        min-height: 0;
     }
 
     .modal-footer {
@@ -1300,13 +1309,15 @@
 
     // 模型搜索弹窗专用样式
     .modal-content--large {
-        min-width: 600px;
+        width: min(800px, calc(100vw - 24px));
+        min-width: 0;
         max-width: 800px;
-        max-height: 70vh;
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - 24px);
     }
 
     .model-search-results {
-        max-height: 400px;
+        max-height: min(420px, 48vh);
         overflow-y: auto;
         border: 1px solid var(--b3-border-color);
         border-radius: 4px;
@@ -1334,6 +1345,7 @@
         flex-direction: column;
         gap: 2px;
         flex: 1;
+        min-width: 0;
     }
 
     .model-search-item__name {
@@ -1345,6 +1357,8 @@
     .model-search-item__id {
         font-size: 12px;
         color: var(--b3-theme-on-surface-light);
+        word-break: break-all;
+        overflow-wrap: anywhere;
     }
 
     .model-search-empty {
@@ -1375,6 +1389,56 @@
     @keyframes spin {
         to {
             transform: rotate(360deg);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .modal-overlay {
+            align-items: flex-start;
+            padding-top: max(12px, env(safe-area-inset-top));
+            padding-bottom: max(12px, env(safe-area-inset-bottom));
+        }
+
+        .modal-content,
+        .modal-content--large {
+            width: calc(100vw - 24px);
+            max-width: none;
+            max-height: calc(100vh - 24px);
+            max-height: calc(100dvh - 24px);
+            border-radius: 10px;
+        }
+
+        .modal-header {
+            padding: 12px 14px;
+        }
+
+        .modal-body {
+            padding: 12px 14px;
+            gap: 12px;
+        }
+
+        .modal-footer {
+            padding: 12px 14px;
+        }
+
+        .model-search-results {
+            max-height: 52vh;
+        }
+
+        .model-search-item {
+            padding: 10px;
+            gap: 8px;
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .model-search-item__name,
+        .model-search-item__id {
+            overflow-wrap: anywhere;
+        }
+
+        .model-search-item .b3-button {
+            width: 100%;
         }
     }
 

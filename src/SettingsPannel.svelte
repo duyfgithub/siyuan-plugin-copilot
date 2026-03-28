@@ -962,7 +962,7 @@
                                 class="b3-text-field fn__flex-1"
                                 type="text"
                                 bind:value={platformSearchQuery}
-                                placeholder={i18n('common.search') + '平台名称 / ID'}
+                                placeholder={i18n('common.search') + '平台名称'}
                             />
                         </div>
 
@@ -1006,7 +1006,7 @@
                                         openPlatformContextMenu(e, item.platform.id)}
                                     role="button"
                                     tabindex="0"
-                                    title={`${platformSearchQuery.trim() ? '搜索中暂不支持拖拽排序' : i18n('platform.dragToReorder') || '拖动以排序'} · ${i18n('common.delete') || '删除'}：右键`}
+                                    title={`${platformSearchQuery.trim() ? '搜索中暂不支持拖拽排序' :  '拖动以排序'} · ${i18n('common.delete') || '删除'}：右键`}
                                 >
                                     <div class="platform-item__drag-handle">
                                         <svg class="b3-button__icon">
@@ -1275,7 +1275,7 @@
         container-name: settings-panel;
     }
     .config__panel > .b3-tab-bar {
-        width: min(30%, 170px);
+        width: min(25%, 170px);
         flex-shrink: 0;
     }
 
@@ -1655,8 +1655,7 @@
 
     @container settings-panel (max-width: 768px) {
         .config__panel > .b3-tab-bar {
-            width: min(40%, 170px);
-            min-width: 112px;
+            width: min(25%, 170px);
             overflow-y: auto;
             overflow-x: hidden;
         }
