@@ -94,11 +94,13 @@
 
     // 生成 API 地址预览
     // 规则说明：
-    // 1. 以 '/' 结尾：去掉 /v1 前缀，保留后续路径
+    // 1. 已以 /completions（或 /completions/）结尾：视为完整端点，不再拼接
+    //    例如：https://api.openai.com/v1/chat/completions -> https://api.openai.com/v1/chat/completions
+    // 2. 以 '/' 结尾：去掉 /v1 前缀，保留后续路径
     //    例如：https://text.pollinations.ai/openai/ -> https://text.pollinations.ai/openai/chat/completions
-    // 2. 以 '#' 结尾：强制使用输入地址，完全不拼接端点路径
+    // 3. 以 '#' 结尾：强制使用输入地址，完全不拼接端点路径
     //    例如：https://text.pollinations.ai/openai# -> https://text.pollinations.ai/openai
-    // 3. 其他情况：使用完整的默认端点
+    // 4. 其他情况：使用完整的默认端点
     //    例如：https://api.openai.com -> https://api.openai.com/v1/chat/completions
     function buildApiPreview(raw: string) {
         if (!raw) return '';
@@ -126,17 +128,22 @@
             return s; // 无效URL
         }
 
-        // 规则2：以 '#' 结尾，强制使用输入地址，不拼接任何路径
+        // 规则1：已是 completions 端点，直接使用
+        if (/\/completions$/i.test(s)) {
+            return s;
+        }
+
+        // 规则3：以 '#' 结尾，强制使用输入地址，不拼接任何路径
         if (endsWithHash) {
             return s;
         }
 
-        // 规则1：以 '/' 结尾，去掉 /v1 前缀
+        // 规则2：以 '/' 结尾，去掉 /v1 前缀
         if (endsWithSlash) {
             return s + '/chat/completions';
         }
 
-        // 规则3：默认情况，拼接完整路径
+        // 规则4：默认情况，拼接完整路径
         return s + '/v1/chat/completions';
     }
 

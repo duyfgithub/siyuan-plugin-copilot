@@ -356,11 +356,15 @@ export function getProviderConfig(provider: AIProvider): ProviderConfig {
  * @returns {baseUrl: string, endpoint: string}
  * 
  * 规则说明：
- * 1. 以 '/' 结尾：去掉 /v1 前缀，保留后续路径
+ * 1. 已以 /chat/completions（或 /completions）结尾：视为完整对话端点
+ *    - 请求对话：直接使用该地址
+ *    - 请求模型：自动回退到同层 /models
+ *    例如：https://api.siliconflow.cn/v1/chat/completions/ + /v1/models -> https://api.siliconflow.cn/v1/models
+ * 2. 以 '/' 结尾：去掉 /v1 前缀，保留后续路径
  *    例如：https://text.pollinations.ai/openai/ + /v1/models -> https://text.pollinations.ai/openai/models
- * 2. 以 '#' 结尾：强制使用输入地址，完全不拼接端点路径
+ * 3. 以 '#' 结尾：强制使用输入地址，完全不拼接端点路径
  *    例如：https://text.pollinations.ai/openai# + /v1/models -> https://text.pollinations.ai/openai
- * 3. 其他情况：使用完整的默认端点
+ * 4. 其他情况：使用完整的默认端点
  *    例如：https://api.openai.com + /v1/models -> https://api.openai.com/v1/models
  */
 function getBaseUrlAndEndpoint(
@@ -368,14 +372,30 @@ function getBaseUrlAndEndpoint(
     defaultEndpoint: string
 ): { baseUrl: string; endpoint: string } {
     const trimmedUrl = (customApiUrl || '').trim();
+    const normalizedUrl = trimmedUrl.replace(/\/+$/, '');
 
-    // 规则2：以 '#' 结尾，强制使用输入地址，不拼接任何端点
+    // 规则3：以 '#' 结尾，强制使用输入地址，不拼接任何端点
     if (trimmedUrl.endsWith('#')) {
         const baseUrl = trimmedUrl.slice(0, -1); // 移除 '#'
         return { baseUrl, endpoint: '' }; // endpoint 为空，直接使用 baseUrl
     }
 
-    // 规则1：以 '/' 结尾，去掉 /v1 前缀，保留后续路径
+    // 规则1：已是 completions 端点，聊天直接用原地址，模型自动回退到同层 /models
+    const completionMatch = normalizedUrl.match(/^(.*?)(\/chat\/completions|\/completions)$/i);
+    if (completionMatch) {
+        const base = completionMatch[1];
+        const lowerDefaultEndpoint = defaultEndpoint.toLowerCase();
+
+        if (lowerDefaultEndpoint.includes('/models')) {
+            return { baseUrl: `${base}/models`, endpoint: '' };
+        }
+
+        if (lowerDefaultEndpoint.includes('/completions')) {
+            return { baseUrl: normalizedUrl, endpoint: '' };
+        }
+    }
+
+    // 规则2：以 '/' 结尾，去掉 /v1 前缀，保留后续路径
     if (trimmedUrl.endsWith('/')) {
         const baseUrl = trimmedUrl.slice(0, -1); // 移除 '/'
         const endpoint = defaultEndpoint.startsWith('/v1')
@@ -384,7 +404,7 @@ function getBaseUrlAndEndpoint(
         return { baseUrl, endpoint };
     }
 
-    // 规则3：默认情况，使用完整的默认端点
+    // 规则4：默认情况，使用完整的默认端点
     return { baseUrl: trimmedUrl.replace(/\/$/, ''), endpoint: defaultEndpoint };
 }
 
