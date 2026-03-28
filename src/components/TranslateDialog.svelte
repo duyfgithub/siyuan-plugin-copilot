@@ -8,7 +8,7 @@
 
     export let isOpen = false;
     export let plugin: any;
-    export let providers: any[] = [];
+    export let providers: Record<string, any> = {};
     export let settings: any = {};
 
     const dispatch = createEventDispatcher();
@@ -65,14 +65,21 @@
 
     // 获取提供商和模型配置
     function getProviderAndModelConfig(provider: string, modelId: string) {
-        // providers 是一个对象，不是数组
         if (!providers || typeof providers !== 'object') {
             console.error('providers is not an object:', providers);
             return null;
         }
 
-        // 从对象中获取提供商配置
-        const providerConfig = providers[provider];
+        let providerConfig: any = null;
+
+        // 先查找内置平台
+        if (providers[provider] && !Array.isArray(providers[provider])) {
+            providerConfig = providers[provider];
+        } else if (providers.customProviders && Array.isArray(providers.customProviders)) {
+            // 再查找自定义平台（id 形如 custom_xxx）
+            providerConfig = providers.customProviders.find((p: any) => p.id === provider);
+        }
+
         if (!providerConfig) {
             console.error(
                 'Provider not found:',
@@ -83,7 +90,6 @@
             return null;
         }
 
-        // 确保 models 是数组
         if (!Array.isArray(providerConfig.models)) {
             console.error('providerConfig.models is not an array:', providerConfig.models);
             return null;
@@ -335,7 +341,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                 stream: true,
                 signal: translateAbortController.signal,
                 enableThinking: false,
-                customApiUrl: providerConfig.customApiUrl,
                 onChunk: (chunk: string) => {
                     translateOutputText += chunk;
                 },
@@ -378,7 +383,10 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
                             `翻译失败: ${error.message || '未知错误'}`
                     );
                 },
-            });
+            },
+            providerConfig.customApiUrl,
+            providerConfig.advancedConfig
+            );
         } catch (error: any) {
             console.error('翻译失败:', error);
             if (error.name !== 'AbortError') {
