@@ -157,6 +157,12 @@
     let editingPrompt: Prompt | null = null;
     let newPromptTitle = '';
     let newPromptContent = '';
+    let draggingPromptId: string | null = null;
+    let promptDropTargetId: string | null = null;
+    let promptDropAtEnd = false;
+    let suppressPromptClickOnce = false;
+    const PROMPTS_SYNC_EVENT = 'copilot-prompts-updated';
+    const promptSyncSourceId = `prompt-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     // 会话管理
     let sessions: ChatSession[] = [];
@@ -1384,6 +1390,8 @@
         document.addEventListener('copy', handleCopyEvent);
         // 监听文档总结事件
         window.addEventListener('copilot-summarize-doc', handleSummarizeDoc as EventListener);
+        // 监听提示词更新事件（多实例同步）
+        window.addEventListener(PROMPTS_SYNC_EVENT, handlePromptsUpdated as EventListener);
 
         isInitialLoading = false;
     });
@@ -1402,6 +1410,8 @@
         document.removeEventListener('copy', handleCopyEvent);
         // 移除文档总结事件监听器
         window.removeEventListener('copilot-summarize-doc', handleSummarizeDoc as EventListener);
+        // 移除提示词更新事件监听器
+        window.removeEventListener(PROMPTS_SYNC_EVENT, handlePromptsUpdated as EventListener);
 
         // 保存工具配置
         if (isToolConfigLoaded) {
@@ -8260,10 +8270,132 @@
     async function savePrompts() {
         try {
             await plugin.saveData('prompts.json', { prompts });
+            window.dispatchEvent(
+                new CustomEvent(PROMPTS_SYNC_EVENT, {
+                    detail: { sourceId: promptSyncSourceId, updatedAt: Date.now() },
+                })
+            );
         } catch (error) {
             console.error('Save prompts error:', error);
             pushErrMsg(i18n('aiSidebar.errors.savePromptFailed'));
         }
+    }
+
+    async function togglePromptSelector() {
+        const shouldOpen = !isPromptSelectorOpen;
+        if (shouldOpen) {
+            await loadPrompts();
+        }
+        isPromptSelectorOpen = shouldOpen;
+    }
+
+    async function handlePromptsUpdated(event: Event) {
+        const detail = (event as CustomEvent<{ sourceId?: string }>).detail;
+        if (detail?.sourceId === promptSyncSourceId) {
+            return;
+        }
+        await loadPrompts();
+    }
+
+    function handlePromptDragStart(event: DragEvent, promptId: string) {
+        draggingPromptId = promptId;
+        promptDropTargetId = null;
+        promptDropAtEnd = false;
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', promptId);
+        }
+    }
+
+    function handlePromptItemDragOver(event: DragEvent, promptId: string) {
+        if (!draggingPromptId || draggingPromptId === promptId) {
+            return;
+        }
+        event.preventDefault();
+        promptDropTargetId = promptId;
+        promptDropAtEnd = false;
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+    }
+
+    function handlePromptListDragOver(event: DragEvent) {
+        if (!draggingPromptId) {
+            return;
+        }
+        event.preventDefault();
+        promptDropTargetId = null;
+        promptDropAtEnd = true;
+        if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = 'move';
+        }
+    }
+
+    async function reorderPromptBeforeTarget(targetPromptId: string) {
+        if (!draggingPromptId || draggingPromptId === targetPromptId) {
+            return;
+        }
+        const sourceIndex = prompts.findIndex(p => p.id === draggingPromptId);
+        const targetIndex = prompts.findIndex(p => p.id === targetPromptId);
+        if (sourceIndex < 0 || targetIndex < 0) {
+            return;
+        }
+
+        const reordered = [...prompts];
+        const [movedPrompt] = reordered.splice(sourceIndex, 1);
+        if (!movedPrompt) {
+            return;
+        }
+        const insertIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        reordered.splice(insertIndex, 0, movedPrompt);
+
+        prompts = reordered;
+        suppressPromptClickOnce = true;
+        await savePrompts();
+    }
+
+    async function movePromptToEnd() {
+        if (!draggingPromptId) {
+            return;
+        }
+        const sourceIndex = prompts.findIndex(p => p.id === draggingPromptId);
+        if (sourceIndex < 0 || sourceIndex === prompts.length - 1) {
+            return;
+        }
+
+        const reordered = [...prompts];
+        const [movedPrompt] = reordered.splice(sourceIndex, 1);
+        if (!movedPrompt) {
+            return;
+        }
+        reordered.push(movedPrompt);
+
+        prompts = reordered;
+        suppressPromptClickOnce = true;
+        await savePrompts();
+    }
+
+    async function handlePromptItemDrop(event: DragEvent, targetPromptId: string) {
+        event.preventDefault();
+        await reorderPromptBeforeTarget(targetPromptId);
+        promptDropTargetId = null;
+        promptDropAtEnd = false;
+    }
+
+    async function handlePromptListDrop(event: DragEvent) {
+        event.preventDefault();
+        await movePromptToEnd();
+        promptDropTargetId = null;
+        promptDropAtEnd = false;
+    }
+
+    function handlePromptDragEnd() {
+        draggingPromptId = null;
+        promptDropTargetId = null;
+        promptDropAtEnd = false;
+        setTimeout(() => {
+            suppressPromptClickOnce = false;
+        }, 0);
     }
 
     function openPromptManager() {
@@ -8307,7 +8439,7 @@
                 content: newPromptContent.trim(),
                 createdAt: now,
             };
-            prompts = [newPrompt, ...prompts];
+            prompts = [...prompts, newPrompt];
         }
 
         await savePrompts();
@@ -8463,11 +8595,19 @@
     }
 
     function usePrompt(prompt: Prompt) {
-        currentInput = prompt.content;
+        if (suppressPromptClickOnce) {
+            suppressPromptClickOnce = false;
+            return;
+        }
+        currentInput = prompt.content +'\n'+ currentInput;
         isPromptSelectorOpen = false;
         tick().then(() => {
             autoResizeTextarea();
-            textareaElement?.focus();
+            if (textareaElement) {
+                textareaElement.focus();
+                const cursorPos = prompt.content.length;
+                textareaElement.setSelectionRange(cursorPos, cursorPos);
+            }
         });
     }
 
@@ -13271,7 +13411,7 @@
             <div class="ai-sidebar__prompt-actions">
                 <button
                     class="b3-button b3-button--text"
-                    on:click={() => (isPromptSelectorOpen = !isPromptSelectorOpen)}
+                    on:click={togglePromptSelector}
                     title={i18n('aiSidebar.prompt.title')}
                 >
                     <svg class="b3-button__icon"><use xlink:href="#iconQuote"></use></svg>
@@ -13291,7 +13431,12 @@
         <!-- 提示词选择器下拉菜单 -->
         {#if isPromptSelectorOpen}
             <div class="ai-sidebar__prompt-selector">
-                <div class="ai-sidebar__prompt-list">
+                <div
+                    class="ai-sidebar__prompt-list"
+                    class:ai-sidebar__prompt-list--drag-over-end={promptDropAtEnd}
+                    on:dragover|preventDefault={handlePromptListDragOver}
+                    on:drop|preventDefault={handlePromptListDrop}
+                >
                     <!-- 新建提示词按钮 -->
                     <button
                         class="ai-sidebar__prompt-item ai-sidebar__prompt-item--new"
@@ -13310,7 +13455,16 @@
                         {#each prompts as prompt (prompt.id)}
                             <button
                                 class="ai-sidebar__prompt-item"
+                                class:ai-sidebar__prompt-item--dragging={draggingPromptId === prompt.id}
+                                class:ai-sidebar__prompt-item--drop-target={promptDropTargetId === prompt.id}
+                                draggable="true"
                                 on:click={() => usePrompt(prompt)}
+                                on:dragstart={(event) => handlePromptDragStart(event, prompt.id)}
+                                on:dragover|preventDefault|stopPropagation={(event) =>
+                                    handlePromptItemDragOver(event, prompt.id)}
+                                on:drop|preventDefault|stopPropagation={(event) =>
+                                    handlePromptItemDrop(event, prompt.id)}
+                                on:dragend={handlePromptDragEnd}
                                 title={prompt.content}
                             >
                                 <span class="ai-sidebar__prompt-item-title">{prompt.title}</span>
@@ -15280,6 +15434,10 @@
         padding: 4px;
     }
 
+    .ai-sidebar__prompt-list--drag-over-end {
+        border-bottom: 2px solid var(--b3-theme-primary);
+    }
+
     .ai-sidebar__prompt-item {
         width: 100%;
         display: flex;
@@ -15290,7 +15448,7 @@
         border: none;
         background: none;
         color: var(--b3-theme-on-background);
-        cursor: pointer;
+        cursor: grab;
         border-radius: 4px;
         transition: background-color 0.2s;
         font-size: 14px;
@@ -15305,9 +15463,19 @@
         }
     }
 
+    .ai-sidebar__prompt-item--dragging {
+        opacity: 0.5;
+        cursor: grabbing;
+    }
+
+    .ai-sidebar__prompt-item--drop-target {
+        box-shadow: inset 0 2px 0 var(--b3-theme-primary);
+    }
+
     .ai-sidebar__prompt-item--new {
         font-weight: 600;
         color: var(--b3-theme-primary);
+        cursor: pointer;
 
         &:hover {
             background: var(--b3-theme-primary-lighter);
