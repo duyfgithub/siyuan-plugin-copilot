@@ -507,6 +507,7 @@
         "apiUrl": "API URL",
         "apiUrlHint": "Ending with / ignores v1 version, ending with # forces the input address",
         "apiUrlPlaceholder": "Enter custom API URL",
+        "chatInterface": "Chat Interface",
         "websiteUrl": "Website URL",
         "websiteUrlPlaceholder": "Enter platform website URL",
         "websiteUrlHint": "For visiting the platform website, leave empty to use default link",
@@ -520,6 +521,8 @@
             "modelsUrlPlaceholder": "Leave empty to use default, e.g.: https://api.example.com/v1/models",
             "chatUrl": "Chat Endpoint URL",
             "chatUrlPlaceholder": "Leave empty to use default, e.g.: https://api.example.com/v1/chat/completions",
+            "chatUrlPlaceholderGemini": "Leave empty to use default, e.g.: https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+            "chatUrlPlaceholderAnthropic": "Leave empty to use default, e.g.: https://api.anthropic.com/v1/messages",
             "hint": "Advanced settings allow complete customization of API endpoints, suitable for special API proxies or non-standard implementations"
         }
     },

@@ -508,6 +508,7 @@
         "apiUrl": "API 地址",
         "apiUrlHint": "以 / 结尾忽略 v1 版本，以 # 结尾强制使用输入地址",
         "apiUrlPlaceholder": "输入自定义 API 地址",
+        "chatInterface": "聊天接口",
         "websiteUrl": "官网链接",
         "websiteUrlPlaceholder": "输入平台官网链接",
         "websiteUrlHint": "用于访问平台官网，留空使用默认链接",
@@ -521,6 +522,8 @@
             "modelsUrlPlaceholder": "留空使用默认接口，例如: https://api.example.com/v1/models",
             "chatUrl": "对话接口 URL",
             "chatUrlPlaceholder": "留空使用默认接口，例如: https://api.example.com/v1/chat/completions",
+            "chatUrlPlaceholderGemini": "留空使用默认接口，例如: https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+            "chatUrlPlaceholderAnthropic": "留空使用默认接口，例如: https://api.anthropic.com/v1/messages",
             "hint": "高级设置允许完全自定义 API 端点，适用于特殊的 API 代理或非标准实现"
         }
     },

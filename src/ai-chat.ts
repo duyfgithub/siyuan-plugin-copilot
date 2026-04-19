@@ -144,6 +144,17 @@ export interface ModelInfo {
 }
 
 export type AIProvider = 'gemini' | 'deepseek' | 'openai' | 'moonshot' | 'volcano' | 'Achuan' | 'custom';
+export type ChatInterfaceType = 'openai-completion' | 'gemini' | 'anthropic';
+
+export function getDefaultChatInterface(provider: string): ChatInterfaceType {
+    return provider === 'gemini' ? 'gemini' : 'openai-completion';
+}
+
+interface AdvancedProviderConfig {
+    customModelsUrl?: string;
+    customChatUrl?: string;
+    chatInterface?: ChatInterfaceType;
+}
 
 // 思考努力程度到比例的映射（用于计算 token 预算）
 export const EFFORT_RATIO: Record<ThinkingEffort, number> = {
@@ -408,6 +419,22 @@ function getBaseUrlAndEndpoint(
     return { baseUrl: trimmedUrl.replace(/\/$/, ''), endpoint: defaultEndpoint };
 }
 
+function getBaseUrlForChatInterface(url: string, chatInterface: ChatInterfaceType): string {
+    const normalizedUrl = (url || '').trim().replace(/\/+$/, '');
+
+    if (chatInterface === 'gemini') {
+        return normalizedUrl.replace(/\/v\d+(?:beta)?\/models\/.*$/i, '');
+    }
+
+    if (chatInterface === 'anthropic') {
+        return normalizedUrl.replace(/\/v1\/messages(?:\/.*)?$/i, '');
+    }
+
+    return normalizedUrl
+        .replace(/\/v1\/chat\/completions(?:\/.*)?$/i, '')
+        .replace(/\/chat\/completions(?:\/.*)?$/i, '');
+}
+
 interface ThinkTagParseState {
     carry: string;
     inThinkTag: boolean;
@@ -487,7 +514,7 @@ export async function fetchModels(
     provider: string,
     apiKey: string,
     customApiUrl?: string,
-    advancedConfig?: { customModelsUrl?: string; customChatUrl?: string }
+    advancedConfig?: AdvancedProviderConfig
 ): Promise<ModelInfo[]> {
     const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
@@ -1882,10 +1909,11 @@ export async function chat(
     provider: string,
     options: ChatOptions,
     customApiUrl?: string,
-    advancedConfig?: { customModelsUrl?: string; customChatUrl?: string }
+    advancedConfig?: AdvancedProviderConfig
 ): Promise<void> {
     const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
+    const chatInterface = advancedConfig?.chatInterface || getDefaultChatInterface(provider);
 
     let url: string;
     let baseUrlForGemini: string; // Gemini format needs a base url
@@ -1894,13 +1922,13 @@ export async function chat(
     // 优先使用高级自定义的对话 URL
     if (advancedConfig?.customChatUrl) {
         url = advancedConfig.customChatUrl;
-        baseUrlForGemini = advancedConfig.customChatUrl.replace(/\/v1.*$/, '');
-        baseUrlForClaude = advancedConfig.customChatUrl.replace(/\/v1.*$/, '');
+        baseUrlForGemini = getBaseUrlForChatInterface(advancedConfig.customChatUrl, 'gemini');
+        baseUrlForClaude = getBaseUrlForChatInterface(advancedConfig.customChatUrl, 'anthropic');
     } else if (customApiUrl) {
         const { baseUrl, endpoint } = getBaseUrlAndEndpoint(customApiUrl, config.chatEndpoint);
         url = `${baseUrl}${endpoint}`;
-        baseUrlForGemini = baseUrl;
-        baseUrlForClaude = baseUrl;
+        baseUrlForGemini = getBaseUrlForChatInterface(customApiUrl, 'gemini');
+        baseUrlForClaude = getBaseUrlForChatInterface(customApiUrl, 'anthropic');
     } else {
         if (!isBuiltIn && provider !== 'custom') {
             throw new Error('Custom provider requires API URL');
@@ -1911,13 +1939,13 @@ export async function chat(
     }
 
     // 检测是否是 Gemini 图片生成模型
-    const isGeminiImageModel = options.model.toLowerCase().includes('gemini') && 
+    const isGeminiImageModel = chatInterface === 'gemini' &&
+        options.model.toLowerCase().includes('gemini') &&
         (options.model.includes('image-preview') || options.model.includes('image') || options.model.includes('imagen'));
 
-    // 如果是 Claude 模型，使用原生 API
-    if (isClaudeModel(options.model)) {
+    if (chatInterface === 'anthropic') {
         await chatClaudeFormat(baseUrlForClaude, options.apiKey, options);
-    } else if (isGeminiImageModel && provider === 'gemini') {
+    } else if (isGeminiImageModel) {
         // 强制使用 Gemini 原生图片生成接口（支持多轮）
         let customModalities = ["TEXT", "IMAGE"]; // 默认图文并茂
 
@@ -1990,13 +2018,8 @@ export async function chat(
             }
             throw error;
         }
-    } else if (provider === 'gemini' || options.model.toLowerCase().includes('gemini')) {
-        // 对于所有其它名含 gemini 的模型（比如配在 Achean 下），为了保持原生特性，尽量走 gemini format
-        if (provider === 'gemini') {
-            await chatGeminiFormat(baseUrlForGemini, options.apiKey, options.model, options);
-        } else {
-            await chatOpenAIFormat(url, options.apiKey, options);
-        }
+    } else if (chatInterface === 'gemini') {
+        await chatGeminiFormat(baseUrlForGemini, options.apiKey, options.model, options);
     } else {
         await chatOpenAIFormat(url, options.apiKey, options);
     }

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import { fetchModels } from '../ai-chat';
+    import { fetchModels, getDefaultChatInterface } from '../ai-chat';
     import { pushMsg, pushErrMsg } from '../api';
     import type { ProviderConfig, ModelConfig } from '../defaultSettings';
     import { i18n } from '../utils/i18n';
@@ -33,6 +33,13 @@
     let showAdvancedConfig = false; // 控制高级设置是否显示
     let customBodyErrors: { [modelId: string]: string | null } = {}; // 跟踪每个模型的 JSON 验证错误
     let showCustomBodyForModel: { [modelId: string]: boolean } = {}; // 控制每个模型的自定义参数折叠/展开
+    let currentChatInterface = getDefaultChatInterface(providerId);
+
+    const chatInterfaceOptions = [
+        { value: 'openai-completion', label: 'OpenAI Completion' },
+        { value: 'gemini', label: 'Gemini' },
+        { value: 'anthropic', label: 'Anthropic' },
+    ];
 
     // 验证 JSON 字符串（支持嵌套 JSON）
     function validateJsonString(str: string): {
@@ -89,7 +96,10 @@
             config.advancedConfig = {
                 customModelsUrl: '',
                 customChatUrl: '',
+                chatInterface: getDefaultChatInterface(providerId),
             };
+        } else if (!config.advancedConfig.chatInterface) {
+            config.advancedConfig.chatInterface = getDefaultChatInterface(providerId);
         }
     }
 
@@ -100,17 +110,8 @@
         }
     }
 
-    // 生成 API 地址预览
-    // 规则说明：
-    // 1. 已以 /completions（或 /completions/）结尾：视为完整端点，不再拼接
-    //    例如：https://api.openai.com/v1/chat/completions -> https://api.openai.com/v1/chat/completions
-    // 2. 以 '/' 结尾：去掉 /v1 前缀，保留后续路径
-    //    例如：https://text.pollinations.ai/openai/ -> https://text.pollinations.ai/openai/chat/completions
-    // 3. 以 '#' 结尾：强制使用输入地址，完全不拼接端点路径
-    //    例如：https://text.pollinations.ai/openai# -> https://text.pollinations.ai/openai
-    // 4. 其他情况：使用完整的默认端点
-    //    例如：https://api.openai.com -> https://api.openai.com/v1/chat/completions
-    function buildApiPreview(raw: string) {
+    // 生成 API 地址预览（根据聊天接口类型展示）
+    function buildApiPreview(raw: string, chatInterface: string) {
         if (!raw) return '';
         let s = raw.trim();
 
@@ -136,6 +137,46 @@
             return s; // 无效URL
         }
 
+        if (chatInterface === 'gemini') {
+            // 规则1：已是 Gemini generateContent 端点，直接使用
+            if (/:(?:streamGenerateContent|generateContent)$/i.test(s)) {
+                return s;
+            }
+
+            // 规则3：以 '#' 结尾，强制使用输入地址，不拼接任何路径
+            if (endsWithHash) {
+                return s;
+            }
+
+            // 规则2：以 '/' 结尾，去掉 /v1beta 前缀
+            if (endsWithSlash) {
+                return s + '/models/{model}:streamGenerateContent';
+            }
+
+            // 规则4：默认情况，拼接完整路径
+            return s + '/v1beta/models/{model}:streamGenerateContent';
+        }
+
+        if (chatInterface === 'anthropic') {
+            // 规则1：已是 messages 端点，直接使用
+            if (/\/messages$/i.test(s)) {
+                return s;
+            }
+
+            // 规则3：以 '#' 结尾，强制使用输入地址，不拼接任何路径
+            if (endsWithHash) {
+                return s;
+            }
+
+            // 规则2：以 '/' 结尾，去掉 /v1 前缀
+            if (endsWithSlash) {
+                return s + '/messages';
+            }
+
+            // 规则4：默认情况，拼接完整路径
+            return s + '/v1/messages';
+        }
+
         // 规则1：已是 completions 端点，直接使用
         if (/\/completions$/i.test(s)) {
             return s;
@@ -155,8 +196,21 @@
         return s + '/v1/chat/completions';
     }
 
+    function getChatUrlPlaceholder(chatInterface: string) {
+        if (chatInterface === 'gemini') {
+            return i18n('platform.advancedConfig.chatUrlPlaceholderGemini');
+        }
+
+        if (chatInterface === 'anthropic') {
+            return i18n('platform.advancedConfig.chatUrlPlaceholderAnthropic');
+        }
+
+        return i18n('platform.advancedConfig.chatUrlPlaceholder');
+    }
+
     // 响应式预览值：优先使用用户输入的 customApiUrl，否则使用默认 API 地址做示例
-    $: apiPreview = buildApiPreview(config.customApiUrl || defaultApiUrl || '');
+    $: currentChatInterface = config.advancedConfig?.chatInterface || getDefaultChatInterface(providerId);
+    $: apiPreview = buildApiPreview(config.customApiUrl || defaultApiUrl || '', currentChatInterface);
 
     // 获取模型列表
     async function loadModels() {
@@ -466,6 +520,19 @@
         </div>
 
         <div>
+            <div class="b3-label__text">{i18n('platform.chatInterface')}</div>
+            <select
+                class="b3-select provider-config__select"
+                bind:value={config.advancedConfig.chatInterface}
+                on:change={() => dispatch('change')}
+            >
+                {#each chatInterfaceOptions as option}
+                    <option value={option.value}>{option.label}</option>
+                {/each}
+            </select>
+        </div>
+
+        <div>
             <div class="b3-label__text">API Key</div>
             <div class="api-key-input-wrapper">
                 {#if showApiKey}
@@ -585,7 +652,7 @@
                             style="width: 100%"
                             bind:value={config.advancedConfig.customChatUrl}
                             on:change={() => dispatch('change')}
-                            placeholder={i18n('platform.advancedConfig.chatUrlPlaceholder')}
+                            placeholder={getChatUrlPlaceholder(currentChatInterface)}
                         />
                     </div>
                 </div>
@@ -1030,6 +1097,10 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+    }
+
+    .provider-config__select {
+        width: 100%;
     }
 
     .api-key-input-wrapper {

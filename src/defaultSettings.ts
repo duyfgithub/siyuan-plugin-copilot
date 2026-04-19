@@ -1,5 +1,5 @@
 import { i18n } from "./utils/i18n";
-import type { ThinkingEffort } from "./ai-chat";
+import type { ThinkingEffort, ChatInterfaceType } from "./ai-chat";
 
 export interface ModelConfig {
     id: string;
@@ -29,6 +29,7 @@ export interface ProviderConfig {
     advancedConfig?: {
         customModelsUrl?: string; // 自定义模型列表 URL
         customChatUrl?: string;   // 自定义对话 URL
+        chatInterface?: ChatInterfaceType; // 聊天接口类型
     };
 }
 
