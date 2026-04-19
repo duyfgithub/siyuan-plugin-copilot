@@ -1434,6 +1434,7 @@
                     deepseek: { apiKey: '', customApiUrl: '', models: [] },
                     openai: { apiKey: '', customApiUrl: '', models: [] },
                     volcano: { apiKey: '', customApiUrl: '', models: [] },
+                    minimax: { apiKey: '', customApiUrl: '', models: [] },
                     customProviders: [],
                     disabledBuiltInProviders: [],
                     providerOrder: [],
@@ -1468,6 +1469,11 @@
         // 确保 customProviders 数组存在
         if (settings.aiProviders && !settings.aiProviders.customProviders) {
             settings.aiProviders.customProviders = [];
+        }
+
+        // 兼容新增内置平台
+        if (settings.aiProviders && !settings.aiProviders.minimax) {
+            settings.aiProviders.minimax = { apiKey: '', customApiUrl: '', models: [] };
         }
 
         // 确保 disabledBuiltInProviders 数组存在

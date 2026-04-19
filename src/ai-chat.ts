@@ -143,7 +143,7 @@ export interface ModelInfo {
     provider: string;
 }
 
-export type AIProvider = 'gemini' | 'deepseek' | 'openai' | 'moonshot' | 'volcano' | 'Achuan' | 'custom';
+export type AIProvider = 'gemini' | 'deepseek' | 'openai' | 'moonshot' | 'volcano' | 'Achuan' | 'minimax' | 'custom';
 export type ChatInterfaceType = 'openai-completion' | 'gemini' | 'anthropic';
 
 export function getDefaultChatInterface(provider: string): ChatInterfaceType {
@@ -366,6 +366,14 @@ const PROVIDER_CONFIGS: Record<AIProvider, ProviderConfig> = {
         apiKeyHeader: 'Authorization',
         websiteUrl: 'https://gpt.achuan-2.top/register?aff=ZndO'
     },
+    minimax: {
+        name: 'MiniMax',
+        baseUrl: 'https://api.minimaxi.com',
+        modelsEndpoint: '/v1/models',
+        chatEndpoint: '/v1/chat/completions',
+        apiKeyHeader: 'Authorization',
+        websiteUrl: 'https://platform.minimaxi.com/'
+    },
     custom: {
         name: 'Custom',
         baseUrl: '',
@@ -538,7 +546,7 @@ export async function fetchModels(
     customApiUrl?: string,
     advancedConfig?: AdvancedProviderConfig
 ): Promise<ModelInfo[]> {
-    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
+    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan', 'minimax'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
     const fallbackProviderName = isBuiltIn ? config.name : provider;
 
@@ -1953,7 +1961,7 @@ export async function chat(
     customApiUrl?: string,
     advancedConfig?: AdvancedProviderConfig
 ): Promise<void> {
-    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
+    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan', 'minimax'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
     const chatInterface = advancedConfig?.chatInterface || getDefaultChatInterface(provider);
 
@@ -2134,7 +2142,7 @@ export async function generateImage(
     options: ImageGenerationOptions,
     customApiUrl?: string
 ): Promise<ImageGenerationResult> {
-    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
+    const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan', 'minimax'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
 
     const isGeminiPreview = provider === 'gemini' && (options.model.includes('image-preview') || options.model.includes('image'));

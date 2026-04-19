@@ -33,6 +33,7 @@
         openai: i18n('platform.builtIn.openai'),
         volcano: i18n('platform.builtIn.volcano'),
         moonshot: i18n('platform.builtIn.moonshot'),
+        minimax: i18n('platform.builtIn.minimax'),
     };
 
     let expandedProviders: Set<string> = new Set();

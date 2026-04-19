@@ -54,6 +54,9 @@ function isThinkingModel(modelId: string): boolean {
     // GPT Codex 系列
     if (/gpt-.*-codex/.test(id)) return true;
 
+    // Minimax
+    if (/minimax-m/.test(id)) return true;
+
     return false;
 }
 

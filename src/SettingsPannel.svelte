@@ -35,6 +35,7 @@
         deepseek: i18n('platform.builtIn.deepseek'),
         moonshot: i18n('platform.builtIn.moonshot'),
         volcano: i18n('platform.builtIn.volcano'),
+        minimax: i18n('platform.builtIn.minimax'),
     };
 
     // 内置平台的默认 API 地址
@@ -45,6 +46,7 @@
         moonshot: 'https://api.moonshot.cn',
         openai: 'https://api.openai.com',
         volcano: 'https://ark.cn-beijing.volces.com',
+        minimax: 'https://api.minimaxi.com',
     };
 
     // 内置平台的官网链接
@@ -55,6 +57,7 @@
         moonshot: 'https://platform.moonshot.cn/',
         openai: 'https://platform.openai.com/',
         volcano: 'https://console.volcengine.com/ark',
+        minimax: 'https://platform.minimaxi.com/',
     };
 
     // 当前选中的平台ID
@@ -716,6 +719,7 @@
                 moonshot: { apiKey: '', customApiUrl: '', models: [], enabled: true },
                 volcano: { apiKey: '', customApiUrl: '', models: [], enabled: true },
                 Achuan: { apiKey: '', customApiUrl: '', models: [], enabled: true },
+                minimax: { apiKey: '', customApiUrl: '', models: [], enabled: true },
                 customProviders: [],
                 disabledBuiltInProviders: [],
                 providerOrder: [],
@@ -730,6 +734,7 @@
             'openai',
             'moonshot',
             'volcano',
+            'minimax',
         ];
         for (const platformId of builtInPlatformIds) {
             if (!settings.aiProviders[platformId]) {

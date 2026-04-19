@@ -77,6 +77,12 @@ export const getDefaultSettings = () => ({
             models: [],
             enabled: true,
         },
+        minimax: {
+            apiKey: '',
+            customApiUrl: '',
+            models: [],
+            enabled: true,
+        },
         customProviders: [] as CustomProviderConfig[],
         disabledBuiltInProviders: [] as string[],
         providerOrder: [] as string[]
