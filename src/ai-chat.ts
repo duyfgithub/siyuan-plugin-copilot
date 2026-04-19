@@ -156,6 +156,28 @@ interface AdvancedProviderConfig {
     chatInterface?: ChatInterfaceType;
 }
 
+const MINIMAX_FALLBACK_MODEL_IDS = [
+    'MiniMax-M2.7',
+    'MiniMax-M2.7-highspeed',
+    'MiniMax-M2.5',
+    'MiniMax-M2.5-highspeed',
+    'MiniMax-M2.1',
+    'MiniMax-M2.1-highspeed',
+    'MiniMax-M2',
+];
+
+function isMiniMaxApiUrl(url?: string): boolean {
+    return /(?:^https?:\/\/)?api\.minimaxi\.com(?:[/:?#]|$)/i.test((url || '').trim());
+}
+
+function getMiniMaxFallbackModels(providerName: string): ModelInfo[] {
+    return MINIMAX_FALLBACK_MODEL_IDS.map(modelId => ({
+        id: modelId,
+        name: modelId,
+        provider: providerName,
+    }));
+}
+
 // 思考努力程度到比例的映射（用于计算 token 预算）
 export const EFFORT_RATIO: Record<ThinkingEffort, number> = {
     low: 0.2,
@@ -518,6 +540,7 @@ export async function fetchModels(
 ): Promise<ModelInfo[]> {
     const isBuiltIn = ['gemini', 'deepseek', 'openai', 'moonshot', 'volcano', 'Achuan'].includes(provider);
     const config = isBuiltIn ? PROVIDER_CONFIGS[provider as AIProvider] : PROVIDER_CONFIGS.custom;
+    const fallbackProviderName = isBuiltIn ? config.name : provider;
 
     let url: string;
 
@@ -533,6 +556,11 @@ export async function fetchModels(
         }
         url = `${config.baseUrl}${config.modelsEndpoint}`;
     }
+
+    const shouldUseMiniMaxFallback =
+        isMiniMaxApiUrl(advancedConfig?.customModelsUrl) ||
+        isMiniMaxApiUrl(customApiUrl) ||
+        isMiniMaxApiUrl(url);
 
     try {
         const headers: Record<string, string> = {
@@ -552,6 +580,10 @@ export async function fetchModels(
         });
 
         if (!response.ok) {
+            if (shouldUseMiniMaxFallback) {
+                return getMiniMaxFallbackModels(fallbackProviderName);
+            }
+
             // 尝试读取错误响应体中的详细错误信息
             let errorMessage = `Failed to fetch models: ${response.status} ${response.statusText}`;
             try {
@@ -577,11 +609,14 @@ export async function fetchModels(
 
         // 处理不同平台的响应格式
         if (provider === 'gemini') {
-            return (data.models || []).map((model: any) => ({
+            const geminiModels = (data.models || []).map((model: any) => ({
                 id: model.name.replace('models/', ''),
                 name: model.displayName || model.name,
                 provider: config.name
             }));
+            return geminiModels.length > 0 || !shouldUseMiniMaxFallback
+                ? geminiModels
+                : getMiniMaxFallbackModels(fallbackProviderName);
         } else {
             // 尝试多种可能的响应格式以支持自定义API
             let modelsArray: any[] = [];
@@ -596,7 +631,7 @@ export async function fetchModels(
                 modelsArray = [];
             }
 
-            return modelsArray.map((model: any) => {
+            const normalizedModels = modelsArray.map((model: any) => {
                 // 处理不同格式的model对象
                 if (typeof model === 'string') {
                     return {
@@ -612,8 +647,15 @@ export async function fetchModels(
                     };
                 }
             });
+            return normalizedModels.length > 0 || !shouldUseMiniMaxFallback
+                ? normalizedModels
+                : getMiniMaxFallbackModels(fallbackProviderName);
         }
     } catch (error) {
+        if (shouldUseMiniMaxFallback) {
+            return getMiniMaxFallbackModels(fallbackProviderName);
+        }
+
         console.error('Error fetching models:', error);
         throw error;
     }
