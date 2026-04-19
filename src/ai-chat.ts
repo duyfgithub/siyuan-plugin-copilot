@@ -240,11 +240,11 @@ export function isGemini3Model(modelId: string): boolean {
 }
 
 /**
- * 检测模型是否是 Minimax 模型
+ * 检测模型是否是支持思考模式的 MiniMax M2 系列模型
  */
-export function isMinimaxModel(modelId: string): boolean {
+export function isMinimaxThinkingModel(modelId: string): boolean {
     const baseModelId = getLowerBaseModelName(modelId, '/');
-    return baseModelId.includes('minimax');
+    return /minimax-m2(?:\.\d+)?/i.test(baseModelId);
 }
 
 
@@ -406,6 +406,78 @@ function getBaseUrlAndEndpoint(
 
     // 规则4：默认情况，使用完整的默认端点
     return { baseUrl: trimmedUrl.replace(/\/$/, ''), endpoint: defaultEndpoint };
+}
+
+interface ThinkTagParseState {
+    carry: string;
+    inThinkTag: boolean;
+}
+
+interface ThinkTaggedSegment {
+    type: 'content' | 'thinking';
+    text: string;
+}
+
+/**
+ * 增量解析 MiniMax M2.7 返回在 content 中的 <think>...</think> 片段
+ */
+function parseThinkTaggedContent(
+    text: string,
+    state: ThinkTagParseState,
+    flush: boolean = false
+): ThinkTaggedSegment[] {
+    const openTag = '<think>';
+    const closeTag = '</think>';
+    const segments: ThinkTaggedSegment[] = [];
+    let input = `${state.carry}${text}`;
+
+    state.carry = '';
+
+    const pushSegment = (type: 'content' | 'thinking', chunk: string) => {
+        if (chunk) {
+            segments.push({ type, text: chunk });
+        }
+    };
+
+    while (input.length > 0) {
+        const lowerInput = input.toLowerCase();
+
+        if (state.inThinkTag) {
+            const endIndex = lowerInput.indexOf(closeTag);
+            if (endIndex === -1) {
+                if (flush) {
+                    pushSegment('thinking', input);
+                } else {
+                    const safeLength = Math.max(0, input.length - (closeTag.length - 1));
+                    pushSegment('thinking', input.slice(0, safeLength));
+                    state.carry = input.slice(safeLength);
+                }
+                break;
+            }
+
+            pushSegment('thinking', input.slice(0, endIndex));
+            input = input.slice(endIndex + closeTag.length);
+            state.inThinkTag = false;
+        } else {
+            const startIndex = lowerInput.indexOf(openTag);
+            if (startIndex === -1) {
+                if (flush) {
+                    pushSegment('content', input);
+                } else {
+                    const safeLength = Math.max(0, input.length - (openTag.length - 1));
+                    pushSegment('content', input.slice(0, safeLength));
+                    state.carry = input.slice(safeLength);
+                }
+                break;
+            }
+
+            pushSegment('content', input.slice(0, startIndex));
+            input = input.slice(startIndex + openTag.length);
+            state.inThinkTag = true;
+        }
+    }
+
+    return segments;
 }
 
 /**
@@ -650,7 +722,16 @@ async function chatOpenAIFormat(
     }
 
     // 检测是否是 Minimax 模型
-    const isMinimax = isMinimaxModel(options.model);
+    const isMinimaxThinking = isMinimaxThinkingModel(options.model);
+
+    // MiniMax 文档中的 OpenAI SDK `extra_body={"reasoning_split": true}`
+    // 会被 SDK 展平为顶层请求参数。这里我们直接 fetch JSON，因此需要手动放到顶层。
+    if (isMinimaxThinking) {
+        requestBody.reasoning_split = true;
+        if (requestBody.extra_body?.reasoning_split !== undefined) {
+            delete requestBody.extra_body.reasoning_split;
+        }
+    }
 
     // 处理思考模式：界面控制优先
     // 如果界面未启用思考模式，删除自定义参数中可能存在的思考模式设置
@@ -694,13 +775,6 @@ async function chatOpenAIFormat(
         // Kimi K2.5 启用 thinking 时需要设置 thinking: {type: "enabled"}
         else if (isKimiK25) {
             requestBody.thinking = { type: 'enabled' };
-        }
-        // Minimax 模型启用 thinking 时需要设置 reasoning_split: true
-        else if (isMinimax) {
-            requestBody.extra_body = {
-                ...requestBody.extra_body,
-                reasoning_split: true
-            };
         }
         // 检查是否是通过 OpenAI 兼容 API 调用的 Gemini 模型
         else if (isSupportedThinkingGeminiModel(options.model)) {
@@ -786,8 +860,40 @@ async function chatOpenAIFormat(
         } else {
             const data = await response.json();
             const content = data.choices?.[0]?.message?.content || '';
-            options.onChunk?.(content);
-            options.onComplete?.(content);
+            const shouldParseThinkTags =
+                options.enableThinking && isMinimaxThinkingModel(options.model);
+
+            if (shouldParseThinkTags && typeof content === 'string') {
+                const segments = parseThinkTaggedContent(
+                    content,
+                    { carry: '', inThinkTag: false },
+                    true
+                );
+                let visibleContent = '';
+                let thinkingContent = '';
+
+                for (const segment of segments) {
+                    if (segment.type === 'thinking') {
+                        thinkingContent += segment.text;
+                    } else {
+                        visibleContent += segment.text;
+                    }
+                }
+
+                if (thinkingContent) {
+                    options.onThinkingChunk?.(thinkingContent);
+                    options.onThinkingComplete?.(thinkingContent);
+                }
+
+                if (visibleContent) {
+                    options.onChunk?.(visibleContent);
+                }
+
+                options.onComplete?.(visibleContent);
+            } else {
+                options.onChunk?.(content);
+                options.onComplete?.(content);
+            }
         }
     } catch (error) {
         // 检查是否是用户主动中断
@@ -1050,6 +1156,47 @@ async function handleStreamResponse(
     let isThinkingPhase = false;
     let toolCalls: ToolCall[] = [];
     const generatedImages: GeneratedImageData[] = [];
+    const shouldParseThinkTags =
+        options.enableThinking && isMinimaxThinkingModel(options.model);
+    const thinkTagState: ThinkTagParseState = {
+        carry: '',
+        inThinkTag: false
+    };
+
+    const handleThinkingChunk = (chunk: string) => {
+        isThinkingPhase = true;
+        thinkingText += chunk;
+        options.onThinkingChunk?.(chunk);
+    };
+
+    const handleContentChunk = (chunk: string) => {
+        if (isThinkingPhase && options.onThinkingComplete) {
+            options.onThinkingComplete(thinkingText);
+            isThinkingPhase = false;
+        }
+        fullText += chunk;
+        options.onChunk?.(chunk);
+    };
+
+    const handleRegularContent = (content: string, flushThinkTags: boolean = false) => {
+        if (!content && !flushThinkTags) return;
+
+        if (shouldParseThinkTags) {
+            const segments = parseThinkTaggedContent(content, thinkTagState, flushThinkTags);
+            for (const segment of segments) {
+                if (segment.type === 'thinking') {
+                    handleThinkingChunk(segment.text);
+                } else {
+                    handleContentChunk(segment.text);
+                }
+            }
+            return;
+        }
+
+        if (content) {
+            handleContentChunk(content);
+        }
+    };
 
     try {
         while (true) {
@@ -1159,19 +1306,17 @@ async function handleStreamResponse(
                         // 普通内容
                         const content = delta?.content;
                         if (content) {
-                            // 如果之前在思考阶段，现在开始输出正文，说明思考结束
-                            if (isThinkingPhase && options.onThinkingComplete) {
-                                options.onThinkingComplete(thinkingText);
-                                isThinkingPhase = false;
-                            }
-                            fullText += content;
-                            options.onChunk?.(content);
+                            handleRegularContent(content);
                         }
                     } catch (e) {
                         console.error('Failed to parse SSE data:', e);
                     }
                 }
             }
+        }
+
+        if (shouldParseThinkTags && thinkTagState.carry) {
+            handleRegularContent('', true);
         }
 
         // 如果结束时还在思考阶段，调用思考完成回调
