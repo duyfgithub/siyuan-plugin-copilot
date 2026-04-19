@@ -9,6 +9,8 @@
     export let providers: Record<string, any> = {};
     export let currentProvider = '';
     export let currentModelId = '';
+    type PresetChatMode = 'ask' | 'agent';
+
     export let appliedSettings = {
         contextCount: -1,
         temperature: 1,
@@ -22,11 +24,15 @@
             thinkingEffort?: ThinkingEffort;
         }>,
         enableMultiModel: false,
-        chatMode: 'ask' as 'ask' | 'edit' | 'agent',
+        chatMode: 'ask' as PresetChatMode,
     };
     export let plugin: any;
 
     const dispatch = createEventDispatcher();
+
+    function normalizeChatMode(chatMode?: string): PresetChatMode {
+        return chatMode === 'agent' ? 'agent' : 'ask';
+    }
 
     // 预设列表弹窗
     let isPresetListOpen = false;
@@ -54,7 +60,7 @@
         thinkingEffort?: ThinkingEffort;
     }> = [];
     let tempEnableMultiModel = false;
-    let tempChatMode: 'ask' | 'edit' | 'agent' = 'ask';
+    let tempChatMode: PresetChatMode = 'ask';
 
     // 当前正在编辑的预设ID（空字符串表示新建/默认）
     let editingPresetId = '';
@@ -75,7 +81,7 @@
             thinkingEffort?: ThinkingEffort;
         }>;
         enableMultiModel: boolean;
-        chatMode: 'ask' | 'edit' | 'agent';
+        chatMode: PresetChatMode;
         createdAt: number;
     }
 
@@ -109,7 +115,7 @@
             thinkingEffort?: ThinkingEffort;
         }>,
         enableMultiModel: false,
-        chatMode: 'ask' as 'ask' | 'edit' | 'agent',
+        chatMode: 'ask' as PresetChatMode,
     };
 
     // 处理MultiModelSelector的选择事件（单模型模式）
@@ -242,8 +248,18 @@
     // 加载预设
     async function loadPresets() {
         const settings = await plugin.loadSettings();
-        presets = settings.modelPresets || [];
+        const storedPresets = settings.modelPresets || [];
+        const normalizedPresets = storedPresets.map((preset: Preset) => ({
+            ...preset,
+            chatMode: normalizeChatMode(preset.chatMode),
+        }));
+        presets = normalizedPresets;
         selectedPresetId = settings.selectedModelPresetId || '';
+
+        if (JSON.stringify(storedPresets) !== JSON.stringify(normalizedPresets)) {
+            settings.modelPresets = normalizedPresets;
+            await plugin.saveSettings(settings);
+        }
     }
 
     // 保存预设到设置
@@ -327,7 +343,7 @@
                 modelSelectionEnabled: preset.modelSelectionEnabled ?? false,
                 selectedModels: preset.selectedModels || [],
                 enableMultiModel: preset.enableMultiModel ?? false,
-                chatMode: preset.chatMode || 'ask',
+                chatMode: normalizeChatMode(preset.chatMode),
             });
 
             pushMsg(`已应用预设: ${preset.name}`);
@@ -348,7 +364,7 @@
         tempModelSelectionEnabled = preset.modelSelectionEnabled ?? false;
         tempSelectedModels = [...(preset.selectedModels || [])];
         tempEnableMultiModel = preset.enableMultiModel ?? false;
-        tempChatMode = preset.chatMode || 'ask';
+        tempChatMode = normalizeChatMode(preset.chatMode);
 
         // 保存初始状态
         saveInitialState();
@@ -535,7 +551,7 @@
         tempModelSelectionEnabled = appliedSettings.modelSelectionEnabled ?? false;
         tempSelectedModels = [...(appliedSettings.selectedModels || [])];
         tempEnableMultiModel = appliedSettings.enableMultiModel ?? false;
-        tempChatMode = appliedSettings.chatMode ?? 'ask';
+        tempChatMode = normalizeChatMode(appliedSettings.chatMode);
 
         // 检查当前应用的设置是否与某个预设匹配
         const savedPresetId = await loadSelectedPresetId();
@@ -553,7 +569,7 @@
                 areModelsEqual(preset.selectedModels || [], appliedSettings.selectedModels || []) &&
                 (preset.enableMultiModel ?? false) ===
                     (appliedSettings.enableMultiModel ?? false) &&
-                (preset.chatMode || 'ask') === (appliedSettings.chatMode ?? 'ask')
+                normalizeChatMode(preset.chatMode) === normalizeChatMode(appliedSettings.chatMode)
             ) {
                 selectedPresetId = savedPresetId;
             } else {
@@ -1178,7 +1194,6 @@
                         }}
                     >
                         <option value="ask">{i18n('aiSidebar.mode.ask') || '问答模式'}</option>
-                        <option value="edit">{i18n('aiSidebar.mode.edit') || '编辑模式'}</option>
                         <option value="agent">{i18n('aiSidebar.mode.agent') || 'Agent模式'}</option>
                     </select>
                     <div class="model-settings-hint">
