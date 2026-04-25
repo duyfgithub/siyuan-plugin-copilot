@@ -33,7 +33,7 @@
         putFile,
         removeFile,
     } from './api';
-    import { saveAsset, loadAsset, base64ToBlob, readAssetAsText } from './utils/assets';
+    import { saveAsset, loadAsset, base64ToBlob, readAssetAsText, createGeneratedImageFileName } from './utils/assets';
     import {
         parseMultipleWebPages,
         fetchWithWebView,
@@ -272,22 +272,7 @@
     let drawAutoDetectedSizeOption: DrawImageSizeOption | null = null;
     let drawImageCount = 1;
     let drawImageQuality: DrawImageQuality = 'auto';
-    let drawMaskBlob: Blob | null = null;
-    let drawMaskPreviewUrl = '';
-    let drawMaskSourceKey = '';
-    let drawEditImageAvailable = false;
     let drawModeNoModelWarned = false;
-    let generatedImageFileSequence = 0;
-
-    // 画图编辑蒙版
-    let isDrawMaskEditorOpen = false;
-    let drawMaskImageSrc = '';
-    let drawMaskImageName = '';
-    let drawMaskImageElement: HTMLImageElement;
-    let drawMaskCanvasElement: HTMLCanvasElement;
-    let drawMaskBrushSize = 48;
-    let isDrawingMask = false;
-    let lastMaskPoint: { x: number; y: number } | null = null;
 
     // 图片查看器
     let isImageViewerOpen = false;
@@ -403,209 +388,6 @@
     // 切换图片查看器全屏
     function toggleImageViewerFullscreen() {
         isImageViewerFullscreen = !isImageViewerFullscreen;
-    }
-
-    function clearDrawMask(showMessage = false) {
-        if (drawMaskPreviewUrl) {
-            URL.revokeObjectURL(drawMaskPreviewUrl);
-        }
-        drawMaskBlob = null;
-        drawMaskPreviewUrl = '';
-        if (showMessage) {
-            pushMsg('已清除编辑蒙版');
-        }
-    }
-
-    async function openDrawMaskEditor() {
-        if (
-            currentAttachments.filter(att => att.type === 'image').length === 0 &&
-            hasPendingDrawImageSelectionForEdit()
-        ) {
-            pushErrMsg('请先选择一张满意的图片，再继续编辑');
-            return;
-        }
-
-        const [source] = await collectDrawEditImageSources(
-            currentAttachments.filter(att => att.type === 'image')
-        );
-        if (!source) {
-            pushErrMsg('请先上传图片，或在生成图片后继续编辑');
-            return;
-        }
-
-        let imageSrc = source.data;
-        if (!imageSrc && source.path) {
-            imageSrc = (await loadAsset(source.path)) || '';
-        }
-        if (!imageSrc) {
-            pushErrMsg('无法读取要编辑的图片');
-            return;
-        }
-
-        drawMaskImageSrc = imageSrc;
-        drawMaskImageName = source.name || '编辑图片';
-        isDrawMaskEditorOpen = true;
-        await tick();
-        initializeDrawMaskCanvas();
-    }
-
-    function closeDrawMaskEditor() {
-        isDrawMaskEditorOpen = false;
-        isDrawingMask = false;
-        lastMaskPoint = null;
-        drawMaskImageSrc = '';
-        drawMaskImageName = '';
-    }
-
-    async function initializeDrawMaskCanvas() {
-        await tick();
-        if (!drawMaskCanvasElement || !drawMaskImageElement?.naturalWidth) {
-            return;
-        }
-        drawMaskCanvasElement.width = drawMaskImageElement.naturalWidth;
-        drawMaskCanvasElement.height = drawMaskImageElement.naturalHeight;
-        const ctx = drawMaskCanvasElement.getContext('2d');
-        ctx?.clearRect(0, 0, drawMaskCanvasElement.width, drawMaskCanvasElement.height);
-    }
-
-    function getMaskPoint(event: PointerEvent) {
-        const rect = drawMaskCanvasElement.getBoundingClientRect();
-        return {
-            x: ((event.clientX - rect.left) / rect.width) * drawMaskCanvasElement.width,
-            y: ((event.clientY - rect.top) / rect.height) * drawMaskCanvasElement.height,
-        };
-    }
-
-    function drawMaskDot(point: { x: number; y: number }) {
-        const ctx = drawMaskCanvasElement.getContext('2d');
-        if (!ctx) return;
-
-        ctx.save();
-        ctx.fillStyle = 'rgba(255, 80, 80, 0.55)';
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, drawMaskBrushSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-
-    function startDrawMask(event: PointerEvent) {
-        event.preventDefault();
-        isDrawingMask = true;
-        drawMaskCanvasElement.setPointerCapture(event.pointerId);
-        const point = getMaskPoint(event);
-        lastMaskPoint = point;
-        drawMaskDot(point);
-    }
-
-    function continueDrawMask(event: PointerEvent) {
-        if (!isDrawingMask || !lastMaskPoint) return;
-        event.preventDefault();
-
-        const point = getMaskPoint(event);
-        const ctx = drawMaskCanvasElement.getContext('2d');
-        if (!ctx) return;
-
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 80, 80, 0.55)';
-        ctx.lineWidth = drawMaskBrushSize;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(lastMaskPoint.x, lastMaskPoint.y);
-        ctx.lineTo(point.x, point.y);
-        ctx.stroke();
-        ctx.restore();
-
-        lastMaskPoint = point;
-    }
-
-    function stopDrawMask(event: PointerEvent) {
-        if (isDrawingMask) {
-            event.preventDefault();
-        }
-        isDrawingMask = false;
-        lastMaskPoint = null;
-        try {
-            drawMaskCanvasElement.releasePointerCapture(event.pointerId);
-        } catch (error) {
-            // pointer capture 可能已被浏览器释放
-        }
-    }
-
-    function clearMaskCanvas() {
-        const ctx = drawMaskCanvasElement?.getContext('2d');
-        ctx?.clearRect(0, 0, drawMaskCanvasElement.width, drawMaskCanvasElement.height);
-    }
-
-    function canvasHasMaskStrokes(canvas: HTMLCanvasElement): boolean {
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return false;
-        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        for (let i = 3; i < pixels.length; i += 4) {
-            if (pixels[i] > 0) return true;
-        }
-        return false;
-    }
-
-    function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
-        return new Promise(resolve => {
-            canvas.toBlob(blob => resolve(blob), 'image/png');
-        });
-    }
-
-    async function saveDrawMask() {
-        if (!drawMaskCanvasElement || !canvasHasMaskStrokes(drawMaskCanvasElement)) {
-            pushErrMsg('请先圈选需要编辑的位置');
-            return;
-        }
-
-        const maskCanvas = document.createElement('canvas');
-        maskCanvas.width = drawMaskCanvasElement.width;
-        maskCanvas.height = drawMaskCanvasElement.height;
-        const ctx = maskCanvas.getContext('2d');
-        if (!ctx) {
-            pushErrMsg('无法创建编辑蒙版');
-            return;
-        }
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-
-        const maskCtx = drawMaskCanvasElement.getContext('2d');
-        if (!maskCtx) {
-            pushErrMsg('无法读取编辑蒙版');
-            return;
-        }
-        const sourcePixels = maskCtx.getImageData(
-            0,
-            0,
-            drawMaskCanvasElement.width,
-            drawMaskCanvasElement.height
-        ).data;
-        const maskPixels = ctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
-        for (let i = 3; i < maskPixels.data.length; i += 4) {
-            if (sourcePixels[i] > 0) {
-                maskPixels.data[i] = 0;
-            }
-        }
-        ctx.putImageData(maskPixels, 0, 0);
-
-        const blob = await canvasToPngBlob(maskCanvas);
-        if (!blob) {
-            pushErrMsg('无法导出编辑蒙版');
-            return;
-        }
-
-        if (blob.size > 4 * 1024 * 1024) {
-            pushErrMsg('蒙版文件超过 4MB，请缩小圈选范围后重试');
-            return;
-        }
-
-        clearDrawMask();
-        drawMaskBlob = blob;
-        drawMaskPreviewUrl = URL.createObjectURL(blob);
-        closeDrawMaskEditor();
-        pushMsg('已设置编辑蒙版');
     }
 
     // 下载图片
@@ -1459,18 +1241,8 @@
         }
     }
 
-    $: drawEditImageAvailable = chatMode === 'draw' && hasDrawEditImage();
-
     $: if (chatMode === 'draw' && !isInitialLoading) {
         syncDrawingModeState();
-    }
-
-    $: {
-        const nextMaskSourceKey = chatMode === 'draw' ? getDrawEditSourceKey() : '';
-        if (drawMaskBlob && nextMaskSourceKey !== drawMaskSourceKey) {
-            clearDrawMask();
-        }
-        drawMaskSourceKey = nextMaskSourceKey;
     }
 
     // 记忆当前选择的模式
@@ -3094,14 +2866,6 @@
         return null;
     }
 
-    function hasDrawEditImage(): boolean {
-        if (currentAttachments.some(att => att.type === 'image')) {
-            return true;
-        }
-
-        return !!getLastAssistantMessageForDrawEdit();
-    }
-
     function hasMessageImageForDrawEdit(message: Message): boolean {
         return !!(
             message.generatedImages?.length ||
@@ -3181,46 +2945,6 @@
             console.error('Failed to save draw image selection:', error);
         });
         pushMsg(`已选择第 ${imageIndex + 1} 张图片用于继续编辑`);
-    }
-
-    function getDrawEditSourceKey(): string {
-        const currentImage = currentAttachments.find(att => att.type === 'image');
-        if (currentImage) {
-            return currentImage.path || currentImage.data || currentImage.name;
-        }
-
-        const lastAssistantMsg = getLastAssistantMessageForDrawEdit();
-        if (!lastAssistantMsg) {
-            return '';
-        }
-
-        const selectedIndex = getDrawSelectedImageIndex(lastAssistantMsg);
-        if (
-            getDrawSelectableImageCount(lastAssistantMsg) > 1 &&
-            selectedIndex === null
-        ) {
-            return 'pending-draw-image-selection';
-        }
-
-        const imageIndex = selectedIndex ?? 0;
-        const generatedImage = lastAssistantMsg.generatedImages?.[imageIndex] as any;
-        if (generatedImage) {
-            return generatedImage.path || generatedImage.previewUrl || generatedImage.url || '';
-        }
-
-        const attachment = lastAssistantMsg.attachments?.filter(att => att.type === 'image')[
-            imageIndex
-        ];
-        if (attachment) {
-            return attachment.path || attachment.data || attachment.name;
-        }
-
-        if (typeof lastAssistantMsg.content === 'string') {
-            const match = lastAssistantMsg.content.match(/!\[.*?\]\(([^)]+)\)/);
-            return match?.[1] || '';
-        }
-
-        return '';
     }
 
     function syncDrawingModeState() {
@@ -4607,20 +4331,6 @@
         throw new Error(`无法读取图片：${attachment.name}`);
     }
 
-    function getImageFileExtension(mimeType?: string): string {
-        const ext = (mimeType || 'image/png').split('/')[1] || 'png';
-        return ext === 'jpeg' ? 'jpg' : ext;
-    }
-
-    function createGeneratedImageFileName(mimeType?: string, index?: number): string {
-        const now = new Date();
-        const pad = (value: number, length = 2) => String(value).padStart(length, '0');
-        const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
-        generatedImageFileSequence = (generatedImageFileSequence + 1) % 1000;
-        const suffix = index === undefined ? generatedImageFileSequence : index + 1;
-        return `${timestamp}-${pad(suffix, 3)}.${getImageFileExtension(mimeType)}`;
-    }
-
     async function blobToBase64String(blob: Blob): Promise<string> {
         const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -4677,8 +4387,7 @@
 
     async function buildGeminiImageParts(
         prompt: string,
-        editImageSources: MessageAttachment[],
-        maskBlob: Blob | null
+        editImageSources: MessageAttachment[]
     ) {
         const parts: Array<Record<string, any>> = [{ text: prompt }];
 
@@ -4688,18 +4397,6 @@
                 inline_data: {
                     mime_type: blob.type || imageSource.mimeType || 'image/png',
                     data: await blobToBase64String(blob),
-                },
-            });
-        }
-
-        if (maskBlob) {
-            parts.push({
-                text: '以下 PNG 蒙版应用于第一张参考图片：完全透明区域表示需要修改的位置，请尽量只编辑这些区域。',
-            });
-            parts.push({
-                inline_data: {
-                    mime_type: 'image/png',
-                    data: await blobToBase64String(maskBlob),
                 },
             });
         }
@@ -4737,7 +4434,6 @@
         modelConfig: any,
         prompt: string,
         editImageSources: MessageAttachment[],
-        maskBlob: Blob | null,
         signal: AbortSignal
     ) {
         const isEdit = editImageSources.length > 0;
@@ -4761,7 +4457,7 @@
                     contents: [
                         {
                             role: 'user',
-                            parts: await buildGeminiImageParts(prompt, editImageSources, maskBlob),
+                            parts: await buildGeminiImageParts(prompt, editImageSources),
                         },
                     ],
                     generationConfig,
@@ -4811,7 +4507,7 @@
 
                     return {
                         type: 'image' as const,
-                        name: `previous-generated-image-${index + 1}.${mimeType.split('/')[1] || 'png'}`,
+                        name: createGeneratedImageFileName(mimeType, index),
                         data,
                         path: img.path,
                         mimeType,
@@ -4854,7 +4550,7 @@
                 if (data) {
                     imageAttachmentsFromMarkdown.push({
                         type: 'image',
-                        name: match[1] || `previous-generated-image-${imageAttachmentsFromMarkdown.length + 1}.png`,
+                        name: match[1] || createGeneratedImageFileName('image/png', imageAttachmentsFromMarkdown.length),
                         data,
                         path: url.startsWith('/data/storage/petal/siyuan-plugin-copilot/assets/')
                             ? url
@@ -4923,7 +4619,6 @@
         modelConfig: any,
         prompt: string,
         editImageSources: MessageAttachment[],
-        maskBlob: Blob | null,
         signal: AbortSignal
     ) {
         if (isGeminiImageApi(providerConfig, modelConfig)) {
@@ -4932,7 +4627,6 @@
                 modelConfig,
                 prompt,
                 editImageSources,
-                maskBlob,
                 signal
             );
         }
@@ -4962,10 +4656,6 @@
                         type: mimeType,
                     })
                 );
-            }
-
-            if (maskBlob) {
-                formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
             }
 
             response = await fetch(url, {
@@ -5051,7 +4741,6 @@
             return;
         }
         const editImageSources = await collectDrawEditImageSources(userImageAttachments);
-        const maskBlobForRequest = editImageSources.length > 0 ? drawMaskBlob : null;
         const isEdit = editImageSources.length > 0;
 
         const userMessage: Message = {
@@ -5064,7 +4753,6 @@
         currentInput = '';
         currentAttachments = [];
         contextDocuments = [];
-        clearDrawMask();
         isAborted = false;
         streamingMessage = isEdit ? '正在编辑图片...' : '正在生成图片...';
         streamingThinking = '';
@@ -5098,7 +4786,6 @@
                 modelConfig,
                 userContent,
                 editImageSources,
-                maskBlobForRequest,
                 abortController.signal
             );
 
@@ -5189,7 +4876,6 @@
             return;
         }
         const editImageSources = await collectDrawEditImageSources(userImageAttachments);
-        const maskBlobForRequest = editImageSources.length > 0 ? drawMaskBlob : null;
         const isEdit = editImageSources.length > 0;
 
         abortController = new AbortController();
@@ -5201,7 +4887,6 @@
                 modelConfig,
                 userContent,
                 editImageSources,
-                maskBlobForRequest,
                 abortController.signal
             );
 
@@ -5234,7 +4919,6 @@
                 })),
             };
 
-            clearDrawMask();
             messages = [...messages, assistantMessage];
             streamingMessage = '';
             isLoading = false;
@@ -9075,10 +8759,8 @@
                                         img.data,
                                         img.mimeType || 'image/png'
                                     );
-                                    const ext =
-                                        (img.mimeType || 'image/png').split('/')[1] || 'png';
                                     const name = createGeneratedImageFileName(
-                                        `image/${ext === 'jpeg' ? 'jpg' : ext}`
+                                        img.mimeType || 'image/png'
                                     );
                                     const assetPath = await saveAsset(blob, name);
 
@@ -14937,28 +14619,6 @@
                         {/each}
                     </select>
                 </label>
-                {#if drawEditImageAvailable}
-                    <button
-                        class="b3-button b3-button--text ai-sidebar__draw-mask-btn"
-                        on:click={openDrawMaskEditor}
-                        disabled={isLoading}
-                        title="圈选需要编辑的位置"
-                    >
-                        <svg class="b3-button__icon"><use xlink:href="#iconEdit"></use></svg>
-                        <span>编辑蒙版</span>
-                    </button>
-                    {#if drawMaskBlob}
-                        <span class="ai-sidebar__draw-mask-status">已设置蒙版</span>
-                        <button
-                            class="b3-button b3-button--text ai-sidebar__draw-mask-clear"
-                            on:click={() => clearDrawMask(true)}
-                            disabled={isLoading}
-                            title="清除蒙版"
-                        >
-                            <svg class="b3-button__icon"><use xlink:href="#iconClose"></use></svg>
-                        </button>
-                    {/if}
-                {/if}
             </div>
         {/if}
         <div class="ai-sidebar__input-row">
@@ -15872,63 +15532,6 @@
                     <svg class="b3-button__icon"><use xlink:href="#iconCheck"></use></svg>
                     {i18n('tools.approve')}
                 </button>
-            </div>
-        </div>
-    {/if}
-
-    <!-- 画图模式蒙版编辑器 -->
-    {#if isDrawMaskEditorOpen}
-        <div class="draw-mask-editor">
-            <div class="draw-mask-editor__header">
-                <h3 class="draw-mask-editor__title">{drawMaskImageName || '编辑蒙版'}</h3>
-                <div class="draw-mask-editor__actions">
-                    <label class="draw-mask-editor__brush">
-                        <span>笔刷</span>
-                        <input
-                            type="range"
-                            min="8"
-                            max="160"
-                            step="4"
-                            bind:value={drawMaskBrushSize}
-                        />
-                    </label>
-                    <button class="b3-button b3-button--text" on:click={clearMaskCanvas}>
-                        清空
-                    </button>
-                    <button class="b3-button b3-button--primary" on:click={saveDrawMask}>
-                        完成
-                    </button>
-                    <button
-                        class="b3-button b3-button--text"
-                        on:click={closeDrawMaskEditor}
-                        title="关闭"
-                    >
-                        <svg class="b3-button__icon"><use xlink:href="#iconClose"></use></svg>
-                    </button>
-                </div>
-            </div>
-            <div class="draw-mask-editor__content">
-                <div class="draw-mask-editor__stage">
-                    <img
-                        bind:this={drawMaskImageElement}
-                        src={drawMaskImageSrc}
-                        alt={drawMaskImageName}
-                        class="draw-mask-editor__image"
-                        on:load={initializeDrawMaskCanvas}
-                    />
-                    <canvas
-                        bind:this={drawMaskCanvasElement}
-                        class="draw-mask-editor__canvas"
-                        on:pointerdown={startDrawMask}
-                        on:pointermove={continueDrawMask}
-                        on:pointerup={stopDrawMask}
-                        on:pointercancel={stopDrawMask}
-                        on:pointerleave={stopDrawMask}
-                    ></canvas>
-                </div>
-            </div>
-            <div class="draw-mask-editor__hint">
-                红色区域会在提交时转换为透明蒙版，表示需要编辑的位置。
             </div>
         </div>
     {/if}
@@ -16955,26 +16558,6 @@
         height: 26px;
         padding: 2px 6px;
         font-size: 12px;
-    }
-
-    .ai-sidebar__draw-mask-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        padding: 4px 8px;
-    }
-
-    .ai-sidebar__draw-mask-status {
-        font-size: 12px;
-        color: var(--b3-theme-primary);
-        background: var(--b3-theme-primary-lightest);
-        border-radius: 4px;
-        padding: 3px 6px;
-    }
-
-    .ai-sidebar__draw-mask-clear {
-        padding: 4px;
     }
 
     .ai-sidebar__model-selector-container {
@@ -19320,106 +18903,6 @@
             width: 20px !important;
             height: 20px !important;
         }
-    }
-
-    .draw-mask-editor {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 1002;
-        width: min(920px, 94vw);
-        max-height: 92vh;
-        display: flex;
-        flex-direction: column;
-        background: var(--b3-theme-background);
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        overflow: hidden;
-    }
-
-    .draw-mask-editor__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--b3-border-color);
-        background: var(--b3-theme-surface);
-    }
-
-    .draw-mask-editor__title {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--b3-theme-on-background);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .draw-mask-editor__actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-
-    .draw-mask-editor__brush {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        color: var(--b3-theme-on-surface);
-
-        input {
-            width: 120px;
-        }
-    }
-
-    .draw-mask-editor__content {
-        flex: 1;
-        min-height: 0;
-        padding: 16px;
-        overflow: auto;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        background: var(--b3-theme-background);
-    }
-
-    .draw-mask-editor__stage {
-        position: relative;
-        display: inline-block;
-        max-width: 100%;
-        max-height: calc(92vh - 150px);
-    }
-
-    .draw-mask-editor__image {
-        display: block;
-        max-width: 100%;
-        max-height: calc(92vh - 150px);
-        object-fit: contain;
-        user-select: none;
-        pointer-events: none;
-    }
-
-    .draw-mask-editor__canvas {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        touch-action: none;
-        cursor: crosshair;
-    }
-
-    .draw-mask-editor__hint {
-        padding: 8px 16px 12px;
-        border-top: 1px solid var(--b3-border-color);
-        color: var(--b3-theme-on-surface-light);
-        font-size: 12px;
-        background: var(--b3-theme-surface);
     }
 
     // 图片查看器样式

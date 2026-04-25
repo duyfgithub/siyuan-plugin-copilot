@@ -2,6 +2,28 @@ import { putFile, getFileBlob } from "../api";
 
 const ASSET_PATH = "/data/storage/petal/siyuan-plugin-copilot/assets";
 
+let generatedImageFileSequence = 0;
+
+/**
+ * 根据 MIME 类型获取图片文件扩展名
+ */
+export function getImageFileExtension(mimeType?: string): string {
+    const ext = (mimeType || 'image/png').split('/')[1] || 'png';
+    return ext === 'jpeg' ? 'jpg' : ext;
+}
+
+/**
+ * 生成基于时间戳的图片文件名，避免重名覆盖
+ */
+export function createGeneratedImageFileName(mimeType?: string, index?: number): string {
+    const now = new Date();
+    const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
+    generatedImageFileSequence = (generatedImageFileSequence + 1) % 1000;
+    const suffix = index === undefined ? generatedImageFileSequence : index + 1;
+    return `${timestamp}-${pad(suffix, 3)}.${getImageFileExtension(mimeType)}`;
+}
+
 /**
  * 计算数据的 SHA-256 哈希值
  */

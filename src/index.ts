@@ -19,7 +19,7 @@ import {
 } from "siyuan";
 
 import { appendBlock, deleteBlock, setBlockAttrs, getBlockAttrs, pushMsg, pushErrMsg, sql, renderSprig, getChildBlocks, insertBlock, renameDocByID, prependBlock, updateBlock, createDocWithMd, getBlockKramdown, getBlockDOM, putFile, getFileBlob, readDir } from "./api";
-import { saveAsset, base64ToBlob } from "./utils/assets";
+import { saveAsset, base64ToBlob, createGeneratedImageFileName } from "./utils/assets";
 import "@/index.scss";
 
 import SettingPanel from "./SettingsPannel.svelte";
@@ -2264,7 +2264,7 @@ export default class PluginSample extends Plugin {
                                                 );
                                                 const assetPath = await saveAsset(
                                                     blob,
-                                                    'generated-image.png'
+                                                    createGeneratedImageFileName(img.mimeType || 'image/png')
                                                 );
                                                 return { ...img, data: '', path: assetPath };
                                             } catch (e) {
