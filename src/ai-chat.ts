@@ -100,10 +100,13 @@ export interface Message {
         }>; // 工具调用历史
     }>; // 多模型响应
     generatedImages?: GeneratedImageData[]; // 生成的图片数据（用于多轮生图）
+    drawImageSelectionRequired?: boolean; // 画图模式多图结果是否需要用户选择
+    drawSelectedImageIndex?: number; // 画图模式多图结果中用户选中的图片索引
 }
 
 // 生成的图片数据接口（用于Gemini多轮生图）
 export interface GeneratedImageData {
+    name?: string;
     mimeType: string;
     data: string; // base64 数据
     url?: string; // 可选的URL

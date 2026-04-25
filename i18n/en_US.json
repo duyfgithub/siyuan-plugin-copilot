@@ -189,6 +189,7 @@
             "label": "Mode",
             "ask": "Ask Mode",
             "edit": "Edit Mode",
+            "draw": "Draw Mode",
             "agent": "Agent Mode",
             "autoApprove": "Auto Approve",
             "askDescription": "Q&A only, no modification to note content",

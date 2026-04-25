@@ -9,7 +9,7 @@
     export let providers: Record<string, any> = {};
     export let currentProvider = '';
     export let currentModelId = '';
-    type PresetChatMode = 'ask' | 'agent';
+    type PresetChatMode = 'ask' | 'agent' | 'draw';
 
     export let appliedSettings = {
         contextCount: -1,
@@ -31,7 +31,10 @@
     const dispatch = createEventDispatcher();
 
     function normalizeChatMode(chatMode?: string): PresetChatMode {
-        return chatMode === 'agent' ? 'agent' : 'ask';
+        if (chatMode === 'agent' || chatMode === 'draw') {
+            return chatMode;
+        }
+        return 'ask';
     }
 
     // 预设列表弹窗
@@ -61,6 +64,7 @@
     }> = [];
     let tempEnableMultiModel = false;
     let tempChatMode: PresetChatMode = 'ask';
+    let providersForModelSelector: Record<string, any> = {};
 
     // 当前正在编辑的预设ID（空字符串表示新建/默认）
     let editingPresetId = '';
@@ -99,6 +103,47 @@
 
     // 预设搜索筛选
     let presetSearchQuery = '';
+
+    $: providersForModelSelector =
+        tempChatMode === 'draw' ? filterProvidersByImageGeneration(providers) : providers;
+
+    function filterProvidersByImageGeneration(sourceProviders: Record<string, any>) {
+        if (!sourceProviders || Object.keys(sourceProviders).length === 0) {
+            return sourceProviders || {};
+        }
+
+        const filteredProviders: Record<string, any> = { ...sourceProviders };
+        for (const [providerId, providerConfig] of Object.entries(sourceProviders)) {
+            if (
+                providerId === 'customProviders' ||
+                providerId === 'providerOrder' ||
+                providerId === 'disabledBuiltInProviders'
+            ) {
+                continue;
+            }
+            if (providerConfig && !Array.isArray(providerConfig) && providerConfig.models) {
+                filteredProviders[providerId] = {
+                    ...providerConfig,
+                    models: providerConfig.models.filter(
+                        (model: any) => !!model?.capabilities?.imageGeneration
+                    ),
+                };
+            }
+        }
+
+        if (Array.isArray(sourceProviders.customProviders)) {
+            filteredProviders.customProviders = sourceProviders.customProviders
+                .map((provider: any) => ({
+                    ...provider,
+                    models: (provider.models || []).filter(
+                        (model: any) => !!model?.capabilities?.imageGeneration
+                    ),
+                }))
+                .filter((provider: any) => provider.models.length > 0);
+        }
+
+        return filteredProviders;
+    }
 
     // 保存初始状态，用于检测是否有未保存的更改
     let initialState = {
@@ -1195,6 +1240,7 @@
                     >
                         <option value="ask">{i18n('aiSidebar.mode.ask') || '问答模式'}</option>
                         <option value="agent">{i18n('aiSidebar.mode.agent') || 'Agent模式'}</option>
+                        <option value="draw">{i18n('aiSidebar.mode.draw') || '画图模式'}</option>
                     </select>
                     <div class="model-settings-hint">
                         {i18n('aiSidebar.modelSettings.chatModeHint') ||
@@ -1221,7 +1267,7 @@
                         <div class="model-settings-model-selector">
                             <!-- 使用 MultiModelSelector 组件 -->
                             <MultiModelSelector
-                                {providers}
+                                providers={providersForModelSelector}
                                 selectedModels={tempSelectedModels}
                                 bind:isOpen={isModelSelectorOpen}
                                 enableMultiModel={tempEnableMultiModel}

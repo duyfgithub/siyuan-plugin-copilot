@@ -2,6 +2,7 @@
     import { onMount, tick, onDestroy } from 'svelte';
     import {
         chat,
+        getProviderConfig,
         type Message,
         type MessageAttachment,
         type EditOperation,
@@ -182,6 +183,7 @@
     let currentProvider = '';
     let currentModelId = '';
     let providers: Record<string, ProviderConfig> = {};
+    let providersForModelSelector: Record<string, any> = {};
 
     // 显示设置
     let messageFontSize = 12;
@@ -201,16 +203,91 @@
             thinkingEffort?: ThinkingEffort;
         }>,
         enableMultiModel: false,
-        chatMode: 'ask' as 'ask' | 'agent',
+        chatMode: 'ask' as 'ask' | 'agent' | 'draw',
     };
 
     // 对话模式
-    type ChatMode = 'ask' | 'agent';
+    type ChatMode = 'ask' | 'agent' | 'draw';
     let chatMode: ChatMode = 'ask';
     let isDiffDialogOpen = false;
     let currentDiffOperation: EditOperation | null = null;
     type DiffViewMode = 'diff' | 'split';
     let diffViewMode: DiffViewMode = 'diff'; // diff查看模式：diff或split
+
+    // 画图模式
+    type DrawImageSize = 'auto' | string;
+    type DrawImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'standard' | 'hd';
+    type DrawImageSizeOption = { value: DrawImageSize; label: string };
+
+    const DRAW_IMAGE_BASE_UNIT = 640;
+    const DRAW_IMAGE_SIZE_STEP = 16;
+    const DRAW_IMAGE_SIZE_OPTIONS: DrawImageSizeOption[] = [
+        { value: 'auto', label: 'auto 默认' },
+        { value: '1024x1024', label: '1024x1024 1:1 正方形' },
+        { value: '1536x1024', label: '1536x1024 3:2 横版' },
+        { value: '1024x1536', label: '1024x1536 2:3 竖版' },
+        { value: '1536x1152', label: '1536x1152 4:3 横版' },
+        { value: '1152x1536', label: '1152x1536 3:4 竖版' },
+        { value: '1504x640', label: '1504x640 2.35:1 横版' },
+        { value: '2048x2048', label: '2048x2048 1:1 2K正方形' },
+        { value: '2048x1152', label: '2048x1152 16:9 2K横版' },
+        { value: '3840x2160', label: '3840x2160 16:9 4K横版' },
+        { value: '2160x3840', label: '2160x3840 9:16 4K竖版' },
+    ];
+    const GEMINI_DRAW_IMAGE_SIZE_OPTIONS: DrawImageSizeOption[] = [
+        { value: 'auto', label: 'auto 默认' },
+        { value: '1024x1024', label: '1024x1024 1:1 1K正方形' },
+        { value: '1536x1024', label: '1536x1024 3:2 1K横版' },
+        { value: '1024x1536', label: '1024x1536 2:3 1K竖版' },
+        { value: '1536x1152', label: '1536x1152 4:3 横版' },
+        { value: '1152x1536', label: '1152x1536 3:4 竖版' },
+        { value: '1504x640', label: '1504x640 2.35:1 横版' },
+        { value: '2048x2048', label: '2048x2048 1:1 2K正方形' },
+        { value: '2048x1152', label: '2048x1152 16:9 2K横版' },
+        { value: '3840x2160', label: '3840x2160 16:9 4K横版' },
+        { value: '2160x3840', label: '2160x3840 9:16 4K竖版' },
+    ];
+    const GEMINI_ASPECT_ONLY_DRAW_IMAGE_SIZE_OPTIONS: DrawImageSizeOption[] = [
+        { value: 'auto', label: 'auto 默认' },
+        { value: '1024x1024', label: '1024x1024 1:1 正方形' },
+        { value: '1536x1024', label: '1536x1024 3:2 横版' },
+        { value: '1024x1536', label: '1024x1536 2:3 竖版' },
+        { value: '1536x1152', label: '1536x1152 4:3 横版' },
+        { value: '1152x1536', label: '1152x1536 3:4 竖版' },
+        { value: '1504x640', label: '1504x640 2.35:1 横版' },
+        { value: '2048x1152', label: '2048x1152 16:9 横版' },
+        { value: '2160x3840', label: '2160x3840 9:16 竖版' },
+    ];
+    const DRAW_IMAGE_QUALITY_OPTIONS: Array<{ value: DrawImageQuality; label: string }> = [
+        { value: 'auto', label: 'auto 默认' },
+        { value: 'low', label: 'low 低' },
+        { value: 'medium', label: 'medium 中' },
+        { value: 'high', label: 'high 高' },
+        { value: 'standard', label: 'standard 标准' },
+        { value: 'hd', label: 'hd 高清' },
+    ];
+
+    let drawImageSize: DrawImageSize = 'auto';
+    let drawImageSizeOptions = DRAW_IMAGE_SIZE_OPTIONS;
+    let drawAutoDetectedSizeOption: DrawImageSizeOption | null = null;
+    let drawImageCount = 1;
+    let drawImageQuality: DrawImageQuality = 'auto';
+    let drawMaskBlob: Blob | null = null;
+    let drawMaskPreviewUrl = '';
+    let drawMaskSourceKey = '';
+    let drawEditImageAvailable = false;
+    let drawModeNoModelWarned = false;
+    let generatedImageFileSequence = 0;
+
+    // 画图编辑蒙版
+    let isDrawMaskEditorOpen = false;
+    let drawMaskImageSrc = '';
+    let drawMaskImageName = '';
+    let drawMaskImageElement: HTMLImageElement;
+    let drawMaskCanvasElement: HTMLCanvasElement;
+    let drawMaskBrushSize = 48;
+    let isDrawingMask = false;
+    let lastMaskPoint: { x: number; y: number } | null = null;
 
     // 图片查看器
     let isImageViewerOpen = false;
@@ -326,6 +403,209 @@
     // 切换图片查看器全屏
     function toggleImageViewerFullscreen() {
         isImageViewerFullscreen = !isImageViewerFullscreen;
+    }
+
+    function clearDrawMask(showMessage = false) {
+        if (drawMaskPreviewUrl) {
+            URL.revokeObjectURL(drawMaskPreviewUrl);
+        }
+        drawMaskBlob = null;
+        drawMaskPreviewUrl = '';
+        if (showMessage) {
+            pushMsg('已清除编辑蒙版');
+        }
+    }
+
+    async function openDrawMaskEditor() {
+        if (
+            currentAttachments.filter(att => att.type === 'image').length === 0 &&
+            hasPendingDrawImageSelectionForEdit()
+        ) {
+            pushErrMsg('请先选择一张满意的图片，再继续编辑');
+            return;
+        }
+
+        const [source] = await collectDrawEditImageSources(
+            currentAttachments.filter(att => att.type === 'image')
+        );
+        if (!source) {
+            pushErrMsg('请先上传图片，或在生成图片后继续编辑');
+            return;
+        }
+
+        let imageSrc = source.data;
+        if (!imageSrc && source.path) {
+            imageSrc = (await loadAsset(source.path)) || '';
+        }
+        if (!imageSrc) {
+            pushErrMsg('无法读取要编辑的图片');
+            return;
+        }
+
+        drawMaskImageSrc = imageSrc;
+        drawMaskImageName = source.name || '编辑图片';
+        isDrawMaskEditorOpen = true;
+        await tick();
+        initializeDrawMaskCanvas();
+    }
+
+    function closeDrawMaskEditor() {
+        isDrawMaskEditorOpen = false;
+        isDrawingMask = false;
+        lastMaskPoint = null;
+        drawMaskImageSrc = '';
+        drawMaskImageName = '';
+    }
+
+    async function initializeDrawMaskCanvas() {
+        await tick();
+        if (!drawMaskCanvasElement || !drawMaskImageElement?.naturalWidth) {
+            return;
+        }
+        drawMaskCanvasElement.width = drawMaskImageElement.naturalWidth;
+        drawMaskCanvasElement.height = drawMaskImageElement.naturalHeight;
+        const ctx = drawMaskCanvasElement.getContext('2d');
+        ctx?.clearRect(0, 0, drawMaskCanvasElement.width, drawMaskCanvasElement.height);
+    }
+
+    function getMaskPoint(event: PointerEvent) {
+        const rect = drawMaskCanvasElement.getBoundingClientRect();
+        return {
+            x: ((event.clientX - rect.left) / rect.width) * drawMaskCanvasElement.width,
+            y: ((event.clientY - rect.top) / rect.height) * drawMaskCanvasElement.height,
+        };
+    }
+
+    function drawMaskDot(point: { x: number; y: number }) {
+        const ctx = drawMaskCanvasElement.getContext('2d');
+        if (!ctx) return;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 80, 80, 0.55)';
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, drawMaskBrushSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function startDrawMask(event: PointerEvent) {
+        event.preventDefault();
+        isDrawingMask = true;
+        drawMaskCanvasElement.setPointerCapture(event.pointerId);
+        const point = getMaskPoint(event);
+        lastMaskPoint = point;
+        drawMaskDot(point);
+    }
+
+    function continueDrawMask(event: PointerEvent) {
+        if (!isDrawingMask || !lastMaskPoint) return;
+        event.preventDefault();
+
+        const point = getMaskPoint(event);
+        const ctx = drawMaskCanvasElement.getContext('2d');
+        if (!ctx) return;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 80, 80, 0.55)';
+        ctx.lineWidth = drawMaskBrushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lastMaskPoint.x, lastMaskPoint.y);
+        ctx.lineTo(point.x, point.y);
+        ctx.stroke();
+        ctx.restore();
+
+        lastMaskPoint = point;
+    }
+
+    function stopDrawMask(event: PointerEvent) {
+        if (isDrawingMask) {
+            event.preventDefault();
+        }
+        isDrawingMask = false;
+        lastMaskPoint = null;
+        try {
+            drawMaskCanvasElement.releasePointerCapture(event.pointerId);
+        } catch (error) {
+            // pointer capture 可能已被浏览器释放
+        }
+    }
+
+    function clearMaskCanvas() {
+        const ctx = drawMaskCanvasElement?.getContext('2d');
+        ctx?.clearRect(0, 0, drawMaskCanvasElement.width, drawMaskCanvasElement.height);
+    }
+
+    function canvasHasMaskStrokes(canvas: HTMLCanvasElement): boolean {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return false;
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 3; i < pixels.length; i += 4) {
+            if (pixels[i] > 0) return true;
+        }
+        return false;
+    }
+
+    function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+        return new Promise(resolve => {
+            canvas.toBlob(blob => resolve(blob), 'image/png');
+        });
+    }
+
+    async function saveDrawMask() {
+        if (!drawMaskCanvasElement || !canvasHasMaskStrokes(drawMaskCanvasElement)) {
+            pushErrMsg('请先圈选需要编辑的位置');
+            return;
+        }
+
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = drawMaskCanvasElement.width;
+        maskCanvas.height = drawMaskCanvasElement.height;
+        const ctx = maskCanvas.getContext('2d');
+        if (!ctx) {
+            pushErrMsg('无法创建编辑蒙版');
+            return;
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+        const maskCtx = drawMaskCanvasElement.getContext('2d');
+        if (!maskCtx) {
+            pushErrMsg('无法读取编辑蒙版');
+            return;
+        }
+        const sourcePixels = maskCtx.getImageData(
+            0,
+            0,
+            drawMaskCanvasElement.width,
+            drawMaskCanvasElement.height
+        ).data;
+        const maskPixels = ctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+        for (let i = 3; i < maskPixels.data.length; i += 4) {
+            if (sourcePixels[i] > 0) {
+                maskPixels.data[i] = 0;
+            }
+        }
+        ctx.putImageData(maskPixels, 0, 0);
+
+        const blob = await canvasToPngBlob(maskCanvas);
+        if (!blob) {
+            pushErrMsg('无法导出编辑蒙版');
+            return;
+        }
+
+        if (blob.size > 4 * 1024 * 1024) {
+            pushErrMsg('蒙版文件超过 4MB，请缩小圈选范围后重试');
+            return;
+        }
+
+        clearDrawMask();
+        drawMaskBlob = blob;
+        drawMaskPreviewUrl = URL.createObjectURL(blob);
+        closeDrawMaskEditor();
+        pushMsg('已设置编辑蒙版');
     }
 
     // 下载图片
@@ -1159,9 +1439,39 @@
     let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置（包括未选中的）
     let toolAutoApproveSettingsAsk: Record<string, boolean> = {}; // 问答模式所有工具的 autoApprove 配置
     // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
-    $: userToolCount = (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
-        t => t.name !== 'get_siyuan_skills'
-    ).length;
+    $: userToolCount =
+        chatMode === 'draw'
+            ? 0
+            : (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
+                  t => t.name !== 'get_siyuan_skills'
+              ).length;
+
+    $: providersForModelSelector =
+        chatMode === 'draw' ? filterProvidersByImageGeneration(providers) : providers;
+
+    $: {
+        const currentConfig = getProviderAndModelConfig(currentProvider, currentModelId);
+        drawImageSizeOptions = mergeDrawAutoDetectedSizeOption(
+            getDrawImageSizeOptions(currentConfig?.providerConfig, currentConfig?.modelConfig)
+        );
+        if (!drawImageSizeOptions.some(option => option.value === drawImageSize)) {
+            drawImageSize = 'auto';
+        }
+    }
+
+    $: drawEditImageAvailable = chatMode === 'draw' && hasDrawEditImage();
+
+    $: if (chatMode === 'draw' && !isInitialLoading) {
+        syncDrawingModeState();
+    }
+
+    $: {
+        const nextMaskSourceKey = chatMode === 'draw' ? getDrawEditSourceKey() : '';
+        if (drawMaskBlob && nextMaskSourceKey !== drawMaskSourceKey) {
+            clearDrawMask();
+        }
+        drawMaskSourceKey = nextMaskSourceKey;
+    }
 
     // 记忆当前选择的模式
     $: if (chatMode && settings && !isInitialLoading) {
@@ -1267,7 +1577,10 @@
 
         // 初始化模式
         if (!settings.selectedModelPresetId && settings.lastUsedChatMode) {
-            chatMode = settings.lastUsedChatMode === 'agent' ? 'agent' : 'ask';
+            chatMode =
+                settings.lastUsedChatMode === 'agent' || settings.lastUsedChatMode === 'draw'
+                    ? settings.lastUsedChatMode
+                    : 'ask';
         }
 
         // 初始化多模型选择，过滤掉无效的模型
@@ -1601,6 +1914,11 @@
 
     // 添加文件附件
     async function addFileAttachment(file: File) {
+        if (chatMode === 'draw' && !file.type.startsWith('image/')) {
+            pushErrMsg('画图模式只能上传图片');
+            return;
+        }
+
         // 只支持文本文件和图片
         const isText =
             file.type.startsWith('text/') ||
@@ -1967,7 +2285,7 @@
                 thinkingEffort?: ThinkingEffort;
             }>;
             enableMultiModel?: boolean;
-            chatMode?: 'ask' | 'agent';
+            chatMode?: 'ask' | 'agent' | 'draw';
         }>
     ) {
         const newSettings = event.detail;
@@ -2516,6 +2834,439 @@
 
         const modelConfig = providerConfig.models.find((m: any) => m.id === modelId);
         return { providerConfig, modelConfig };
+    }
+
+    function modelSupportsImageGeneration(model: any): boolean {
+        return !!model?.capabilities?.imageGeneration;
+    }
+
+    function isGeminiImageApi(providerConfig: any, modelConfig?: any): boolean {
+        const customUrls = [
+            providerConfig?.customApiUrl,
+            providerConfig?.advancedConfig?.customChatUrl,
+            providerConfig?.advancedConfig?.customModelsUrl,
+        ]
+            .filter(Boolean)
+            .join(' ');
+
+        return (
+            currentProvider === 'gemini' ||
+            providerConfig?.advancedConfig?.chatInterface === 'gemini' ||
+            /generativelanguage\.googleapis\.com/i.test(customUrls) ||
+            (/^gemini-/i.test(modelConfig?.id || '') &&
+                providerConfig?.advancedConfig?.chatInterface === 'gemini')
+        );
+    }
+
+    function geminiModelSupportsImageSize(modelId: string): boolean {
+        return /gemini-3(?:\.\d+)?-(?:flash|pro)-image/i.test(modelId || '');
+    }
+
+    function getDrawImageSizeOptions(providerConfig: any, modelConfig: any) {
+        if (!isGeminiImageApi(providerConfig, modelConfig)) {
+            return DRAW_IMAGE_SIZE_OPTIONS;
+        }
+
+        return geminiModelSupportsImageSize(modelConfig?.id || '')
+            ? GEMINI_DRAW_IMAGE_SIZE_OPTIONS
+            : GEMINI_ASPECT_ONLY_DRAW_IMAGE_SIZE_OPTIONS;
+    }
+
+    function mergeDrawAutoDetectedSizeOption(options: DrawImageSizeOption[]) {
+        if (
+            !drawAutoDetectedSizeOption ||
+            options.some(option => option.value === drawAutoDetectedSizeOption?.value)
+        ) {
+            return options;
+        }
+
+        const [autoOption, ...restOptions] = options;
+        return [autoOption, drawAutoDetectedSizeOption, ...restOptions];
+    }
+
+    function roundToDrawSizeUnit(value: number): number {
+        return Math.max(64, Math.min(8192, Math.round(value / DRAW_IMAGE_SIZE_STEP) * DRAW_IMAGE_SIZE_STEP));
+    }
+
+    function normalizeDrawImagePixelSize(width: number, height: number) {
+        return {
+            width: roundToDrawSizeUnit(width),
+            height: roundToDrawSizeUnit(height),
+        };
+    }
+
+    function parseDrawImageSizeValue(size: string): { width: number; height: number } | null {
+        const match = String(size || '').match(/^(\d{2,5})x(\d{2,5})$/i);
+        if (!match) return null;
+        const width = Number(match[1]);
+        const height = Number(match[2]);
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            return null;
+        }
+        return { width, height };
+    }
+
+    function findKnownDrawRatioLabel(ratio: number): string | null {
+        const knownRatios = [
+            { value: 1, label: '1:1' },
+            { value: 3 / 2, label: '3:2' },
+            { value: 2 / 3, label: '2:3' },
+            { value: 2.35, label: '2.35:1' },
+            { value: 16 / 9, label: '16:9' },
+            { value: 9 / 16, label: '9:16' },
+            { value: 21 / 9, label: '21:9' },
+            { value: 4 / 3, label: '4:3' },
+            { value: 3 / 4, label: '3:4' },
+        ];
+        const matched = knownRatios.find(item => Math.abs(item.value - ratio) < 0.015);
+        return matched?.label || null;
+    }
+
+    function formatDrawRatio(width: number, height: number): string {
+        const knownLabel = findKnownDrawRatioLabel(width / height);
+        if (knownLabel) return knownLabel;
+
+        if (width >= height) {
+            return `${Number((width / height).toFixed(2))}:1`;
+        }
+
+        return `1:${Number((height / width).toFixed(2))}`;
+    }
+
+    function createDrawImageSizeOption(width: number, height: number): DrawImageSizeOption {
+        const normalizedSize = normalizeDrawImagePixelSize(width, height);
+        const size = `${normalizedSize.width}x${normalizedSize.height}`;
+        const orientation =
+            normalizedSize.width === normalizedSize.height
+                ? '正方形'
+                : normalizedSize.width > normalizedSize.height
+                  ? '横版'
+                  : '竖版';
+        const existingOption = DRAW_IMAGE_SIZE_OPTIONS.find(option => option.value === size);
+        return existingOption || {
+            value: size,
+            label: `${size} ${formatDrawRatio(normalizedSize.width, normalizedSize.height)} ${orientation} 自动识别`,
+        };
+    }
+
+    function createDrawImageSizeOptionFromRatio(widthRatio: number, heightRatio: number) {
+        const minRatio = Math.min(widthRatio, heightRatio);
+        if (!Number.isFinite(minRatio) || minRatio <= 0) return null;
+
+        const scale = DRAW_IMAGE_BASE_UNIT / minRatio;
+        const width = roundToDrawSizeUnit(widthRatio * scale);
+        const height = roundToDrawSizeUnit(heightRatio * scale);
+        return createDrawImageSizeOption(width, height);
+    }
+
+    function getPromptImageSizeMatch(prompt: string) {
+        const sizePatterns = [
+            /(?:^|[^\d.])(\d{2,5})\s*(?:x|×|\*)\s*(\d{2,5})(?=$|[^\d.])/i,
+            /宽\s*(\d{2,5})\s*(?:px|像素)?\s*[，,、\s]*(?:高|高度)\s*(\d{2,5})/i,
+        ];
+
+        for (const pattern of sizePatterns) {
+            const match = prompt.match(pattern);
+            if (!match) continue;
+            const width = Number(match[1]);
+            const height = Number(match[2]);
+            if (
+                Number.isFinite(width) &&
+                Number.isFinite(height) &&
+                width >= 64 &&
+                height >= 64 &&
+                width <= 8192 &&
+                height <= 8192
+            ) {
+                return createDrawImageSizeOption(width, height);
+            }
+        }
+
+        return null;
+    }
+
+    function getPromptImageRatioMatch(prompt: string) {
+        const ratioPatterns = [
+            /(?:比例|宽高比|画幅|纵横比|aspect\s*ratio|ratio)\s*(?:为|是|=|:|：)?\s*(\d+(?:\.\d+)?)\s*(?:[:：]|比)\s*(\d+(?:\.\d+)?)/i,
+            /(?:^|[^\d.])(\d+\.\d+)\s*[:：]\s*(\d+(?:\.\d+)?)(?=$|[^\d.])/i,
+            /(?:^|[^\d.])(1|2|3|4|9|16|21)\s*[:：]\s*(1|2|3|4|9|16|21)(?=$|[^\d.])/i,
+        ];
+
+        for (const pattern of ratioPatterns) {
+            const match = prompt.match(pattern);
+            if (!match) continue;
+            const widthRatio = Number(match[1]);
+            const heightRatio = Number(match[2]);
+            if (
+                Number.isFinite(widthRatio) &&
+                Number.isFinite(heightRatio) &&
+                widthRatio > 0 &&
+                heightRatio > 0 &&
+                widthRatio <= 50 &&
+                heightRatio <= 50
+            ) {
+                return createDrawImageSizeOptionFromRatio(widthRatio, heightRatio);
+            }
+        }
+
+        return null;
+    }
+
+    function applyPromptDrawImageSize(prompt: string) {
+        if (drawImageSize !== 'auto') return;
+
+        const detectedOption = getPromptImageSizeMatch(prompt) || getPromptImageRatioMatch(prompt);
+        if (!detectedOption) return;
+
+        drawImageSize = detectedOption.value;
+        drawAutoDetectedSizeOption = drawImageSizeOptions.some(
+            option => option.value === detectedOption.value
+        )
+            ? null
+            : detectedOption;
+    }
+
+    function filterProvidersByImageGeneration(sourceProviders: Record<string, any>) {
+        if (!sourceProviders || Object.keys(sourceProviders).length === 0) {
+            return sourceProviders || {};
+        }
+
+        const filteredProviders: Record<string, any> = { ...sourceProviders };
+        for (const [providerId, providerConfig] of Object.entries(sourceProviders)) {
+            if (
+                providerId === 'customProviders' ||
+                providerId === 'providerOrder' ||
+                providerId === 'disabledBuiltInProviders'
+            ) {
+                continue;
+            }
+            if (providerConfig && !Array.isArray(providerConfig) && providerConfig.models) {
+                filteredProviders[providerId] = {
+                    ...providerConfig,
+                    models: providerConfig.models.filter(modelSupportsImageGeneration),
+                };
+            }
+        }
+
+        if (Array.isArray(sourceProviders.customProviders)) {
+            filteredProviders.customProviders = sourceProviders.customProviders
+                .map((provider: any) => ({
+                    ...provider,
+                    models: (provider.models || []).filter(modelSupportsImageGeneration),
+                }))
+                .filter((provider: any) => provider.models.length > 0);
+        }
+
+        return filteredProviders;
+    }
+
+    function findFirstImageGenerationModel() {
+        const builtInProviders = [
+            'Achuan',
+            'gemini',
+            'deepseek',
+            'openai',
+            'volcano',
+            'moonshot',
+            'minimax',
+        ];
+        const orderedProviders = [
+            ...new Set([...(providers?.providerOrder || []), ...builtInProviders]),
+        ];
+
+        for (const providerId of orderedProviders) {
+            const providerConfig = providers?.[providerId];
+            const model = providerConfig?.models?.find(modelSupportsImageGeneration);
+            if (model && providerConfig.enabled !== false) {
+                return { provider: providerId, modelId: model.id };
+            }
+        }
+
+        if (Array.isArray(providers?.customProviders)) {
+            for (const providerConfig of providers.customProviders) {
+                const model = providerConfig?.models?.find(modelSupportsImageGeneration);
+                if (model && providerConfig.enabled !== false) {
+                    return { provider: providerConfig.id, modelId: model.id };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function hasDrawEditImage(): boolean {
+        if (currentAttachments.some(att => att.type === 'image')) {
+            return true;
+        }
+
+        return !!getLastAssistantMessageForDrawEdit();
+    }
+
+    function hasMessageImageForDrawEdit(message: Message): boolean {
+        return !!(
+            message.generatedImages?.length ||
+            message.attachments?.some(att => att.type === 'image') ||
+            (typeof message.content === 'string' && /!\[.*?\]\(([^)]+)\)/.test(message.content))
+        );
+    }
+
+    function getLastAssistantMessageForDrawEdit(): Message | null {
+        return (
+            [...messages]
+                .reverse()
+                .find(msg => msg.role === 'assistant' && hasMessageImageForDrawEdit(msg)) || null
+        );
+    }
+
+    function getDrawSelectableImageCount(message: Message): number {
+        const generatedCount = message.generatedImages?.length || 0;
+        const attachmentCount = message.attachments?.filter(att => att.type === 'image').length || 0;
+        return Math.max(generatedCount, attachmentCount);
+    }
+
+    function getDrawSelectedImageIndex(message: Message): number | null {
+        const imageCount = getDrawSelectableImageCount(message);
+        if (imageCount <= 0) return null;
+        if (imageCount === 1) return 0;
+
+        const selectedIndex = message.drawSelectedImageIndex;
+        return Number.isInteger(selectedIndex) &&
+            selectedIndex !== undefined &&
+            selectedIndex >= 0 &&
+            selectedIndex < imageCount
+            ? selectedIndex
+            : null;
+    }
+
+    function isDrawImageSelectionRequired(message: Message): boolean {
+        return (
+            message.role === 'assistant' &&
+            getDrawSelectableImageCount(message) > 1 &&
+            getDrawSelectedImageIndex(message) === null
+        );
+    }
+
+    function shouldShowDrawImageChoice(message: Message): boolean {
+        return message.role === 'assistant' && getDrawSelectableImageCount(message) > 1;
+    }
+
+    function getImageAttachmentIndex(message: Message, attachmentIndex: number): number {
+        return (
+            message.attachments
+                ?.slice(0, attachmentIndex + 1)
+                .filter(att => att.type === 'image').length || 0
+        ) - 1;
+    }
+
+    function isDrawAttachmentSelected(message: Message, attachmentIndex: number): boolean {
+        if (!shouldShowDrawImageChoice(message)) return false;
+        const imageIndex = getImageAttachmentIndex(message, attachmentIndex);
+        return getDrawSelectedImageIndex(message) === imageIndex;
+    }
+
+    function hasPendingDrawImageSelectionForEdit(): boolean {
+        const lastAssistantMsg = getLastAssistantMessageForDrawEdit();
+        return !!lastAssistantMsg && isDrawImageSelectionRequired(lastAssistantMsg);
+    }
+
+    function selectDrawGeneratedImage(messageIndex: number, imageIndex: number) {
+        const message = messages[messageIndex];
+        if (!message || !shouldShowDrawImageChoice(message)) return;
+
+        message.drawSelectedImageIndex = imageIndex;
+        message.drawImageSelectionRequired = false;
+        messages = [...messages];
+        hasUnsavedChanges = true;
+        saveCurrentSession(true).catch(error => {
+            console.error('Failed to save draw image selection:', error);
+        });
+        pushMsg(`已选择第 ${imageIndex + 1} 张图片用于继续编辑`);
+    }
+
+    function getDrawEditSourceKey(): string {
+        const currentImage = currentAttachments.find(att => att.type === 'image');
+        if (currentImage) {
+            return currentImage.path || currentImage.data || currentImage.name;
+        }
+
+        const lastAssistantMsg = getLastAssistantMessageForDrawEdit();
+        if (!lastAssistantMsg) {
+            return '';
+        }
+
+        const selectedIndex = getDrawSelectedImageIndex(lastAssistantMsg);
+        if (
+            getDrawSelectableImageCount(lastAssistantMsg) > 1 &&
+            selectedIndex === null
+        ) {
+            return 'pending-draw-image-selection';
+        }
+
+        const imageIndex = selectedIndex ?? 0;
+        const generatedImage = lastAssistantMsg.generatedImages?.[imageIndex] as any;
+        if (generatedImage) {
+            return generatedImage.path || generatedImage.previewUrl || generatedImage.url || '';
+        }
+
+        const attachment = lastAssistantMsg.attachments?.filter(att => att.type === 'image')[
+            imageIndex
+        ];
+        if (attachment) {
+            return attachment.path || attachment.data || attachment.name;
+        }
+
+        if (typeof lastAssistantMsg.content === 'string') {
+            const match = lastAssistantMsg.content.match(/!\[.*?\]\(([^)]+)\)/);
+            return match?.[1] || '';
+        }
+
+        return '';
+    }
+
+    function syncDrawingModeState() {
+        if (enableMultiModel) {
+            enableMultiModel = false;
+            multiModelResponses = [];
+            isWaitingForAnswerSelection = false;
+            selectedAnswerIndex = null;
+        }
+
+        if (isToolSelectorOpen) {
+            isToolSelectorOpen = false;
+        }
+
+        if (contextDocuments.length > 0) {
+            contextDocuments = [];
+        }
+
+        const imageAttachments = currentAttachments.filter(att => att.type === 'image');
+        if (imageAttachments.length !== currentAttachments.length) {
+            currentAttachments = imageAttachments;
+        }
+
+        const currentConfig = getProviderAndModelConfig(currentProvider, currentModelId);
+        if (modelSupportsImageGeneration(currentConfig?.modelConfig)) {
+            drawModeNoModelWarned = false;
+            return;
+        }
+
+        const firstImageModel = findFirstImageGenerationModel();
+        if (firstImageModel) {
+            currentProvider = firstImageModel.provider;
+            currentModelId = firstImageModel.modelId;
+            settings.currentProvider = firstImageModel.provider;
+            settings.currentModelId = firstImageModel.modelId;
+            plugin.saveSettings(settings);
+            drawModeNoModelWarned = false;
+        } else if (!drawModeNoModelWarned) {
+            drawModeNoModelWarned = true;
+            pushErrMsg('画图模式需要先为至少一个模型勾选“生图”能力');
+        }
+    }
+
+    function normalizeDrawImageCount() {
+        const parsed = Number(drawImageCount);
+        drawImageCount = Math.max(1, Math.min(10, Number.isFinite(parsed) ? parsed : 1));
     }
 
     // 多模型发送消息
@@ -3755,6 +4506,757 @@
         }
     }
 
+    function getBuiltInImageApiBaseUrl(providerId: string): string {
+        try {
+            return getProviderConfig(providerId as any)?.baseUrl || '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function normalizeOpenAIImageApiBaseUrl(rawUrl: string): string {
+        let url = rawUrl.trim().replace(/#$/, '').replace(/\/+$/, '');
+        url = url
+            .replace(/\/v1\/chat\/completions$/i, '/v1')
+            .replace(/\/chat\/completions$/i, '')
+            .replace(/\/v1\/images\/(?:generations|edits)$/i, '/v1')
+            .replace(/\/images\/(?:generations|edits)$/i, '')
+            .replace(/\/v1\/models$/i, '/v1')
+            .replace(/\/models$/i, '');
+
+        if (/\/v\d+(?:beta)?$/i.test(url)) {
+            return url;
+        }
+
+        return `${url}/v1`;
+    }
+
+    function getOpenAIImageEndpointUrl(providerConfig: any, endpoint: '/images/generations' | '/images/edits') {
+        const rawBaseUrl =
+            providerConfig?.customApiUrl?.trim() || getBuiltInImageApiBaseUrl(currentProvider);
+        if (!rawBaseUrl) {
+            throw new Error('当前平台未配置 API URL，无法调用图片接口');
+        }
+
+        return `${normalizeOpenAIImageApiBaseUrl(rawBaseUrl)}${endpoint}`;
+    }
+
+    function normalizeGeminiImageApiBaseUrl(rawUrl: string): string {
+        return rawUrl
+            .trim()
+            .replace(/#$/, '')
+            .replace(/\/+$/, '')
+            .replace(/\/v\d+(?:beta)?\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i, '')
+            .replace(/\/v\d+(?:beta)?\/models$/i, '');
+    }
+
+    function getGeminiImageEndpointUrl(providerConfig: any, modelConfig: any): string {
+        const rawBaseUrl =
+            providerConfig?.advancedConfig?.customChatUrl?.trim() ||
+            providerConfig?.customApiUrl?.trim() ||
+            getBuiltInImageApiBaseUrl(currentProvider);
+        if (!rawBaseUrl) {
+            throw new Error('当前平台未配置 API URL，无法调用 Gemini 图片接口');
+        }
+
+        const modelId = String(modelConfig?.id || '').replace(/^models\//, '');
+        const normalizedUrl = rawBaseUrl
+            .trim()
+            .replace(/#$/, '')
+            .replace(/\/+$/, '')
+            .replace(/\{model\}/g, modelId);
+        if (/:(?:streamGenerateContent|generateContent)(?:\?.*)?$/i.test(normalizedUrl)) {
+            return normalizedUrl.replace(/:streamGenerateContent/i, ':generateContent');
+        }
+
+        return `${normalizeGeminiImageApiBaseUrl(rawBaseUrl)}/v1beta/models/${modelId}:generateContent`;
+    }
+
+    async function getImageApiError(response: Response, fallback: string): Promise<string> {
+        try {
+            const errorData = await response.json();
+            const detailMsg =
+                errorData.error?.message ||
+                errorData.message ||
+                errorData.error ||
+                JSON.stringify(errorData);
+            return `${fallback}: ${response.status} ${response.statusText}\n\n${detailMsg}`;
+        } catch (error) {
+            try {
+                const errorText = await response.text();
+                return `${fallback}: ${response.status} ${response.statusText}${
+                    errorText ? `\n\n${errorText}` : ''
+                }`;
+            } catch (textError) {
+                return `${fallback}: ${response.status} ${response.statusText}`;
+            }
+        }
+    }
+
+    async function imageAttachmentToBlob(attachment: MessageAttachment): Promise<Blob> {
+        if (attachment.path) {
+            const blob = await getFileBlob(attachment.path);
+            if (blob) return blob;
+        }
+
+        if (attachment.data) {
+            const response = await fetch(attachment.data);
+            return await response.blob();
+        }
+
+        throw new Error(`无法读取图片：${attachment.name}`);
+    }
+
+    function getImageFileExtension(mimeType?: string): string {
+        const ext = (mimeType || 'image/png').split('/')[1] || 'png';
+        return ext === 'jpeg' ? 'jpg' : ext;
+    }
+
+    function createGeneratedImageFileName(mimeType?: string, index?: number): string {
+        const now = new Date();
+        const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+        const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-${pad(now.getMilliseconds(), 3)}`;
+        generatedImageFileSequence = (generatedImageFileSequence + 1) % 1000;
+        const suffix = index === undefined ? generatedImageFileSequence : index + 1;
+        return `${timestamp}-${pad(suffix, 3)}.${getImageFileExtension(mimeType)}`;
+    }
+
+    async function blobToBase64String(blob: Blob): Promise<string> {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+            reader.readAsDataURL(blob);
+        });
+        return dataUrl.split(',')[1] || '';
+    }
+
+    function getClosestGeminiAspectRatio(width: number, height: number): string {
+        const ratio = width / height;
+        const supportedRatios = [
+            { value: 1, label: '1:1' },
+            { value: 4 / 3, label: '4:3' },
+            { value: 3 / 4, label: '3:4' },
+            { value: 3 / 2, label: '3:2' },
+            { value: 2 / 3, label: '2:3' },
+            { value: 16 / 9, label: '16:9' },
+            { value: 9 / 16, label: '9:16' },
+            { value: 21 / 9, label: '21:9' },
+        ];
+
+        return supportedRatios.reduce((best, item) =>
+            Math.abs(item.value - ratio) < Math.abs(best.value - ratio) ? item : best
+        ).label;
+    }
+
+    function getGeminiImageConfig(modelId: string, size: DrawImageSize) {
+        const sizeMap: Record<string, { aspectRatio: string; imageSize?: '2K' | '4K' }> = {
+            '1024x1024': { aspectRatio: '1:1' },
+            '1536x1024': { aspectRatio: '3:2' },
+            '1024x1536': { aspectRatio: '2:3' },
+            '1536x1152': { aspectRatio: '4:3' },
+            '1152x1536': { aspectRatio: '3:4' },
+            '1504x640': { aspectRatio: '21:9' },
+            '2048x2048': { aspectRatio: '1:1', imageSize: '2K' },
+            '2048x1152': { aspectRatio: '16:9', imageSize: '2K' },
+            '3840x2160': { aspectRatio: '16:9', imageSize: '4K' },
+            '2160x3840': { aspectRatio: '9:16', imageSize: '4K' },
+        };
+        const parsedSize = parseDrawImageSizeValue(size);
+        const config = sizeMap[size] || (parsedSize
+            ? { aspectRatio: getClosestGeminiAspectRatio(parsedSize.width, parsedSize.height) }
+            : null);
+        if (!config) return null;
+
+        if (!geminiModelSupportsImageSize(modelId)) {
+            return { aspectRatio: config.aspectRatio };
+        }
+
+        return config;
+    }
+
+    async function buildGeminiImageParts(
+        prompt: string,
+        editImageSources: MessageAttachment[],
+        maskBlob: Blob | null
+    ) {
+        const parts: Array<Record<string, any>> = [{ text: prompt }];
+
+        for (const imageSource of editImageSources) {
+            const blob = await imageAttachmentToBlob(imageSource);
+            parts.push({
+                inline_data: {
+                    mime_type: blob.type || imageSource.mimeType || 'image/png',
+                    data: await blobToBase64String(blob),
+                },
+            });
+        }
+
+        if (maskBlob) {
+            parts.push({
+                text: '以下 PNG 蒙版应用于第一张参考图片：完全透明区域表示需要修改的位置，请尽量只编辑这些区域。',
+            });
+            parts.push({
+                inline_data: {
+                    mime_type: 'image/png',
+                    data: await blobToBase64String(maskBlob),
+                },
+            });
+        }
+
+        return parts;
+    }
+
+    function extractGeminiImagesFromResponse(data: any, prompt: string) {
+        const images: any[] = [];
+
+        for (const candidate of data?.candidates || []) {
+            const parts = candidate?.content?.parts || [];
+            const responseText = parts
+                .map((part: any) => part.text)
+                .filter(Boolean)
+                .join('\n');
+
+            for (const part of parts) {
+                const inlineData = part.inline_data || part.inlineData;
+                if (!inlineData?.data) continue;
+
+                images.push({
+                    data: inlineData.data,
+                    mimeType: inlineData.mime_type || inlineData.mimeType || 'image/png',
+                    revisedPrompt: responseText || prompt,
+                });
+            }
+        }
+
+        return images;
+    }
+
+    async function requestGeminiDrawImages(
+        providerConfig: any,
+        modelConfig: any,
+        prompt: string,
+        editImageSources: MessageAttachment[],
+        maskBlob: Blob | null,
+        signal: AbortSignal
+    ) {
+        const isEdit = editImageSources.length > 0;
+        const url = getGeminiImageEndpointUrl(providerConfig, modelConfig);
+        const imageConfig = getGeminiImageConfig(modelConfig.id, drawImageSize);
+        const generationConfig: Record<string, any> = {
+            responseModalities: ['Image'],
+        };
+        if (imageConfig) {
+            generationConfig.imageConfig = imageConfig;
+        }
+
+        const requestOnce = async () => {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': providerConfig.apiKey,
+                },
+                body: JSON.stringify({
+                    contents: [
+                        {
+                            role: 'user',
+                            parts: await buildGeminiImageParts(prompt, editImageSources, maskBlob),
+                        },
+                    ],
+                    generationConfig,
+                }),
+                signal,
+            });
+
+            if (!response.ok) {
+                throw new Error(
+                    await getImageApiError(response, isEdit ? 'Gemini 图片编辑失败' : 'Gemini 图片生成失败')
+                );
+            }
+
+            return extractGeminiImagesFromResponse(await response.json(), prompt);
+        };
+
+        const count = Math.max(1, Math.min(10, Number(drawImageCount) || 1));
+        const rawImages = (await Promise.all(Array.from({ length: count }, () => requestOnce()))).flat();
+        const savedImages = await Promise.all(rawImages.map(saveGeneratedImageFromApiResult));
+        return savedImages.filter(Boolean);
+    }
+
+    async function collectPreviousGeneratedImagesForDraw(): Promise<MessageAttachment[]> {
+        const lastAssistantMsg = getLastAssistantMessageForDrawEdit();
+        if (!lastAssistantMsg) {
+            return [];
+        }
+
+        if (lastAssistantMsg.generatedImages && lastAssistantMsg.generatedImages.length > 0) {
+            const selectedIndex = getDrawSelectedImageIndex(lastAssistantMsg);
+            if (lastAssistantMsg.generatedImages.length > 1 && selectedIndex === null) {
+                return [];
+            }
+            const imagesToUse =
+                selectedIndex === null
+                    ? lastAssistantMsg.generatedImages
+                    : [lastAssistantMsg.generatedImages[selectedIndex]];
+            return await Promise.all(
+                imagesToUse.map(async (img: any, index) => {
+                    const mimeType = img.mimeType || 'image/png';
+                    let data = img.previewUrl || img.url || '';
+                    if (!data && img.path) {
+                        data = (await loadAsset(img.path)) || '';
+                    } else if (!data && img.data) {
+                        data = `data:${mimeType};base64,${img.data}`;
+                    }
+
+                    return {
+                        type: 'image' as const,
+                        name: `previous-generated-image-${index + 1}.${mimeType.split('/')[1] || 'png'}`,
+                        data,
+                        path: img.path,
+                        mimeType,
+                    };
+                })
+            );
+        }
+
+        const imageAttachments =
+            lastAssistantMsg.attachments?.filter(att => att.type === 'image') || [];
+        if (imageAttachments.length > 0) {
+            const selectedIndex = getDrawSelectedImageIndex(lastAssistantMsg);
+            if (imageAttachments.length > 1 && selectedIndex === null) {
+                return [];
+            }
+            const attachmentsToUse =
+                selectedIndex === null ? imageAttachments : [imageAttachments[selectedIndex]];
+            return await Promise.all(
+                attachmentsToUse.map(async att => {
+                    if (att.data || !att.path) {
+                        return att;
+                    }
+                    return {
+                        ...att,
+                        data: (await loadAsset(att.path)) || '',
+                    };
+                })
+            );
+        }
+
+        if (typeof lastAssistantMsg.content === 'string') {
+            const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+            const imageAttachmentsFromMarkdown: MessageAttachment[] = [];
+            let match;
+            while ((match = imageRegex.exec(lastAssistantMsg.content)) !== null) {
+                const url = match[2];
+                const data = url.startsWith('/data/storage/petal/siyuan-plugin-copilot/assets/')
+                    ? (await loadAsset(url)) || ''
+                    : url;
+                if (data) {
+                    imageAttachmentsFromMarkdown.push({
+                        type: 'image',
+                        name: match[1] || `previous-generated-image-${imageAttachmentsFromMarkdown.length + 1}.png`,
+                        data,
+                        path: url.startsWith('/data/storage/petal/siyuan-plugin-copilot/assets/')
+                            ? url
+                            : undefined,
+                        mimeType: 'image/png',
+                    });
+                }
+            }
+            return imageAttachmentsFromMarkdown;
+        }
+
+        return [];
+    }
+
+    async function collectDrawEditImageSources(userImageAttachments: MessageAttachment[]) {
+        if (userImageAttachments.length > 0) {
+            return userImageAttachments;
+        }
+
+        return await collectPreviousGeneratedImagesForDraw();
+    }
+
+    async function saveGeneratedImageFromApiResult(image: any, index: number) {
+        const mimeType = image.mime_type || image.mimeType || 'image/png';
+        let blob: Blob | null = null;
+        let previewUrl = image.url || '';
+
+        if (image.b64_json || image.data) {
+            blob = base64ToBlob(image.b64_json || image.data, mimeType);
+        } else if (image.url) {
+            try {
+                const response = await fetch(image.url);
+                blob = await response.blob();
+            } catch (error) {
+                console.error('Failed to download generated image:', error);
+            }
+        }
+
+        if (!blob) {
+            return {
+                mimeType,
+                data: '',
+                path: '',
+                previewUrl,
+                revisedPrompt: image.revised_prompt || image.revisedPrompt,
+            };
+        }
+
+        const actualMimeType = blob.type || mimeType;
+        const name = createGeneratedImageFileName(actualMimeType, index);
+        const assetPath = await saveAsset(blob, name);
+        previewUrl = URL.createObjectURL(blob);
+
+        return {
+            name,
+            mimeType: actualMimeType,
+            data: '',
+            path: assetPath,
+            previewUrl,
+            revisedPrompt: image.revised_prompt || image.revisedPrompt,
+        };
+    }
+
+    async function requestDrawImages(
+        providerConfig: any,
+        modelConfig: any,
+        prompt: string,
+        editImageSources: MessageAttachment[],
+        maskBlob: Blob | null,
+        signal: AbortSignal
+    ) {
+        if (isGeminiImageApi(providerConfig, modelConfig)) {
+            return await requestGeminiDrawImages(
+                providerConfig,
+                modelConfig,
+                prompt,
+                editImageSources,
+                maskBlob,
+                signal
+            );
+        }
+
+        const isEdit = editImageSources.length > 0;
+        const url = getOpenAIImageEndpointUrl(
+            providerConfig,
+            isEdit ? '/images/edits' : '/images/generations'
+        );
+
+        let response: Response;
+        if (isEdit) {
+            const formData = new FormData();
+            formData.append('model', modelConfig.id);
+            formData.append('prompt', prompt);
+            formData.append('n', String(drawImageCount));
+            formData.append('size', drawImageSize);
+            formData.append('quality', drawImageQuality);
+
+            for (const [index, imageSource] of editImageSources.entries()) {
+                const blob = await imageAttachmentToBlob(imageSource);
+                const mimeType = blob.type || imageSource.mimeType || 'image/png';
+                const ext = mimeType.split('/')[1] || 'png';
+                formData.append(
+                    'image',
+                    new File([blob], imageSource.name || `image-${index + 1}.${ext}`, {
+                        type: mimeType,
+                    })
+                );
+            }
+
+            if (maskBlob) {
+                formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
+            }
+
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${providerConfig.apiKey}`,
+                },
+                body: formData,
+                signal,
+            });
+        } else {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${providerConfig.apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: modelConfig.id,
+                    prompt,
+                    n: drawImageCount,
+                    size: drawImageSize,
+                    quality: drawImageQuality,
+                }),
+                signal,
+            });
+        }
+
+        if (!response.ok) {
+            throw new Error(await getImageApiError(response, isEdit ? '图片编辑失败' : '图片生成失败'));
+        }
+
+        const data = await response.json();
+        const rawImages = Array.isArray(data.data)
+            ? data.data
+            : Array.isArray(data.images)
+              ? data.images
+              : data.url || data.b64_json || typeof data.data === 'string'
+                ? [data]
+                : [];
+
+        const savedImages = await Promise.all(rawImages.map(saveGeneratedImageFromApiResult));
+        return savedImages.filter(Boolean);
+    }
+
+    function buildDrawAssistantContent(images: any[], isEdit: boolean): string {
+        const revisedPrompts = images
+            .map(img => img.revisedPrompt)
+            .filter(Boolean)
+            .map(prompt => `- ${prompt}`)
+            .join('\n');
+
+        const title = isEdit ? '图片编辑完成' : '图片生成完成';
+        if (!revisedPrompts) {
+            return `${title}，共 ${images.length} 张。`;
+        }
+
+        return `${title}，共 ${images.length} 张。\n\n修订后的提示词：\n${revisedPrompts}`;
+    }
+
+    async function sendDrawModeMessage(providerConfig: any, modelConfig: any) {
+        const userContent = currentInput.trim();
+        if (!userContent) {
+            pushErrMsg('请输入画图提示词');
+            isLoading = false;
+            return;
+        }
+
+        if (!modelSupportsImageGeneration(modelConfig)) {
+            pushErrMsg('画图模式只能使用已勾选“生图”能力的模型');
+            isLoading = false;
+            return;
+        }
+
+        normalizeDrawImageCount();
+        applyPromptDrawImageSize(userContent);
+
+        const userAttachments = [...currentAttachments];
+        const userImageAttachments = userAttachments.filter(att => att.type === 'image');
+        if (userImageAttachments.length === 0 && hasPendingDrawImageSelectionForEdit()) {
+            pushErrMsg('请先选择一张满意的图片，再继续编辑');
+            isLoading = false;
+            return;
+        }
+        const editImageSources = await collectDrawEditImageSources(userImageAttachments);
+        const maskBlobForRequest = editImageSources.length > 0 ? drawMaskBlob : null;
+        const isEdit = editImageSources.length > 0;
+
+        const userMessage: Message = {
+            role: 'user',
+            content: userContent,
+            attachments: userImageAttachments.length > 0 ? userImageAttachments : undefined,
+        };
+
+        messages = [...messages, userMessage];
+        currentInput = '';
+        currentAttachments = [];
+        contextDocuments = [];
+        clearDrawMask();
+        isAborted = false;
+        streamingMessage = isEdit ? '正在编辑图片...' : '正在生成图片...';
+        streamingThinking = '';
+        isThinkingPhase = false;
+        hasUnsavedChanges = true;
+        autoScroll = true;
+
+        await scrollToBottom(true);
+
+        const userMessages = messages.filter(m => m.role === 'user');
+        if (userMessages.length === 1 && !currentSessionId) {
+            const now = Date.now();
+            const newSession: ChatSession = {
+                id: `session_${now}`,
+                title: generateSessionTitle(),
+                messages: [...messages],
+                createdAt: now,
+                updatedAt: now,
+            };
+            sessions = [newSession, ...sessions];
+            currentSessionId = newSession.id;
+            await saveSessions();
+            autoRenameSession(userContent);
+        }
+
+        abortController = new AbortController();
+
+        try {
+            const generatedImages = await requestDrawImages(
+                providerConfig,
+                modelConfig,
+                userContent,
+                editImageSources,
+                maskBlobForRequest,
+                abortController.signal
+            );
+
+            if (isAborted) {
+                return;
+            }
+
+            if (generatedImages.length === 0) {
+                throw new Error('图片接口没有返回可用图片');
+            }
+
+            const assistantMessage: Message = {
+                role: 'assistant',
+                content: buildDrawAssistantContent(generatedImages, isEdit),
+                generatedImages: generatedImages.map(img => ({
+                    name: img.name,
+                    mimeType: img.mimeType,
+                    data: '',
+                    path: img.path,
+                    url: img.previewUrl && !img.path ? img.previewUrl : undefined,
+                })),
+                drawImageSelectionRequired: generatedImages.length > 1,
+                drawSelectedImageIndex: generatedImages.length === 1 ? 0 : undefined,
+                attachments: generatedImages.map((img, index) => ({
+                    type: 'image' as const,
+                    name: img.name || createGeneratedImageFileName(img.mimeType, index),
+                    data: img.previewUrl,
+                    path: img.path,
+                    mimeType: img.mimeType || 'image/png',
+                })),
+            };
+
+            messages = [...messages, assistantMessage];
+            streamingMessage = '';
+            isLoading = false;
+            abortController = null;
+            hasUnsavedChanges = true;
+
+            await saveCurrentSession(true);
+            autoRenameSession(userContent);
+        } catch (error) {
+            if ((error as Error).name === 'AbortError' || (error as Error).message === 'Request aborted') {
+                isAborted = true;
+            } else {
+                const errorMessage: Message = {
+                    role: 'assistant',
+                    content: `❌ **${i18n('aiSidebar.errors.requestFailed')}**\n\n${(error as Error).message}`,
+                };
+                messages = [...messages, errorMessage];
+                hasUnsavedChanges = true;
+            }
+            streamingMessage = '';
+            isLoading = false;
+            abortController = null;
+        }
+    }
+
+    async function regenerateDrawModeMessage(
+        lastUserMessage: Message,
+        providerConfig: any,
+        modelConfig: any
+    ) {
+        const userContent =
+            typeof lastUserMessage.content === 'string'
+                ? lastUserMessage.content.trim()
+                : getMessageText(lastUserMessage.content).trim();
+
+        if (!userContent) {
+            pushErrMsg('请输入画图提示词');
+            isLoading = false;
+            return;
+        }
+
+        if (!modelSupportsImageGeneration(modelConfig)) {
+            pushErrMsg('画图模式只能使用已勾选“生图”能力的模型');
+            isLoading = false;
+            return;
+        }
+
+        normalizeDrawImageCount();
+        applyPromptDrawImageSize(userContent);
+
+        const userImageAttachments =
+            lastUserMessage.attachments?.filter(att => att.type === 'image') || [];
+        if (userImageAttachments.length === 0 && hasPendingDrawImageSelectionForEdit()) {
+            pushErrMsg('请先选择一张满意的图片，再继续编辑');
+            isLoading = false;
+            return;
+        }
+        const editImageSources = await collectDrawEditImageSources(userImageAttachments);
+        const maskBlobForRequest = editImageSources.length > 0 ? drawMaskBlob : null;
+        const isEdit = editImageSources.length > 0;
+
+        abortController = new AbortController();
+        streamingMessage = isEdit ? '正在编辑图片...' : '正在生成图片...';
+
+        try {
+            const generatedImages = await requestDrawImages(
+                providerConfig,
+                modelConfig,
+                userContent,
+                editImageSources,
+                maskBlobForRequest,
+                abortController.signal
+            );
+
+            if (isAborted) {
+                return;
+            }
+
+            if (generatedImages.length === 0) {
+                throw new Error('图片接口没有返回可用图片');
+            }
+
+            const assistantMessage: Message = {
+                role: 'assistant',
+                content: buildDrawAssistantContent(generatedImages, isEdit),
+                generatedImages: generatedImages.map(img => ({
+                    name: img.name,
+                    mimeType: img.mimeType,
+                    data: '',
+                    path: img.path,
+                    url: img.previewUrl && !img.path ? img.previewUrl : undefined,
+                })),
+                drawImageSelectionRequired: generatedImages.length > 1,
+                drawSelectedImageIndex: generatedImages.length === 1 ? 0 : undefined,
+                attachments: generatedImages.map((img, index) => ({
+                    type: 'image' as const,
+                    name: img.name || createGeneratedImageFileName(img.mimeType, index),
+                    data: img.previewUrl,
+                    path: img.path,
+                    mimeType: img.mimeType || 'image/png',
+                })),
+            };
+
+            clearDrawMask();
+            messages = [...messages, assistantMessage];
+            streamingMessage = '';
+            isLoading = false;
+            abortController = null;
+            hasUnsavedChanges = true;
+
+            await saveCurrentSession(true);
+        } catch (error) {
+            if ((error as Error).name !== 'AbortError') {
+                const errorMessage: Message = {
+                    role: 'assistant',
+                    content: `❌ **${i18n('aiSidebar.errors.requestFailed')}**\n\n${(error as Error).message}`,
+                };
+                messages = [...messages, errorMessage];
+                hasUnsavedChanges = true;
+            }
+            streamingMessage = '';
+            isLoading = false;
+            abortController = null;
+        }
+    }
+
     // 发送消息
     async function sendMessage() {
         if ((!currentInput.trim() && currentAttachments.length === 0) || isLoading) return;
@@ -3780,17 +5282,25 @@
         const providerConfig = getCurrentProviderConfig();
         if (!providerConfig) {
             pushErrMsg(i18n('aiSidebar.errors.noProvider'));
+            isLoading = false;
             return;
         }
 
         if (!providerConfig.apiKey) {
             pushErrMsg(i18n('aiSidebar.errors.noApiKey'));
+            isLoading = false;
             return;
         }
 
         const modelConfig = getCurrentModelConfig();
         if (!modelConfig) {
             pushErrMsg(i18n('aiSidebar.errors.noModel'));
+            isLoading = false;
+            return;
+        }
+
+        if (chatMode === 'draw') {
+            await sendDrawModeMessage(providerConfig, modelConfig);
             return;
         }
 
@@ -3802,6 +5312,7 @@
             } catch (e) {
                 console.error('Failed to parse custom body:', e);
                 pushErrMsg('自定义参数 JSON 格式错误');
+                isLoading = false;
                 return;
             }
         }
@@ -4907,12 +6418,14 @@
                                         img.data,
                                         img.mimeType || 'image/png'
                                     );
-                                    const name = `generated-image-${Date.now()}-${idx + 1}.${
-                                        img.mimeType?.split('/')[1] || 'png'
-                                    }`;
+                                    const name = createGeneratedImageFileName(
+                                        img.mimeType || 'image/png',
+                                        idx
+                                    );
                                     const assetPath = await saveAsset(blob, name);
                                     return {
                                         ...img,
+                                        name,
                                         path: assetPath,
                                         // 给前端显示用的 blob url
                                         previewUrl: URL.createObjectURL(blob),
@@ -4974,9 +6487,12 @@
                                 // 添加为附件以便显示（使用blob URL）
                                 assistantMessage.attachments = generatedImages.map((img, idx) => ({
                                     type: 'image' as const,
-                                    name: `generated-image-${idx + 1}.${
-                                        img.mimeType?.split('/')[1] || 'png'
-                                    }`,
+                                    name:
+                                        img.name ||
+                                        createGeneratedImageFileName(
+                                            img.mimeType || 'image/png',
+                                            idx
+                                        ),
                                     data: img.previewUrl, // 使用 blob URL 显示
                                     path: img.path, // 保存路径用于持久化
                                     mimeType: img.mimeType || 'image/png',
@@ -7561,7 +9077,9 @@
                                     );
                                     const ext =
                                         (img.mimeType || 'image/png').split('/')[1] || 'png';
-                                    const name = `generated-image-${Date.now()}.${ext}`;
+                                    const name = createGeneratedImageFileName(
+                                        `image/${ext === 'jpeg' ? 'jpg' : ext}`
+                                    );
                                     const assetPath = await saveAsset(blob, name);
 
                                     // 更新图片信息
@@ -9300,6 +10818,11 @@
 
         await scrollToBottom(true);
 
+        if (chatMode === 'draw') {
+            await regenerateDrawModeMessage(lastUserMessage, providerConfig, modelConfig);
+            return;
+        }
+
         // 获取最后一条用户消息关联的上下文文档，并获取最新内容
         const contextDocumentsWithLatestContent: ContextDocument[] = [];
         const userContextDocs = lastUserMessage.contextDocuments || [];
@@ -10267,12 +11790,14 @@
                                         img.data,
                                         img.mimeType || 'image/png'
                                     );
-                                    const name = `generated-image-${Date.now()}-${idx + 1}.${
-                                        img.mimeType?.split('/')[1] || 'png'
-                                    }`;
+                                    const name = createGeneratedImageFileName(
+                                        img.mimeType || 'image/png',
+                                        idx
+                                    );
                                     const assetPath = await saveAsset(blob, name);
                                     return {
                                         ...img,
+                                        name,
                                         path: assetPath,
                                         // 给前端显示用的 blob url
                                         previewUrl: URL.createObjectURL(blob),
@@ -10317,9 +11842,12 @@
                                 // 添加为附件以便显示（使用blob URL）
                                 assistantMessage.attachments = generatedImages.map((img, idx) => ({
                                     type: 'image' as const,
-                                    name: `generated-image-${idx + 1}.${
-                                        img.mimeType?.split('/')[1] || 'png'
-                                    }`,
+                                    name:
+                                        img.name ||
+                                        createGeneratedImageFileName(
+                                            img.mimeType || 'image/png',
+                                            idx
+                                        ),
                                     data: img.previewUrl, // 使用 blob URL 显示
                                     path: img.path, // 保存路径用于持久化
                                     mimeType: img.mimeType || 'image/png',
@@ -11981,13 +13509,38 @@
                                         📎 {i18n('aiSidebar.context.content')} ({contextCount})
                                     {/if}
                                 </div>
+                                {#if shouldShowDrawImageChoice(message)}
+                                    <div
+                                        class="ai-message__draw-image-selection-hint"
+                                        class:ai-message__draw-image-selection-hint--done={!isDrawImageSelectionRequired(
+                                            message
+                                        )}
+                                    >
+                                        {#if isDrawImageSelectionRequired(message)}
+                                            请选择一张满意图片用于继续编辑
+                                        {:else}
+                                            已选择第 {(getDrawSelectedImageIndex(message) ?? 0) + 1}
+                                            张图片用于继续编辑
+                                        {/if}
+                                    </div>
+                                {/if}
 
                                 <!-- 显示附件 -->
                                 {#if message.attachments && message.attachments.length > 0}
                                     <div class="ai-message__context-docs-list">
-                                        {#each message.attachments as attachment}
-                                            <div class="ai-message__attachment">
+                                        {#each message.attachments as attachment, attachmentIndex}
+                                            <div
+                                                class="ai-message__attachment"
+                                                class:ai-message__attachment--draw-selected={isDrawAttachmentSelected(
+                                                    message,
+                                                    attachmentIndex
+                                                )}
+                                            >
                                                 {#if attachment.type === 'image'}
+                                                    {@const imageIndex = getImageAttachmentIndex(
+                                                        message,
+                                                        attachmentIndex
+                                                    )}
                                                     <img
                                                         src={attachment.data}
                                                         alt={attachment.name}
@@ -11999,6 +13552,35 @@
                                                             )}
                                                         title="点击查看大图"
                                                     />
+                                                    {#if shouldShowDrawImageChoice(message)}
+                                                        <button
+                                                            class="b3-button ai-message__draw-image-choice"
+                                                            class:b3-button--primary={isDrawAttachmentSelected(
+                                                                message,
+                                                                attachmentIndex
+                                                            )}
+                                                            class:b3-button--text={!isDrawAttachmentSelected(
+                                                                message,
+                                                                attachmentIndex
+                                                            )}
+                                                            on:click={() =>
+                                                                selectDrawGeneratedImage(
+                                                                    messageIndex + msgIndex,
+                                                                    imageIndex
+                                                                )}
+                                                            disabled={isLoading}
+                                                            title="选择这张图片用于继续编辑"
+                                                        >
+                                                            {#if isDrawAttachmentSelected(
+                                                                message,
+                                                                attachmentIndex
+                                                            )}
+                                                                已选择
+                                                            {:else}
+                                                                选择这张
+                                                            {/if}
+                                                        </button>
+                                                    {/if}
                                                     <button
                                                         class="b3-button b3-button--text ai-message__attachment-copy"
                                                         on:click={() => {
@@ -13183,6 +14765,7 @@
             >
                 <option value="ask">{i18n('aiSidebar.mode.ask')}</option>
                 <option value="agent">{i18n('aiSidebar.mode.agent')}</option>
+                <option value="draw">{i18n('aiSidebar.mode.draw') || '画图模式'}</option>
             </select>
 
             <!-- Agent/Ask 模式工具选择按钮 -->
@@ -13250,7 +14833,7 @@
                         </div>
                     {/if}
                     <MultiModelSelector
-                        {providers}
+                        providers={providersForModelSelector}
                         {currentProvider}
                         {currentModelId}
                         {chatMode}
@@ -13264,7 +14847,7 @@
                 </div>
             {:else}
                 <div class="ai-sidebar__model-selector-container">
-                    {#if showThinkingToggle || showWebSearchToggle}
+                    {#if chatMode !== 'draw' && (showThinkingToggle || showWebSearchToggle)}
                         <div class="ai-sidebar__thinking-toggle-container">
                             {#if showWebSearchToggle}
                                 <button
@@ -13314,7 +14897,7 @@
                         </div>
                     {/if}
                     <MultiModelSelector
-                        {providers}
+                        providers={providersForModelSelector}
                         {currentProvider}
                         {currentModelId}
                         {chatMode}
@@ -13325,6 +14908,59 @@
                 </div>
             {/if}
         </div>
+        {#if chatMode === 'draw'}
+            <div class="ai-sidebar__draw-options">
+                <label class="ai-sidebar__draw-option">
+                    <span>尺寸</span>
+                    <select class="b3-select" bind:value={drawImageSize}>
+                        {#each drawImageSizeOptions as option}
+                            <option value={option.value}>{option.label}</option>
+                        {/each}
+                    </select>
+                </label>
+                <label class="ai-sidebar__draw-option ai-sidebar__draw-option--number">
+                    <span>数量</span>
+                    <input
+                        class="b3-text-field"
+                        type="number"
+                        min="1"
+                        max="10"
+                        bind:value={drawImageCount}
+                        on:change={normalizeDrawImageCount}
+                    />
+                </label>
+                <label class="ai-sidebar__draw-option">
+                    <span>质量</span>
+                    <select class="b3-select" bind:value={drawImageQuality}>
+                        {#each DRAW_IMAGE_QUALITY_OPTIONS as option}
+                            <option value={option.value}>{option.label}</option>
+                        {/each}
+                    </select>
+                </label>
+                {#if drawEditImageAvailable}
+                    <button
+                        class="b3-button b3-button--text ai-sidebar__draw-mask-btn"
+                        on:click={openDrawMaskEditor}
+                        disabled={isLoading}
+                        title="圈选需要编辑的位置"
+                    >
+                        <svg class="b3-button__icon"><use xlink:href="#iconEdit"></use></svg>
+                        <span>编辑蒙版</span>
+                    </button>
+                    {#if drawMaskBlob}
+                        <span class="ai-sidebar__draw-mask-status">已设置蒙版</span>
+                        <button
+                            class="b3-button b3-button--text ai-sidebar__draw-mask-clear"
+                            on:click={() => clearDrawMask(true)}
+                            disabled={isLoading}
+                            title="清除蒙版"
+                        >
+                            <svg class="b3-button__icon"><use xlink:href="#iconClose"></use></svg>
+                        </button>
+                    {/if}
+                {/if}
+            </div>
+        {/if}
         <div class="ai-sidebar__input-row">
             <div class="ai-sidebar__input-wrapper">
                 <textarea
@@ -13361,7 +14997,7 @@
             type="file"
             bind:this={fileInputElement}
             on:change={handleFileSelect}
-            accept="image/*,.txt,.md,.json,.xml,.csv,text/*"
+            accept={chatMode === 'draw' ? 'image/*' : 'image/*,.txt,.md,.json,.xml,.csv,text/*'}
             multiple
             style="display: none;"
         />
@@ -13380,40 +15016,42 @@
                     <svg class="b3-button__icon"><use xlink:href="#iconUpload"></use></svg>
                 {/if}
             </button>
-            <button
-                class="b3-button b3-button--text ai-sidebar__weblink-btn"
-                on:click={openWebLinkDialog}
-                disabled={isFetchingWebContent || isLoading}
-                title={i18n('aiSidebar.actions.addWebLink')}
-            >
-                {#if isFetchingWebContent}
-                    <svg class="b3-button__icon ai-sidebar__loading-icon">
-                        <use xlink:href="#iconRefresh"></use>
-                    </svg>
-                {:else}
-                    <svg class="b3-button__icon"><use xlink:href="#iconLink"></use></svg>
-                {/if}
-            </button>
-            <button
-                class="b3-button b3-button--text ai-sidebar__add-current-doc-btn"
-                on:click={addCurrentDocToContext}
-                title={i18n('aiSidebar.actions.addCurrentDoc')}
-            >
-                <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
-            </button>
-            <button
-                class="b3-button b3-button--text ai-sidebar__search-btn"
-                on:click={() => {
-                    isSearchDialogOpen = !isSearchDialogOpen;
-                    // 打开对话框时，如果搜索关键词为空，自动加载当前文档
-                    if (isSearchDialogOpen && !searchKeyword.trim()) {
-                        searchDocuments();
-                    }
-                }}
-                title={i18n('aiSidebar.actions.search')}
-            >
-                <svg class="b3-button__icon"><use xlink:href="#iconSearch"></use></svg>
-            </button>
+            {#if chatMode !== 'draw'}
+                <button
+                    class="b3-button b3-button--text ai-sidebar__weblink-btn"
+                    on:click={openWebLinkDialog}
+                    disabled={isFetchingWebContent || isLoading}
+                    title={i18n('aiSidebar.actions.addWebLink')}
+                >
+                    {#if isFetchingWebContent}
+                        <svg class="b3-button__icon ai-sidebar__loading-icon">
+                            <use xlink:href="#iconRefresh"></use>
+                        </svg>
+                    {:else}
+                        <svg class="b3-button__icon"><use xlink:href="#iconLink"></use></svg>
+                    {/if}
+                </button>
+                <button
+                    class="b3-button b3-button--text ai-sidebar__add-current-doc-btn"
+                    on:click={addCurrentDocToContext}
+                    title={i18n('aiSidebar.actions.addCurrentDoc')}
+                >
+                    <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
+                </button>
+                <button
+                    class="b3-button b3-button--text ai-sidebar__search-btn"
+                    on:click={() => {
+                        isSearchDialogOpen = !isSearchDialogOpen;
+                        // 打开对话框时，如果搜索关键词为空，自动加载当前文档
+                        if (isSearchDialogOpen && !searchKeyword.trim()) {
+                            searchDocuments();
+                        }
+                    }}
+                    title={i18n('aiSidebar.actions.search')}
+                >
+                    <svg class="b3-button__icon"><use xlink:href="#iconSearch"></use></svg>
+                </button>
+            {/if}
             <div class="ai-sidebar__prompt-actions">
                 <button
                     class="b3-button b3-button--text"
@@ -14234,6 +15872,63 @@
                     <svg class="b3-button__icon"><use xlink:href="#iconCheck"></use></svg>
                     {i18n('tools.approve')}
                 </button>
+            </div>
+        </div>
+    {/if}
+
+    <!-- 画图模式蒙版编辑器 -->
+    {#if isDrawMaskEditorOpen}
+        <div class="draw-mask-editor">
+            <div class="draw-mask-editor__header">
+                <h3 class="draw-mask-editor__title">{drawMaskImageName || '编辑蒙版'}</h3>
+                <div class="draw-mask-editor__actions">
+                    <label class="draw-mask-editor__brush">
+                        <span>笔刷</span>
+                        <input
+                            type="range"
+                            min="8"
+                            max="160"
+                            step="4"
+                            bind:value={drawMaskBrushSize}
+                        />
+                    </label>
+                    <button class="b3-button b3-button--text" on:click={clearMaskCanvas}>
+                        清空
+                    </button>
+                    <button class="b3-button b3-button--primary" on:click={saveDrawMask}>
+                        完成
+                    </button>
+                    <button
+                        class="b3-button b3-button--text"
+                        on:click={closeDrawMaskEditor}
+                        title="关闭"
+                    >
+                        <svg class="b3-button__icon"><use xlink:href="#iconClose"></use></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="draw-mask-editor__content">
+                <div class="draw-mask-editor__stage">
+                    <img
+                        bind:this={drawMaskImageElement}
+                        src={drawMaskImageSrc}
+                        alt={drawMaskImageName}
+                        class="draw-mask-editor__image"
+                        on:load={initializeDrawMaskCanvas}
+                    />
+                    <canvas
+                        bind:this={drawMaskCanvasElement}
+                        class="draw-mask-editor__canvas"
+                        on:pointerdown={startDrawMask}
+                        on:pointermove={continueDrawMask}
+                        on:pointerup={stopDrawMask}
+                        on:pointercancel={stopDrawMask}
+                        on:pointerleave={stopDrawMask}
+                    ></canvas>
+                </div>
+            </div>
+            <div class="draw-mask-editor__hint">
+                红色区域会在提交时转换为透明蒙版，表示需要编辑的位置。
             </div>
         </div>
     {/if}
@@ -15230,6 +16925,58 @@
         }
     }
 
+    .ai-sidebar__draw-options {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 4px 0;
+    }
+
+    .ai-sidebar__draw-option {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+
+        span {
+            white-space: nowrap;
+        }
+
+        select {
+            max-width: 220px;
+            font-size: 12px;
+        }
+    }
+
+    .ai-sidebar__draw-option--number input {
+        width: 54px;
+        height: 26px;
+        padding: 2px 6px;
+        font-size: 12px;
+    }
+
+    .ai-sidebar__draw-mask-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        padding: 4px 8px;
+    }
+
+    .ai-sidebar__draw-mask-status {
+        font-size: 12px;
+        color: var(--b3-theme-primary);
+        background: var(--b3-theme-primary-lightest);
+        border-radius: 4px;
+        padding: 3px 6px;
+    }
+
+    .ai-sidebar__draw-mask-clear {
+        padding: 4px;
+    }
+
     .ai-sidebar__model-selector-container {
         flex: 1;
         display: flex;
@@ -15280,12 +17027,40 @@
         }
     }
 
+    .ai-message__attachment--draw-selected {
+        .ai-message__attachment-image {
+            border-color: var(--b3-theme-primary);
+            box-shadow: 0 0 0 2px var(--b3-theme-primary-light);
+        }
+    }
+
     .ai-message__attachment-image {
         width: 100%;
         max-height: 150px;
         object-fit: cover;
         border-radius: 6px;
         border: 1px solid var(--b3-border-color);
+    }
+
+    .ai-message__draw-image-selection-hint {
+        margin-bottom: 8px;
+        padding: 6px 8px;
+        border-radius: 4px;
+        background: var(--b3-theme-warning-light);
+        color: var(--b3-theme-on-background);
+        font-size: 12px;
+    }
+
+    .ai-message__draw-image-selection-hint--done {
+        background: var(--b3-theme-primary-lightest);
+        color: var(--b3-theme-primary);
+    }
+
+    .ai-message__draw-image-choice {
+        width: 100%;
+        justify-content: center;
+        font-size: 12px;
+        padding: 3px 6px;
     }
 
     .ai-message__attachment-file {
@@ -17545,6 +19320,106 @@
             width: 20px !important;
             height: 20px !important;
         }
+    }
+
+    .draw-mask-editor {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1002;
+        width: min(920px, 94vw);
+        max-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        background: var(--b3-theme-background);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+    }
+
+    .draw-mask-editor__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--b3-border-color);
+        background: var(--b3-theme-surface);
+    }
+
+    .draw-mask-editor__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--b3-theme-on-background);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .draw-mask-editor__actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .draw-mask-editor__brush {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+
+        input {
+            width: 120px;
+        }
+    }
+
+    .draw-mask-editor__content {
+        flex: 1;
+        min-height: 0;
+        padding: 16px;
+        overflow: auto;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: var(--b3-theme-background);
+    }
+
+    .draw-mask-editor__stage {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        max-height: calc(92vh - 150px);
+    }
+
+    .draw-mask-editor__image {
+        display: block;
+        max-width: 100%;
+        max-height: calc(92vh - 150px);
+        object-fit: contain;
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .draw-mask-editor__canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+        cursor: crosshair;
+    }
+
+    .draw-mask-editor__hint {
+        padding: 8px 16px 12px;
+        border-top: 1px solid var(--b3-border-color);
+        color: var(--b3-theme-on-surface-light);
+        font-size: 12px;
+        background: var(--b3-theme-surface);
     }
 
     // 图片查看器样式
