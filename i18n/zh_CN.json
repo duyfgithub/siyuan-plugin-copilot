@@ -188,7 +188,7 @@
             "label": "模式",
             "ask": "问答模式",
             "edit": "编辑模式",
-            "draw": "画图模式",
+            "draw": "生图模式",
             "agent": "Agent模式",
             "autoApprove": "自动批准",
             "askDescription": "仅进行问答，不修改笔记内容",
