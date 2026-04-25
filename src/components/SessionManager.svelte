@@ -6,6 +6,8 @@
     export let sessions: ChatSession[] = [];
     export let currentSessionId: string = '';
     export let isOpen = false;
+    // 父组件提供的「按需加载会话完整对话文本」函数：会话内容通常存放在独立文件，搜索正文时需要由父组件读取。
+    export let loadSessionText: ((sessionId: string) => Promise<string>) | null = null;
 
     const dispatch = createEventDispatcher();
 
@@ -39,6 +41,90 @@
     let isRenameDialogOpen = false; // 重命名对话框是否打开
     let renameSessionTitle = ''; // 重命名输入框的值
     let renameSession: ChatSession | null = null; // 要重命名的会话
+
+    // 搜索相关状态
+    let searchQuery = ''; // 搜索关键词
+    // 缓存每个会话的可搜索正文文本，避免重复读取文件
+    let messagesTextCache: Map<string, string> = new Map();
+    let isSearchLoading = false; // 是否正在按需加载会话内容
+    let searchToken = 0; // 用于丢弃过期的异步加载结果
+    let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // 提取会话内嵌（已存在内存）的可搜索文本（用户消息 + AI生成的内容）
+    function extractInlineMessagesText(session: ChatSession): string {
+        const messages = session.messages || [];
+        const parts: string[] = [];
+        for (const msg of messages) {
+            if (!msg || msg.role === 'system') continue;
+            if (typeof msg.content === 'string') {
+                parts.push(msg.content);
+            } else if (Array.isArray(msg.content)) {
+                for (const part of msg.content) {
+                    if (part && part.type === 'text' && typeof part.text === 'string') {
+                        parts.push(part.text);
+                    }
+                }
+            }
+            if (typeof (msg as any).thinking === 'string' && (msg as any).thinking) {
+                parts.push((msg as any).thinking);
+            }
+        }
+        return parts.join('\n');
+    }
+
+    // 取得会话用于搜索匹配的文本（优先 cache，回退到内存中的 messages）
+    function getSearchableText(session: ChatSession): string {
+        if (messagesTextCache.has(session.id)) {
+            return messagesTextCache.get(session.id) || '';
+        }
+        // 部分会话可能在内存中已经持有 messages（如刚保存的当前会话）
+        if (session.messages && session.messages.length > 0) {
+            const text = extractInlineMessagesText(session);
+            messagesTextCache.set(session.id, text);
+            return text;
+        }
+        return '';
+    }
+
+    // 判断会话是否匹配当前搜索关键词
+    function sessionMatchesSearch(session: ChatSession, query: string): boolean {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        if (session.title && session.title.toLowerCase().includes(q)) return true;
+        return getSearchableText(session).toLowerCase().includes(q);
+    }
+
+    // 按需把所有会话的正文文本加载进缓存，便于搜索匹配
+    async function ensureMessagesLoaded() {
+        if (!loadSessionText) return;
+        const myToken = ++searchToken;
+        const pending = sessions.filter(s => !messagesTextCache.has(s.id));
+        if (pending.length === 0) return;
+
+        isSearchLoading = true;
+        try {
+            for (const s of pending) {
+                if (myToken !== searchToken) return; // 已被新一次搜索取代
+                if (s.messages && s.messages.length > 0) {
+                    messagesTextCache.set(s.id, extractInlineMessagesText(s));
+                    continue;
+                }
+                try {
+                    const text = await loadSessionText(s.id);
+                    messagesTextCache.set(s.id, text || '');
+                } catch (err) {
+                    console.error('Load session text error:', s.id, err);
+                    messagesTextCache.set(s.id, '');
+                }
+                // 每加载一批会话就触发一次响应式更新，让结果增量出现
+                messagesTextCache = messagesTextCache;
+            }
+        } finally {
+            if (myToken === searchToken) {
+                isSearchLoading = false;
+            }
+        }
+    }
 
     function formatDate(timestamp: number): string {
         const date = new Date(timestamp);
@@ -191,12 +277,49 @@
         document.removeEventListener('click', closeOnOutsideClick);
     }
 
-    // 按钉住状态和更新时间排序（钉住的在前，然后按时间降序）
-    $: sortedSessions = [...sessions].sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        return b.updatedAt - a.updatedAt;
-    });
+    // 按钉住状态和更新时间排序（钉住的在前，然后按时间降序），并按搜索关键词过滤
+    // messagesTextCache 显式作为参数，让 Svelte 在异步加载完成时重排列表
+    function buildSortedSessions(
+        list: ChatSession[],
+        query: string,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _cache: Map<string, string>
+    ): ChatSession[] {
+        return list
+            .filter(s => sessionMatchesSearch(s, query))
+            .sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return b.updatedAt - a.updatedAt;
+            });
+    }
+
+    $: sortedSessions = buildSortedSessions(sessions, searchQuery, messagesTextCache);
+
+    // 关闭抽屉时清空搜索关键词，避免下次打开仍残留
+    $: if (!isOpen && searchQuery) {
+        searchQuery = '';
+    }
+
+    // 监听搜索词变化：非空时（去抖后）按需加载所有会话的正文进行匹配
+    $: handleSearchQueryChange(searchQuery, isOpen);
+
+    function handleSearchQueryChange(query: string, open: boolean) {
+        if (searchDebounceTimer) {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = null;
+        }
+        const q = (query || '').trim();
+        if (!open || !q) {
+            // 取消进行中的加载，仅按已有 cache + 标题进行匹配
+            searchToken++;
+            isSearchLoading = false;
+            return;
+        }
+        searchDebounceTimer = setTimeout(() => {
+            ensureMessagesLoaded();
+        }, 200);
+    }
 
     // 显示右键菜单
     function showContextMenu(event: MouseEvent, session: ChatSession) {
@@ -417,9 +540,43 @@
                 </div>
             </div>
 
+            <div class="session-manager__search">
+                <svg class="session-manager__search-icon">
+                    <use xlink:href="#iconSearch"></use>
+                </svg>
+                <input
+                    type="text"
+                    class="session-manager__search-input"
+                    bind:value={searchQuery}
+                    placeholder={i18n('aiSidebar.session.searchPlaceholder') ||
+                        '搜索会话标题或对话内容'}
+                />
+                {#if isSearchLoading}
+                    <span class="session-manager__search-loading" title="正在加载会话内容…">…</span>
+                {/if}
+                {#if searchQuery}
+                    <button
+                        type="button"
+                        class="session-manager__search-clear"
+                        on:click={() => (searchQuery = '')}
+                        title={i18n('aiSidebar.session.searchClear') || '清除搜索'}
+                    >
+                        <svg class="b3-button__icon">
+                            <use xlink:href="#iconClose"></use>
+                        </svg>
+                    </button>
+                {/if}
+            </div>
+
             <div class="session-manager__list">
                 {#if sortedSessions.length === 0}
-                    <div class="session-manager__empty">{i18n('aiSidebar.session.empty')}</div>
+                    <div class="session-manager__empty">
+                        {searchQuery.trim()
+                            ? isSearchLoading
+                                ? i18n('aiSidebar.session.searching') || '正在搜索…'
+                                : i18n('aiSidebar.session.searchNoResults') || '没有匹配的会话'
+                            : i18n('aiSidebar.session.empty')}
+                    </div>
                 {:else}
                     {#each sortedSessions as session}
                         <div
@@ -638,6 +795,69 @@
         flex: 1;
         overflow-y: auto;
         padding: 8px;
+    }
+
+    .session-manager__search {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--b3-border-color);
+    }
+
+    .session-manager__search-icon {
+        flex-shrink: 0;
+        width: 14px;
+        height: 14px;
+        color: var(--b3-theme-on-surface-light);
+    }
+
+    .session-manager__search-input {
+        flex: 1;
+        min-width: 0;
+        padding: 4px 6px;
+        font-size: 12px;
+        background: transparent;
+        color: var(--b3-theme-on-background);
+        border: none;
+        outline: none;
+
+        &::placeholder {
+            color: var(--b3-theme-on-surface-light);
+        }
+    }
+
+    .session-manager__search-loading {
+        flex-shrink: 0;
+        font-size: 12px;
+        color: var(--b3-theme-on-surface-light);
+        line-height: 1;
+        padding: 0 4px;
+    }
+
+    .session-manager__search-clear {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--b3-theme-on-surface-light);
+        cursor: pointer;
+        border-radius: 4px;
+
+        &:hover {
+            background: var(--b3-theme-surface);
+            color: var(--b3-theme-on-background);
+        }
+
+        svg {
+            width: 12px;
+            height: 12px;
+        }
     }
 
     .session-manager__empty {

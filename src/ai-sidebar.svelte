@@ -8994,6 +8994,38 @@
         );
     }
 
+    // 加载指定会话的可搜索文本（用户与AI的全部对话内容），用于会话管理面板的搜索
+    async function loadSessionSearchableText(sessionId: string): Promise<string> {
+        try {
+            const path = `/data/storage/petal/siyuan-plugin-copilot/sessions/${sessionId}.json`;
+            const blob = await getFileBlob(path);
+            if (!blob) return '';
+            const text = await blob.text();
+            const sessionData = JSON.parse(text);
+            const sessionMessages: Message[] = sessionData?.messages || [];
+            const parts: string[] = [];
+            for (const msg of sessionMessages) {
+                if (!msg || msg.role === 'system') continue;
+                if (typeof msg.content === 'string') {
+                    parts.push(msg.content);
+                } else if (Array.isArray(msg.content)) {
+                    for (const part of msg.content as any[]) {
+                        if (part && part.type === 'text' && typeof part.text === 'string') {
+                            parts.push(part.text);
+                        }
+                    }
+                }
+                if (typeof msg.thinking === 'string' && msg.thinking) {
+                    parts.push(msg.thinking);
+                }
+            }
+            return parts.join('\n');
+        } catch (error) {
+            console.error('Load session searchable text error:', sessionId, error);
+            return '';
+        }
+    }
+
     // 处理保存会话到笔记
     async function handleSaveSessionToNote(sessionId: string) {
         try {
@@ -11726,6 +11758,7 @@
                 bind:sessions
                 bind:currentSessionId
                 bind:isOpen={isSessionManagerOpen}
+                loadSessionText={loadSessionSearchableText}
                 on:refresh={loadSessions}
                 on:load={e => loadSession(e.detail.sessionId)}
                 on:delete={e => deleteSession(e.detail.sessionId)}
