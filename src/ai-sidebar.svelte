@@ -4716,6 +4716,48 @@
         return `${title}，共 ${images.length} 张。\n\n修订后的提示词：\n${revisedPrompts}`;
     }
 
+    // 画图模式：拉取 contextDocuments 的最新 Markdown 内容
+    async function collectDrawModeContextDocuments(
+        sourceDocs: ContextDocument[]
+    ): Promise<ContextDocument[]> {
+        if (!sourceDocs || sourceDocs.length === 0) return [];
+        const result: ContextDocument[] = [];
+        for (const doc of sourceDocs) {
+            try {
+                const data = await exportMdContent(doc.id, false, false, 2, 0, false);
+                result.push({
+                    id: doc.id,
+                    title: doc.title,
+                    content: data?.content || doc.content,
+                    type: doc.type,
+                });
+            } catch (error) {
+                console.error(`Failed to get latest content for block ${doc.id}:`, error);
+                result.push(doc);
+            }
+        }
+        return result;
+    }
+
+    // 画图模式：把 contextDocuments 作为参考资料拼到提示词末尾
+    function buildDrawPromptWithContext(
+        prompt: string,
+        contextDocs: ContextDocument[]
+    ): string {
+        if (!contextDocs || contextDocs.length === 0) return prompt;
+        const contextText = contextDocs
+            .map(doc => {
+                const label =
+                    doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
+                if (doc.content) {
+                    return `## ${label}: ${doc.title}\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
+                }
+                return `## ${label}: ${doc.title}`;
+            })
+            .join('\n\n---\n\n');
+        return `${prompt}\n\n---\n\n以下是相关内容作为生图参考：\n\n${contextText}`;
+    }
+
     async function sendDrawModeMessage(providerConfig: any, modelConfig: any) {
         const userContent = currentInput.trim();
         if (!userContent) {
@@ -4733,6 +4775,14 @@
         normalizeDrawImageCount();
         applyPromptDrawImageSize(userContent);
 
+        const contextDocumentsWithLatestContent = await collectDrawModeContextDocuments(
+            contextDocuments
+        );
+        const promptWithContext = buildDrawPromptWithContext(
+            userContent,
+            contextDocumentsWithLatestContent
+        );
+
         const userAttachments = [...currentAttachments];
         const userImageAttachments = userAttachments.filter(att => att.type === 'image');
         if (userImageAttachments.length === 0 && hasPendingDrawImageSelectionForEdit()) {
@@ -4747,6 +4797,10 @@
             role: 'user',
             content: userContent,
             attachments: userImageAttachments.length > 0 ? userImageAttachments : undefined,
+            contextDocuments:
+                contextDocumentsWithLatestContent.length > 0
+                    ? [...contextDocumentsWithLatestContent]
+                    : undefined,
         };
 
         messages = [...messages, userMessage];
@@ -4784,7 +4838,7 @@
             const generatedImages = await requestDrawImages(
                 providerConfig,
                 modelConfig,
-                userContent,
+                promptWithContext,
                 editImageSources,
                 abortController.signal
             );
@@ -4868,6 +4922,14 @@
         normalizeDrawImageCount();
         applyPromptDrawImageSize(userContent);
 
+        const contextDocumentsWithLatestContent = await collectDrawModeContextDocuments(
+            lastUserMessage.contextDocuments || []
+        );
+        const promptWithContext = buildDrawPromptWithContext(
+            userContent,
+            contextDocumentsWithLatestContent
+        );
+
         const userImageAttachments =
             lastUserMessage.attachments?.filter(att => att.type === 'image') || [];
         if (userImageAttachments.length === 0 && hasPendingDrawImageSelectionForEdit()) {
@@ -4885,7 +4947,7 @@
             const generatedImages = await requestDrawImages(
                 providerConfig,
                 modelConfig,
-                userContent,
+                promptWithContext,
                 editImageSources,
                 abortController.signal
             );
@@ -14709,42 +14771,40 @@
                     <svg class="b3-button__icon"><use xlink:href="#iconUpload"></use></svg>
                 {/if}
             </button>
-            {#if chatMode !== 'draw'}
-                <button
-                    class="b3-button b3-button--text ai-sidebar__weblink-btn"
-                    on:click={openWebLinkDialog}
-                    disabled={isFetchingWebContent || isLoading}
-                    title={i18n('aiSidebar.actions.addWebLink')}
-                >
-                    {#if isFetchingWebContent}
-                        <svg class="b3-button__icon ai-sidebar__loading-icon">
-                            <use xlink:href="#iconRefresh"></use>
-                        </svg>
-                    {:else}
-                        <svg class="b3-button__icon"><use xlink:href="#iconLink"></use></svg>
-                    {/if}
-                </button>
-                <button
-                    class="b3-button b3-button--text ai-sidebar__add-current-doc-btn"
-                    on:click={addCurrentDocToContext}
-                    title={i18n('aiSidebar.actions.addCurrentDoc')}
-                >
-                    <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
-                </button>
-                <button
-                    class="b3-button b3-button--text ai-sidebar__search-btn"
-                    on:click={() => {
-                        isSearchDialogOpen = !isSearchDialogOpen;
-                        // 打开对话框时，如果搜索关键词为空，自动加载当前文档
-                        if (isSearchDialogOpen && !searchKeyword.trim()) {
-                            searchDocuments();
-                        }
-                    }}
-                    title={i18n('aiSidebar.actions.search')}
-                >
-                    <svg class="b3-button__icon"><use xlink:href="#iconSearch"></use></svg>
-                </button>
-            {/if}
+            <button
+                class="b3-button b3-button--text ai-sidebar__weblink-btn"
+                on:click={openWebLinkDialog}
+                disabled={isFetchingWebContent || isLoading}
+                title={i18n('aiSidebar.actions.addWebLink')}
+            >
+                {#if isFetchingWebContent}
+                    <svg class="b3-button__icon ai-sidebar__loading-icon">
+                        <use xlink:href="#iconRefresh"></use>
+                    </svg>
+                {:else}
+                    <svg class="b3-button__icon"><use xlink:href="#iconLink"></use></svg>
+                {/if}
+            </button>
+            <button
+                class="b3-button b3-button--text ai-sidebar__add-current-doc-btn"
+                on:click={addCurrentDocToContext}
+                title={i18n('aiSidebar.actions.addCurrentDoc')}
+            >
+                <svg class="b3-button__icon"><use xlink:href="#iconFile"></use></svg>
+            </button>
+            <button
+                class="b3-button b3-button--text ai-sidebar__search-btn"
+                on:click={() => {
+                    isSearchDialogOpen = !isSearchDialogOpen;
+                    // 打开对话框时，如果搜索关键词为空，自动加载当前文档
+                    if (isSearchDialogOpen && !searchKeyword.trim()) {
+                        searchDocuments();
+                    }
+                }}
+                title={i18n('aiSidebar.actions.search')}
+            >
+                <svg class="b3-button__icon"><use xlink:href="#iconSearch"></use></svg>
+            </button>
             <div class="ai-sidebar__prompt-actions">
                 <button
                     class="b3-button b3-button--text"
