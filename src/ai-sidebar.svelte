@@ -2625,8 +2625,7 @@
             currentProvider === 'gemini' ||
             providerConfig?.advancedConfig?.chatInterface === 'gemini' ||
             /generativelanguage\.googleapis\.com/i.test(customUrls) ||
-            (/^gemini-/i.test(modelConfig?.id || '') &&
-                providerConfig?.advancedConfig?.chatInterface === 'gemini')
+            /^gemini-/i.test(modelConfig?.id || '')
         );
     }
 
@@ -4713,7 +4712,7 @@
             return `${title}，共 ${images.length} 张。`;
         }
 
-        return `${title}，共 ${images.length} 张。\n\n修订后的提示词：\n${revisedPrompts}`;
+        return `${title}，共 ${images.length} 张。`;
     }
 
     // 画图模式：拉取 contextDocuments 的最新 Markdown 内容
@@ -4755,7 +4754,7 @@
                 return `## ${label}: ${doc.title}`;
             })
             .join('\n\n---\n\n');
-        return `${prompt}\n\n---\n\n以下是相关内容作为生图参考：\n\n${contextText}`;
+        return `${prompt}\n\n---\n\n以下是生图素材：\n\n${contextText}`;
     }
 
     async function sendDrawModeMessage(providerConfig: any, modelConfig: any) {
