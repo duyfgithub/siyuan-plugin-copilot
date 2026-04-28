@@ -4757,6 +4757,12 @@
         return `${prompt}\n\n---\n\n以下是生图素材：\n\n${contextText}`;
     }
 
+    function buildDrawPromptWithSystemPrompt(prompt: string): string {
+        const tempSystemPrompt = tempModelSettings.systemPrompt?.trim();
+        if (!tempSystemPrompt) return prompt;
+        return `【生图系统提示词】\n${tempSystemPrompt}\n\n---\n\n【用户生图需求】\n${prompt}`;
+    }
+
     async function sendDrawModeMessage(providerConfig: any, modelConfig: any) {
         const userContent = currentInput.trim();
         if (!userContent) {
@@ -4777,8 +4783,9 @@
         const contextDocumentsWithLatestContent = await collectDrawModeContextDocuments(
             contextDocuments
         );
+        const promptWithSystemPrompt = buildDrawPromptWithSystemPrompt(userContent);
         const promptWithContext = buildDrawPromptWithContext(
-            userContent,
+            promptWithSystemPrompt,
             contextDocumentsWithLatestContent
         );
 
@@ -4924,8 +4931,9 @@
         const contextDocumentsWithLatestContent = await collectDrawModeContextDocuments(
             lastUserMessage.contextDocuments || []
         );
+        const promptWithSystemPrompt = buildDrawPromptWithSystemPrompt(userContent);
         const promptWithContext = buildDrawPromptWithContext(
-            userContent,
+            promptWithSystemPrompt,
             contextDocumentsWithLatestContent
         );
 
