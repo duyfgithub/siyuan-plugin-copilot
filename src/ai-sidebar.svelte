@@ -4807,7 +4807,7 @@
         currentAttachments = [];
         contextDocuments = [];
         isAborted = false;
-        streamingMessage = isEdit ? '正在编辑图片...' : '正在生成图片...';
+        streamingMessage = isEdit ? '正在编辑图片' : '正在生成图片';
         streamingThinking = '';
         isThinkingPhase = false;
         hasUnsavedChanges = true;
@@ -4940,7 +4940,7 @@
         const isEdit = editImageSources.length > 0;
 
         abortController = new AbortController();
-        streamingMessage = isEdit ? '正在编辑图片...' : '正在生成图片...';
+        streamingMessage = isEdit ? '正在编辑图片' : '正在生成图片';
 
         try {
             const generatedImages = await requestDrawImages(
@@ -13628,12 +13628,21 @@
                 {/if}
 
                 {#if streamingMessage}
-                    {@const streamMsgDisplay = getDisplayContent(streamingMessage)}
                     <div
                         class="ai-message__content b3-typography"
                         style={messageFontSize ? `font-size: ${messageFontSize}px;` : ''}
                     >
-                        {@html streamMsgDisplay}
+                        {#if chatMode === 'draw'}
+                            <span>{streamingMessage}</span>
+                            <span class="jumping-dots ai-message__draw-loading-indicator" aria-hidden="true">
+                                <span class="dot"></span>
+                                <span class="dot"></span>
+                                <span class="dot"></span>
+                            </span>
+                        {:else}
+                            {@const streamMsgDisplay = getDisplayContent(streamingMessage)}
+                            {@html streamMsgDisplay}
+                        {/if}
                     </div>
                 {:else if !streamingThinking}
                     <div class="ai-message__content b3-typography">
@@ -16388,6 +16397,11 @@
         align-items: center;
         height: 24px;
         padding: 2px 0;
+    }
+
+    .ai-message__draw-loading-indicator {
+        margin-left: 6px;
+        vertical-align: middle;
     }
 
     .ai-message--user {
