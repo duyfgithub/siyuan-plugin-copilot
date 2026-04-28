@@ -5765,6 +5765,7 @@
                                             {
                                                 toolCallIndex: 0,
                                                 thinkingBefore: streamingThinking || '',
+                                                contentBefore: streamingMessage || '',
                                             },
                                         ],
                                     };
@@ -5794,6 +5795,7 @@
                                     existingMessage.toolCallThinkings.push({
                                         toolCallIndex: toolCallStartIndex,
                                         thinkingBefore: streamingThinking || '',
+                                        contentBefore: streamingMessage || '',
                                     });
 
                                     // 只有在启用 thinking 模式时才更新 reasoning_content
@@ -11140,6 +11142,7 @@
                                             {
                                                 toolCallIndex: 0,
                                                 thinkingBefore: streamingThinking || '',
+                                                contentBefore: streamingMessage || '',
                                             },
                                         ],
                                     };
@@ -11186,6 +11189,7 @@
                                     existingMessage.toolCallThinkings.push({
                                         toolCallIndex: toolCallStartIndex,
                                         thinkingBefore: streamingThinking || '',
+                                        contentBefore: streamingMessage || '',
                                     });
 
                                     // 只有在启用 thinking 模式时才更新 reasoning_content
@@ -11921,6 +11925,18 @@
                             <!-- 按轮次显示思考和工具调用 -->
                             {#each message.toolCallThinkings as round, roundIndex}
                                 {@const baseIndex = (messageIndex + msgIndex) * 100 + roundIndex}
+
+                                <!-- 该轮工具调用前的AI回复内容（非思考部分） -->
+                                {@const actualContentBefore = round.contentBefore || (roundIndex === 0 ? message.content : '')}
+                                {#if actualContentBefore && actualContentBefore.toString().trim()}
+                                    {@const contentBeforeDisplay = getDisplayContent(actualContentBefore)}
+                                    <div
+                                        class="ai-message__content b3-typography"
+                                        style={messageFontSize ? `font-size: ${messageFontSize}px;` : ''}
+                                    >
+                                        {@html contentBeforeDisplay}
+                                    </div>
+                                {/if}
 
                                 <!-- 该轮工具调用前的思考 -->
                                 {#if round.thinkingBefore}

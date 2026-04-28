@@ -73,6 +73,7 @@ export interface Message {
     toolCallThinkings?: Array<{
         toolCallIndex: number; // 对应的工具调用起始索引
         thinkingBefore: string; // 该轮工具调用前的思考
+        contentBefore?: string; // 该轮工具调用前的AI回复内容（非思考部分）
         thinkingAfter?: string; // 该轮工具调用后的思考（如果有的话）
     }>;
     multiModelResponses?: Array<{
