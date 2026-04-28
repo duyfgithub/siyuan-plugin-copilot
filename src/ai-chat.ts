@@ -715,14 +715,22 @@ async function chatOpenAIFormat(
         // 否则某些严格校验的模型（如 DeepSeek, Kimi 等）在关闭 thinking 模式继续对话时会报 400 错误
         if ((msg as any).reasoning_content !== undefined) {
             formatted.reasoning_content = (msg as any).reasoning_content;
+        } else if (msg.thinkingBeforeToolCalls) {
+            formatted.reasoning_content = msg.thinkingBeforeToolCalls;
+        } else if (msg.toolCallThinkings && msg.toolCallThinkings.length > 0 && msg.toolCallThinkings[0].thinkingBefore) {
+            formatted.reasoning_content = msg.toolCallThinkings[0].thinkingBefore;
+        } else if (msg.thinking) {
+            formatted.reasoning_content = msg.thinking;
         }
 
         // 确保包含 tool_calls 的 assistant 消息有 reasoning_content（部分模型强制要求）
-        const isReasoningRequiredModel = /deepseek/i.test(options.model) || /kimi/i.test(options.model);
+        const isReasoningRequiredModel = /deepseek/i.test(options.model) || /kimi/i.test(options.model) || /moonshot/i.test(options.model);
         const needReasoningContent = options.enableThinking || isReasoningRequiredModel;
         if (needReasoningContent && msg.tool_calls && msg.tool_calls.length > 0) {
-            if (formatted.reasoning_content === undefined) {
-                formatted.reasoning_content = '';
+            if (!formatted.reasoning_content) {
+                // 部分模型（如 Kimi 2.6）如果接收到空字符串可能会判定为 missing（omitempty导致）
+                // 所以我们回传一个空格代替完全为空
+                formatted.reasoning_content = ' ';
             }
         }
 
@@ -786,11 +794,11 @@ async function chatOpenAIFormat(
         }
     }
 
-    // 检测是否是 Kimi K2.5 模型（通过模型ID判断）
-    const isKimiK25 = /kimi-k2\.5/i.test(options.model);
+    // 检测是否是 Kimi 模型（通过模型ID判断）
+    const isKimi = /kimi/i.test(options.model);
 
-    // Kimi K2.5 特殊处理：官方不允许设置 temperature
-    if (isKimiK25) {
+    // Kimi 特殊处理：官方不允许设置 temperature
+    if (isKimi) {
         delete requestBody.temperature;
     }
 
@@ -817,9 +825,9 @@ async function chatOpenAIFormat(
             delete requestBody.extra_body.google.thinking_config;
         }
 
-        // Kimi K2.5 特殊处理：未启用 thinking 时需要显式设置为 disabled
+        // Kimi 特殊处理：未启用 thinking 时需要显式设置为 disabled
         // 否则默认为 enabled，会导致 API 报错
-        if (isKimiK25) {
+        if (isKimi) {
             requestBody.thinking = { type: 'disabled' };
         }
     } else {
@@ -845,8 +853,8 @@ async function chatOpenAIFormat(
                 budget_tokens: budgetTokens
             };
         }
-        // Kimi K2.5 启用 thinking 时需要设置 thinking: {type: "enabled"}
-        else if (isKimiK25) {
+        // Kimi 启用 thinking 时需要设置 thinking: {type: "enabled"}
+        else if (isKimi) {
             requestBody.thinking = { type: 'enabled' };
         }
         // 检查是否是通过 OpenAI 兼容 API 调用的 Gemini 模型
