@@ -350,8 +350,18 @@
     // 获取所有平台选项（内置+自定义） - 使用响应式语句
     $: allProviderOptions = (() => {
         const deletedBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
+
+        // Achuan 平台已下架：只有已配置的旧用户才显示
+        const achuanConfig = settings.aiProviders?.Achuan;
+        const showAchuan = !!achuanConfig?.apiKey || (achuanConfig?.models?.length > 0) || !!achuanConfig?.customApiUrl;
+
         const builtIn = Object.keys(builtInProviderNames)
-            .filter(id => !deletedBuiltIn.includes(id))
+            .filter(id => {
+                if (id === 'Achuan' && !showAchuan) {
+                    return false;
+                }
+                return !deletedBuiltIn.includes(id);
+            })
             .map(id => ({
                 id,
                 name: builtInProviderNames[id],
