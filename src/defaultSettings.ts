@@ -145,14 +145,6 @@ Translate the above text enclosed with <translate_input> into {outputLanguage} w
     // 小程序设置
     webApps: [
         {
-            "id": "builtin-achuan",
-            "name": "A API",
-            "url": "https://gpt.achuan-2.top/register?aff=ZndO",
-            "createdAt": 1770447043461,
-            "updatedAt": 1770449770236,
-            "icon": "data:image/png;base64,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"
-        },
-        {
             "id": "mlc05nrijzlaxnvmkr8",
             "name": "NotebookLM",
             "url": "https://notebooklm.google.com/",
