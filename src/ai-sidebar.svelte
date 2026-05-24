@@ -1410,6 +1410,8 @@
         // 加载 Agent 模式的工具配置
         await loadToolsConfig();
 
+
+
         // 加载翻译历史和设置
         await loadTranslateHistoryList();
         translateProvider = settings.translateProvider || currentProvider || '';

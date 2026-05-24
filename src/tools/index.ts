@@ -548,15 +548,19 @@ export const AVAILABLE_TOOLS: Tool[] = [
             properties: {
                 notebook: {
                     type: 'string',
-                    description: '笔记本ID。未提供时使用 window.siyuan.config.fileTree.docCreateSaveBox',
+                    description: '笔记本ID。如果用户未指定，则创建在默认笔记本,不要自行选择。',
                 },
                 path: {
                     type: 'string',
-                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录。未提供时使用 window.siyuan.config.fileTree.docCreateSavePath，并先解析其中的模板语法',
+                    description: '文档保存的目录路径（不含文档标题/文件名）。必须以 "/" 开头。如果未指定，则使用默认目录路径。',
+                },
+                title: {
+                    type: 'string',
+                    description: '文档标题（即文档名称/文件名）。如果未指定，将使用默认的时间戳文件名。',
                 },
                 markdown: {
                     type: 'string',
-                    description: '文档内容，使用Markdown格式。',
+                    description: '文档内容，使用Markdown格式。思源笔记会自动把 title 作为文档的标题，因此不需要在 Markdown 内容中再使用一级标题（# 标题）作为笔记标题。',
                 },
             },
             required: ['markdown'],
@@ -1585,38 +1589,113 @@ function normalizeDocumentPath(path: string): string {
 
 async function resolveCreateDocumentDefaults(
     notebook?: string,
-    path?: string
+    path?: string,
+    title?: string
 ): Promise<{ notebook: string; path: string }> {
     const fileTreeConfig = window.siyuan?.config?.fileTree;
     const resolvedNotebook = notebook?.trim() || fileTreeConfig?.docCreateSaveBox;
-    let resolvedPath = path?.trim() || fileTreeConfig?.docCreateSavePath;
-
-    if (resolvedPath && resolvedPath.includes('{{')) {
-        resolvedPath = await renderSprig(resolvedPath);
+    
+    let defaultPath = fileTreeConfig?.docCreateSavePath || '';
+    let defaultDirTemplate = '/';
+    if (defaultPath) {
+        defaultPath = defaultPath.trim();
+        if (defaultPath.endsWith('/')) {
+            defaultPath = defaultPath.slice(0, -1);
+        }
+        const lastSlashIdx = defaultPath.lastIndexOf('/');
+        if (lastSlashIdx > 0) {
+            defaultDirTemplate = defaultPath.substring(0, lastSlashIdx);
+        } else if (lastSlashIdx === 0) {
+            defaultDirTemplate = '/';
+        }
     }
 
-    resolvedPath = normalizeDocumentPath(resolvedPath || '');
+    let defaultDir = defaultDirTemplate;
+    if (defaultDir.includes('{{')) {
+        defaultDir = await renderSprig(defaultDir);
+    }
+    if (!defaultDir.startsWith('/')) {
+        defaultDir = '/' + defaultDir;
+    }
+    if (!defaultDir.endsWith('/')) {
+        defaultDir = defaultDir + '/';
+    }
+
+    let resolvedDir = defaultDir;
+    const inputPath = path?.trim();
+    if (inputPath) {
+        resolvedDir = inputPath.startsWith('/') ? inputPath : '/' + inputPath;
+        if (resolvedDir.endsWith('/')) {
+            resolvedDir = resolvedDir.slice(0, -1);
+        }
+    } else {
+        if (resolvedDir.endsWith('/') && resolvedDir.length > 1) {
+            resolvedDir = resolvedDir.slice(0, -1);
+        }
+    }
+
+    let resolvedTitle = title?.trim();
+    if (!resolvedTitle) {
+        let fullDefaultPath = fileTreeConfig?.docCreateSavePath || '';
+        if (fullDefaultPath) {
+            fullDefaultPath = fullDefaultPath.trim();
+            if (fullDefaultPath.endsWith('/')) {
+                fullDefaultPath = fullDefaultPath.slice(0, -1);
+            }
+            const lastSlashIdx = fullDefaultPath.lastIndexOf('/');
+            let titleTemplate = '';
+            if (lastSlashIdx >= 0) {
+                titleTemplate = fullDefaultPath.substring(lastSlashIdx + 1);
+            } else {
+                titleTemplate = fullDefaultPath;
+            }
+
+            if (titleTemplate) {
+                if (titleTemplate.includes('{{')) {
+                    resolvedTitle = await renderSprig(titleTemplate);
+                } else {
+                    resolvedTitle = titleTemplate;
+                }
+            }
+        }
+    }
+
+    if (!resolvedTitle) {
+        resolvedTitle = '未命名文档';
+    }
+
+    let finalPath = '';
+    if (resolvedDir === '/') {
+        finalPath = '/' + resolvedTitle;
+    } else {
+        finalPath = resolvedDir + '/' + resolvedTitle;
+    }
+
+    finalPath = normalizeDocumentPath(finalPath);
 
     if (!resolvedNotebook) {
         throw new Error('未提供笔记本ID，且无法读取思源默认新建文档笔记本 docCreateSaveBox');
     }
-    if (!resolvedPath) {
-        throw new Error('未提供文档路径，且无法读取或解析思源默认新建文档路径 docCreateSavePath');
+    if (!finalPath) {
+        throw new Error('无法生成或解析文档路径');
     }
 
     return {
         notebook: resolvedNotebook,
-        path: resolvedPath,
+        path: finalPath,
     };
 }
+
+
 
 export async function siyuan_create_document(
     notebook: string | undefined,
     path: string | undefined,
+    title: string | undefined,
     markdown: string
 ): Promise<string> {
     try {
-        const createOptions = await resolveCreateDocumentDefaults(notebook, path);
+        const createOptions = await resolveCreateDocumentDefaults(notebook, path, title);
 
         // 首先创建文档
         const docId = await createDocWithMd(createOptions.notebook, createOptions.path, markdown);
@@ -3090,7 +3169,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 return await siyuan_get_block_content(args.id, args.format, args.command);
 
             case 'siyuan_create_document':
-                const docId = await siyuan_create_document(args.notebook, args.path, args.markdown);
+                const docId = await siyuan_create_document(args.notebook, args.path, args.title, args.markdown);
                 return `文档创建成功，ID: ${docId}`;
 
             case 'siyuan_create_child_document':
