@@ -1,8 +1,8 @@
 <script lang="ts">
     import { createEventDispatcher, tick, onMount } from 'svelte';
     import { i18n } from '../utils/i18n';
-    import { pushMsg } from '@/api';
-    import { confirm } from 'siyuan';
+    import { exportMdContent, pushErrMsg, pushMsg } from '@/api';
+    import { confirm, Constants, getActiveEditor } from 'siyuan';
     import MultiModelSelector from './MultiModelSelector.svelte';
     import type { ThinkingEffort } from '../ai-chat';
 
@@ -10,6 +10,11 @@
     export let currentProvider = '';
     export let currentModelId = '';
     type PresetChatMode = 'ask' | 'agent' | 'draw';
+    interface PromptBlock {
+        id: string;
+        title: string;
+        addedAt: number;
+    }
 
     export let appliedSettings = {
         contextCount: -1,
@@ -65,6 +70,10 @@
     let tempEnableMultiModel = false;
     let tempChatMode: PresetChatMode = 'ask';
     let providersForModelSelector: Record<string, any> = {};
+    let tempPromptBlocks: PromptBlock[] = [];
+    let tempPromptBlockContentMap: Record<string, string> = {};
+    let isAddingPromptBlock = false;
+    let isPromptBlockDragOver = false;
 
     // 当前正在编辑的预设ID（空字符串表示新建/默认）
     let editingPresetId = '';
@@ -86,6 +95,7 @@
         }>;
         enableMultiModel: boolean;
         chatMode: PresetChatMode;
+        promptBlocks?: PromptBlock[];
         createdAt: number;
     }
 
@@ -145,6 +155,236 @@
         return filteredProviders;
     }
 
+    function normalizePromptBlocks(promptBlocks?: Array<PromptBlock | string>): PromptBlock[] {
+        if (!Array.isArray(promptBlocks)) return [];
+
+        const seen = new Set<string>();
+        return promptBlocks
+            .map((block: PromptBlock | string) => {
+                if (typeof block === 'string') {
+                    return { id: block, title: block, addedAt: Date.now() };
+                }
+                return {
+                    id: block?.id,
+                    title: block?.title || block?.id,
+                    addedAt: block?.addedAt || Date.now(),
+                };
+            })
+            .filter(block => {
+                if (!block.id || seen.has(block.id)) return false;
+                seen.add(block.id);
+                return true;
+            });
+    }
+
+    function parseBlockIdList(blockIdText: string): string[] {
+        return Array.from(
+            new Set(
+                (blockIdText || '')
+                    .split(',')
+                    .map(id => id.trim())
+                    .filter(id => id && id !== '/')
+            )
+        );
+    }
+
+    function getDroppedPromptBlockIds(event: DragEvent): string[] {
+        const dataTransfer = event.dataTransfer;
+        if (!dataTransfer) return [];
+
+        const types = Array.from(dataTransfer.types || []);
+        const gutterType = types.find(type => type.startsWith(Constants.SIYUAN_DROP_GUTTER));
+        if (gutterType) {
+            const meta = gutterType.replace(Constants.SIYUAN_DROP_GUTTER, '');
+            const info = meta.split(Constants.ZWSP);
+            return parseBlockIdList(info[2] || '');
+        }
+
+        if (types.some(type => type.startsWith(Constants.SIYUAN_DROP_FILE))) {
+            const ele: HTMLElement | undefined = (window as any).siyuan?.dragElement;
+            return parseBlockIdList(ele?.innerText || '');
+        }
+
+        return [];
+    }
+
+    function getFocusedBlockId(): string | null {
+        const protyle = getActiveEditor(false)?.protyle;
+        return protyle?.block?.id || protyle?.options?.blockId || protyle?.block?.parentID || null;
+    }
+
+    function buildPromptBlockTitle(content: string, blockId: string): string {
+        const preview = content.replace(/\s+/g, ' ').trim();
+        if (!preview) return blockId;
+        return preview.length > 30 ? `${preview.substring(0, 30)}...` : preview;
+    }
+
+    async function loadPromptBlockContents(
+        promptBlocks: PromptBlock[],
+        showError = false
+    ): Promise<Record<string, string>> {
+        const contentMap: Record<string, string> = {};
+
+        for (const block of promptBlocks) {
+            try {
+                const data = await exportMdContent(block.id, false, false, 2, 0, false);
+                if (data?.content) {
+                    contentMap[block.id] = data.content;
+                } else if (showError) {
+                    pushErrMsg(`获取 Prompt 块内容失败: ${block.title || block.id}`);
+                }
+            } catch (error) {
+                console.error('Load prompt block content error:', error);
+                if (showError) {
+                    pushErrMsg(`获取 Prompt 块内容失败: ${block.title || block.id}`);
+                }
+            }
+        }
+
+        return contentMap;
+    }
+
+    function buildSystemPromptWithBlocks(
+        systemPrompt: string,
+        promptBlocks: PromptBlock[],
+        contentMap: Record<string, string>
+    ): string {
+        const blockPrompt = promptBlocks
+            .map(block => (contentMap[block.id] || '').trim())
+            .filter(Boolean)
+            .join('\n\n');
+
+        return [systemPrompt.trim() ? systemPrompt : '', blockPrompt].filter(Boolean).join('\n\n');
+    }
+
+    async function resolveSystemPromptWithBlocks(
+        systemPrompt: string,
+        promptBlocks: PromptBlock[],
+        showError = false
+    ): Promise<string> {
+        const contentMap = await loadPromptBlockContents(promptBlocks, showError);
+        return buildSystemPromptWithBlocks(systemPrompt, promptBlocks, contentMap);
+    }
+
+    function getTempResolvedSystemPrompt(): string {
+        return buildSystemPromptWithBlocks(
+            tempSystemPrompt,
+            tempPromptBlocks,
+            tempPromptBlockContentMap
+        );
+    }
+
+    async function refreshTempPromptBlockContents(promptBlocks = tempPromptBlocks) {
+        tempPromptBlockContentMap = await loadPromptBlockContents(promptBlocks);
+    }
+
+    async function addPromptBlocksByIds(blockIds: string[]) {
+        const idsToAdd = parseBlockIdList(blockIds.join(',')).filter(
+            id => !tempPromptBlocks.some(block => block.id === id)
+        );
+
+        if (idsToAdd.length === 0) {
+            pushMsg('Prompt 块已添加');
+            return;
+        }
+
+        isAddingPromptBlock = true;
+        const newPromptBlocks: PromptBlock[] = [];
+        const nextContentMap = { ...tempPromptBlockContentMap };
+
+        try {
+            for (const blockId of idsToAdd) {
+                try {
+                    const data = await exportMdContent(blockId, false, false, 2, 0, false);
+                    if (!data?.content) {
+                        pushErrMsg(`获取 Prompt 块内容失败: ${blockId}`);
+                        continue;
+                    }
+
+                    newPromptBlocks.push({
+                        id: blockId,
+                        title: buildPromptBlockTitle(data.content, blockId),
+                        addedAt: Date.now(),
+                    });
+                    nextContentMap[blockId] = data.content;
+                } catch (error) {
+                    console.error('Add prompt block error:', error);
+                    pushErrMsg(`获取 Prompt 块内容失败: ${blockId}`);
+                }
+            }
+
+            if (newPromptBlocks.length === 0) return;
+
+            tempPromptBlocks = [...tempPromptBlocks, ...newPromptBlocks];
+            tempPromptBlockContentMap = nextContentMap;
+            applySettings();
+
+            pushMsg(
+                newPromptBlocks.length === 1
+                    ? '已添加 Prompt 块'
+                    : `已添加 ${newPromptBlocks.length} 个 Prompt 块`
+            );
+        } finally {
+            isAddingPromptBlock = false;
+            isPromptBlockDragOver = false;
+        }
+    }
+
+    async function addCurrentBlockAsPrompt() {
+        const blockId = getFocusedBlockId();
+        if (!blockId) {
+            pushErrMsg('未找到当前块');
+            return;
+        }
+
+        await addPromptBlocksByIds([blockId]);
+    }
+
+    function removePromptBlock(blockId: string) {
+        tempPromptBlocks = tempPromptBlocks.filter(block => block.id !== blockId);
+        const { [blockId]: _removed, ...rest } = tempPromptBlockContentMap;
+        tempPromptBlockContentMap = rest;
+        applySettings();
+    }
+
+    function arePromptBlocksEqual(blocks1: PromptBlock[], blocks2: PromptBlock[]): boolean {
+        if (blocks1.length !== blocks2.length) return false;
+        return blocks1.every((block, index) => block.id === blocks2[index]?.id);
+    }
+
+    function handlePromptBlockDragOver(event: DragEvent) {
+        if (getDroppedPromptBlockIds(event).length > 0) {
+            isPromptBlockDragOver = true;
+        }
+    }
+
+    function handlePromptBlockDragLeave(event: DragEvent) {
+        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        if (
+            event.clientX <= rect.left ||
+            event.clientX >= rect.right ||
+            event.clientY <= rect.top ||
+            event.clientY >= rect.bottom
+        ) {
+            isPromptBlockDragOver = false;
+        }
+    }
+
+    async function handlePromptBlockDrop(event: DragEvent) {
+        const blockIds = getDroppedPromptBlockIds(event);
+        isPromptBlockDragOver = false;
+        if (blockIds.length === 0) return;
+
+        await addPromptBlocksByIds(blockIds);
+        if (
+            Array.from(event.dataTransfer?.types || []).some(type =>
+                type.startsWith(Constants.SIYUAN_DROP_FILE)
+            )
+        ) {
+            (window as any).siyuan.dragElement = undefined;
+        }
+    }
+
     // 保存初始状态，用于检测是否有未保存的更改
     let initialState = {
         presetName: '',
@@ -161,7 +401,13 @@
         }>,
         enableMultiModel: false,
         chatMode: 'ask' as PresetChatMode,
+        promptBlocks: [] as PromptBlock[],
     };
+
+    function t(key: string, fallback: string): string {
+        const text = i18n(key);
+        return text === key ? fallback : text;
+    }
 
     // 处理MultiModelSelector的选择事件（单模型模式）
     function handleModelSelect(event: CustomEvent<{ provider: string; modelId: string }>) {
@@ -205,6 +451,10 @@
                 (preset.name || '') +
                 ' ' +
                 (preset.systemPrompt || '') +
+                ' ' +
+                (preset.promptBlocks || [])
+                    .map(block => `${block.title || ''} ${block.id || ''}`)
+                    .join(' ') +
                 ' ' +
                 (preset.chatMode || '') +
                 ' ' +
@@ -297,6 +547,7 @@
         const normalizedPresets = storedPresets.map((preset: Preset) => ({
             ...preset,
             chatMode: normalizeChatMode(preset.chatMode),
+            promptBlocks: normalizePromptBlocks(preset.promptBlocks),
         }));
         presets = normalizedPresets;
         selectedPresetId = settings.selectedModelPresetId || '';
@@ -345,6 +596,7 @@
             selectedModels: tempSelectedModels,
             enableMultiModel: tempEnableMultiModel,
             chatMode: tempChatMode,
+            promptBlocks: tempPromptBlocks,
             createdAt: Date.now(),
         };
 
@@ -378,13 +630,18 @@
         if (preset) {
             selectedPresetId = presetId;
             await saveSelectedPresetId(presetId);
+            const resolvedSystemPrompt = await resolveSystemPromptWithBlocks(
+                preset.systemPrompt || '',
+                normalizePromptBlocks(preset.promptBlocks),
+                true
+            );
 
             // 应用预设设置
             dispatch('apply', {
                 contextCount: preset.contextCount,
                 temperature: preset.temperature,
                 temperatureEnabled: preset.temperatureEnabled ?? true,
-                systemPrompt: preset.systemPrompt,
+                systemPrompt: resolvedSystemPrompt,
                 modelSelectionEnabled: preset.modelSelectionEnabled ?? false,
                 selectedModels: preset.selectedModels || [],
                 enableMultiModel: preset.enableMultiModel ?? false,
@@ -396,7 +653,7 @@
     }
 
     // 编辑预设（打开设置面板）
-    function editPreset(presetId: string) {
+    async function editPreset(presetId: string) {
         const preset = presets.find(p => p.id === presetId);
         if (!preset) return;
 
@@ -410,6 +667,8 @@
         tempSelectedModels = [...(preset.selectedModels || [])];
         tempEnableMultiModel = preset.enableMultiModel ?? false;
         tempChatMode = normalizeChatMode(preset.chatMode);
+        tempPromptBlocks = normalizePromptBlocks(preset.promptBlocks);
+        await refreshTempPromptBlockContents(tempPromptBlocks);
 
         // 保存初始状态
         saveInitialState();
@@ -524,7 +783,7 @@
             contextCount: tempContextCount,
             temperature: tempTemperature,
             temperatureEnabled: tempTemperatureEnabled,
-            systemPrompt: tempSystemPrompt,
+            systemPrompt: getTempResolvedSystemPrompt(),
             modelSelectionEnabled: tempModelSelectionEnabled,
             selectedModels: tempSelectedModels,
             enableMultiModel: tempEnableMultiModel,
@@ -577,6 +836,7 @@
             preset.selectedModels = tempSelectedModels;
             preset.enableMultiModel = tempEnableMultiModel;
             preset.chatMode = tempChatMode;
+            preset.promptBlocks = tempPromptBlocks;
             await savePresetsToStorage();
             // 触发响应式更新
             presets = [...presets];
@@ -597,18 +857,31 @@
         tempSelectedModels = [...(appliedSettings.selectedModels || [])];
         tempEnableMultiModel = appliedSettings.enableMultiModel ?? false;
         tempChatMode = normalizeChatMode(appliedSettings.chatMode);
+        tempPromptBlocks = [];
+        tempPromptBlockContentMap = {};
 
         // 检查当前应用的设置是否与某个预设匹配
         const savedPresetId = await loadSelectedPresetId();
         if (savedPresetId) {
             const preset = presets.find(p => p.id === savedPresetId);
+            const promptBlocks = normalizePromptBlocks(preset?.promptBlocks);
+            const promptBlockContentMap = preset
+                ? await loadPromptBlockContents(promptBlocks)
+                : {};
+            const resolvedPresetSystemPrompt = preset
+                ? buildSystemPromptWithBlocks(
+                      preset.systemPrompt || '',
+                      promptBlocks,
+                      promptBlockContentMap
+                  )
+                : '';
             if (
                 preset &&
                 preset.contextCount === appliedSettings.contextCount &&
                 preset.temperature === appliedSettings.temperature &&
                 (preset.temperatureEnabled ?? true) ===
                     (appliedSettings.temperatureEnabled ?? true) &&
-                preset.systemPrompt === appliedSettings.systemPrompt &&
+                resolvedPresetSystemPrompt === appliedSettings.systemPrompt &&
                 (preset.modelSelectionEnabled ?? false) ===
                     (appliedSettings.modelSelectionEnabled ?? false) &&
                 areModelsEqual(preset.selectedModels || [], appliedSettings.selectedModels || []) &&
@@ -617,6 +890,9 @@
                 normalizeChatMode(preset.chatMode) === normalizeChatMode(appliedSettings.chatMode)
             ) {
                 selectedPresetId = savedPresetId;
+                tempSystemPrompt = preset.systemPrompt || '';
+                tempPromptBlocks = promptBlocks;
+                tempPromptBlockContentMap = promptBlockContentMap;
             } else {
                 selectedPresetId = '';
             }
@@ -636,6 +912,8 @@
         tempSelectedModels = [];
         tempEnableMultiModel = false;
         tempChatMode = 'ask';
+        tempPromptBlocks = [];
+        tempPromptBlockContentMap = {};
         editingPresetId = '';
         selectedPresetId = '';
         newPresetName = ''; // 重置预设名称为空
@@ -673,6 +951,7 @@
             selectedModels: [...tempSelectedModels],
             enableMultiModel: tempEnableMultiModel,
             chatMode: tempChatMode,
+            promptBlocks: [...tempPromptBlocks],
         };
     }
 
@@ -687,6 +966,7 @@
         if (tempEnableMultiModel !== initialState.enableMultiModel) return true;
         if (tempChatMode !== initialState.chatMode) return true;
         if (!areModelsEqual(tempSelectedModels, initialState.selectedModels)) return true;
+        if (!arePromptBlocksEqual(tempPromptBlocks, initialState.promptBlocks)) return true;
         return false;
     }
 
@@ -877,7 +1157,11 @@
                         contextCount: preset.contextCount,
                         temperature: preset.temperature,
                         temperatureEnabled: preset.temperatureEnabled ?? true,
-                        systemPrompt: preset.systemPrompt,
+                        systemPrompt: await resolveSystemPromptWithBlocks(
+                            preset.systemPrompt || '',
+                            normalizePromptBlocks(preset.promptBlocks),
+                            true
+                        ),
                         modelSelectionEnabled: preset.modelSelectionEnabled ?? false,
                         selectedModels: [...(preset.selectedModels || [])],
                         enableMultiModel: preset.enableMultiModel ?? false,
@@ -1020,6 +1304,9 @@
                                                     | {i18n('aiSidebar.modelSettings.chatMode')}: {i18n(
                                                         `aiSidebar.mode.${preset.chatMode}`
                                                     ) || preset.chatMode}
+                                                {/if}
+                                                {#if preset.promptBlocks && preset.promptBlocks.length > 0}
+                                                    | Prompt 块: {preset.promptBlocks.length}
                                                 {/if}
                                                 {#if preset.modelSelectionEnabled && preset.selectedModels && preset.selectedModels.length > 0}
                                                     <br />
@@ -1211,6 +1498,17 @@
                     <label class="model-settings-label">
                         {i18n('aiSidebar.modelSettings.systemPrompt')}
                     </label>
+                    <div class="model-settings-prompt-actions">
+                        <button
+                            class="b3-button b3-button--text"
+                            on:click|preventDefault={addCurrentBlockAsPrompt}
+                            disabled={isAddingPromptBlock}
+                            title="添加当前块为 Prompt"
+                        >
+                            <svg class="b3-button__icon"><use xlink:href="#iconAdd"></use></svg>
+                            {isAddingPromptBlock ? '添加中...' : '添加当前块'}
+                        </button>
+                    </div>
                     <textarea
                         bind:value={tempSystemPrompt}
                         on:change={applySettings}
@@ -1218,6 +1516,43 @@
                         placeholder={i18n('aiSidebar.modelSettings.systemPromptPlaceholder')}
                         rows="4"
                     ></textarea>
+                    <div
+                        class="model-settings-prompt-block-drop"
+                        class:drag-over={isPromptBlockDragOver}
+                        on:dragover|preventDefault|stopPropagation={handlePromptBlockDragOver}
+                        on:dragleave|preventDefault|stopPropagation={handlePromptBlockDragLeave}
+                        on:drop|preventDefault|stopPropagation={handlePromptBlockDrop}
+                    >
+                        <svg class="model-settings-prompt-block-drop-icon">
+                            <use xlink:href="#iconAdd"></use>
+                        </svg>
+                        <span>{t('aiSidebar.modelSettings.promptBlockDrop', '拖拽块到这里作为 Prompt')}</span>
+                    </div>
+                    {#if tempPromptBlocks.length > 0}
+                        <div class="model-settings-prompt-blocks">
+                            {#each tempPromptBlocks as block, index (block.id)}
+                                <div class="model-settings-prompt-block">
+                                    <div class="model-settings-prompt-block-info">
+                                        <span class="model-settings-prompt-block-title">
+                                            {index + 1}. {block.title || block.id}
+                                        </span>
+                                        <span class="model-settings-prompt-block-id">
+                                            {block.id}
+                                        </span>
+                                    </div>
+                                    <button
+                                        class="b3-button b3-button--text"
+                                        on:click={() => removePromptBlock(block.id)}
+                                        title="移除 Prompt 块"
+                                    >
+                                        <svg class="b3-button__icon">
+                                            <use xlink:href="#iconTrashcan"></use>
+                                        </svg>
+                                    </button>
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                     <div class="model-settings-hint">
                         {i18n('aiSidebar.modelSettings.systemPromptHint')}
                     </div>
@@ -1586,6 +1921,80 @@
         min-height: 60px;
         font-family: var(--b3-font-family);
         font-size: 12px;
+    }
+
+    .model-settings-prompt-actions {
+        display: flex;
+        justify-content: flex-start;
+    }
+
+    .model-settings-prompt-block-drop {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        padding: 6px 8px;
+        border: 1px dashed var(--b3-border-color);
+        border-radius: 6px;
+        color: var(--b3-theme-on-surface-light);
+        font-size: 12px;
+        transition:
+            border-color 0.2s,
+            background 0.2s;
+
+        &.drag-over {
+            border-color: var(--b3-theme-primary);
+            background: var(--b3-theme-primary-lightest);
+            color: var(--b3-theme-primary);
+        }
+    }
+
+    .model-settings-prompt-block-drop-icon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+    }
+
+    .model-settings-prompt-blocks {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .model-settings-prompt-block {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 1px solid var(--b3-border-color);
+        border-radius: 6px;
+        background: var(--b3-theme-surface);
+    }
+
+    .model-settings-prompt-block-info {
+        min-width: 0;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .model-settings-prompt-block-title,
+    .model-settings-prompt-block-id {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .model-settings-prompt-block-title {
+        font-size: 12px;
+        color: var(--b3-theme-on-surface);
+    }
+
+    .model-settings-prompt-block-id {
+        font-size: 11px;
+        color: var(--b3-theme-on-surface-light);
     }
 
     .model-settings-footer {
