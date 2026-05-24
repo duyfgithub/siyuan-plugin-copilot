@@ -1,7 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher, tick, onMount } from 'svelte';
     import { i18n } from '../utils/i18n';
-    import { exportMdContent, pushErrMsg, pushMsg } from '@/api';
+    import { exportMdContent, pushErrMsg, pushMsg, openBlock } from '@/api';
     import { confirm, Constants, getActiveEditor } from 'siyuan';
     import MultiModelSelector from './MultiModelSelector.svelte';
     import type { ThinkingEffort } from '../ai-chat';
@@ -345,6 +345,15 @@
         const { [blockId]: _removed, ...rest } = tempPromptBlockContentMap;
         tempPromptBlockContentMap = rest;
         applySettings();
+    }
+
+    async function handleOpenBlock(blockId: string) {
+        try {
+            await openBlock(blockId);
+        } catch (error) {
+            console.error('Open block error:', error);
+            pushErrMsg(`打开块失败: ${blockId}`);
+        }
     }
 
     function arePromptBlocksEqual(blocks1: PromptBlock[], blocks2: PromptBlock[]): boolean {
@@ -1532,7 +1541,11 @@
                         <div class="model-settings-prompt-blocks">
                             {#each tempPromptBlocks as block, index (block.id)}
                                 <div class="model-settings-prompt-block">
-                                    <div class="model-settings-prompt-block-info">
+                                    <div
+                                        class="model-settings-prompt-block-info"
+                                        on:click={() => handleOpenBlock(block.id)}
+                                        title="点击打开块"
+                                    >
                                         <span class="model-settings-prompt-block-title">
                                             {index + 1}. {block.title || block.id}
                                         </span>
@@ -1978,6 +1991,14 @@
         flex: 1;
         flex-direction: column;
         gap: 2px;
+        cursor: pointer;
+
+        &:hover {
+            .model-settings-prompt-block-title {
+                text-decoration: underline;
+                color: var(--b3-theme-primary);
+            }
+        }
     }
 
     .model-settings-prompt-block-title,
