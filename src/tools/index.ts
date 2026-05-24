@@ -548,11 +548,11 @@ export const AVAILABLE_TOOLS: Tool[] = [
             properties: {
                 notebook: {
                     type: 'string',
-                    description: '笔记本ID，可以通过SQL查询 "SELECT * FROM blocks WHERE type=\'d\' LIMIT 1" 获取box字段',
+                    description: '笔记本ID。未提供时使用 window.siyuan.config.fileTree.docCreateSaveBox',
                 },
                 path: {
                     type: 'string',
-                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录。未提供时使用思源默认新建文档路径',
+                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录。未提供时使用 window.siyuan.config.fileTree.docCreateSavePath，并先解析其中的模板语法',
                 },
                 markdown: {
                     type: 'string',
