@@ -1,3 +1,11 @@
+## v2.4.0 / 20260524
+- ✨ 支持创建和调用skill
+- 🎨 完善思源 forwardProxy 代理支持,感谢[BorisZhangYYY](https://github.com/BorisZhangYYY)
+贡献 ([#148](https://github.com/Achuan-2/siyuan-plugin-copilot/issues/148))
+- 🎨 模型预设支持添加块为prompt，支持添加多个块
+- 🎨 网页小程序:  http 以及 www 开头网址的支持
+- 🎨 改造工具调用，工具描述使用md存储，借鉴skills设计，方便查看编辑，用户也可以自行修改
+
 ## v2.3.11 / 20260428
 - 🎨 生图模式在“正在生成/编辑图片”时，现在也会显示和对话模式一致的三个点跳
 动效果
