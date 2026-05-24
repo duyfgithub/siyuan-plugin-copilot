@@ -39,6 +39,9 @@ import {
     deleteBlock,
     request,
     sendNotification,
+    putFile,
+    readDir,
+    getFileBlob,
 } from '../api';
 import { getActiveEditor } from 'siyuan';
 import { parseWebPageToMarkdown, fetchWithWebView } from '../utils/webParser';
@@ -103,6 +106,7 @@ export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
             'soul',
             'run_js',
             'run_python',
+            'run_command',
         ],
     },
 };
@@ -126,6 +130,7 @@ export const QA_TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
             'web_fetch',
             'soul',
             'run_js',
+            'run_command',
         ],
     },
 };
@@ -323,6 +328,7 @@ const GET_SIYUAN_SKILLS_ALL_TOOL_NAMES = [
     'soul',
     'run_js',
     'run_python',
+    'run_command',
 ] as const;
 
 function buildGetSiyuanSkillsEnum(allowedToolNames?: string[]): string[] {
@@ -363,6 +369,58 @@ export function createGetSiyuanSkillsTool(allowedToolNames?: string[]): Tool {
 export const AVAILABLE_TOOLS: Tool[] = [
     // 工具详细描述查询工具 - 隐藏工具，不在 UI 中显示
     createGetSiyuanSkillsTool(),
+
+    // 自定义 Skill 读取工具 - 隐藏工具，不在 UI 中显示
+    createTool(
+        'siyuan_read_skill',
+        `获取指定自定义 Skill 的完整执行指令和工作流文档。
+        
+## 何时使用
+- 当发现有符合当前任务的自定义 Skill 且需要读取其详细执行步骤时调用。
+- 只有在系统提示词的 "=== 自定义 Skill ===" 列表中列出的 Skill 才可以被读取。
+- 支持读取 Skill 文件夹内的子文件（例如传入 "skillId/subfolder/file.md"）。
+- 如果 Skill 使用思源块作为内容，本工具会自动把 skill.md 中保存的块 ID 展开为对应的 Markdown 内容。
+
+## 参数
+- skillId: 要读取的 Skill 的标识符，或是 Skill 文件夹下某个子文件的相对路径（如 "my-skill" 或 "my-skill/references/guide.md"）`,
+        {
+            type: 'object',
+            properties: {
+                skillId: {
+                    type: 'string',
+                    description: '要读取的 Skill 的标识符或其子文件的相对路径（如 "my-skill" 或 "my-skill/references/guide.md"）',
+                },
+            },
+            required: ['skillId'],
+        }
+    ),
+
+    // 运行本地命令工具
+    createTool(
+        'run_command',
+        `在本地终端中运行命令的工具（Windows 上使用 PowerShell，macOS/Linux 上使用默认 shell）。
+        
+## 何时使用
+- 需要在本地执行系统命令、管理文件、运行命令行工具等任务时使用。
+- 允许运行任何本地命令（例如：git、pip、npm、curl，或者直接运行 Python 脚本如 python test.py 等）。
+
+## 注意事项
+- 该命令将在用户机器上直接执行，请确保命令的安全性。
+- 支持多行命令。
+
+## 参数
+- command: 要执行的终端命令内容`,
+        {
+            type: 'object',
+            properties: {
+                command: {
+                    type: 'string',
+                    description: '要在终端运行的命令内容',
+                },
+            },
+            required: ['command'],
+        }
+    ),
 
     // SQL查询工具
     createTool(
@@ -4926,11 +4984,335 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 const pyResult = await run_python(args.code, pythonPath);
                 return pyResult;
 
+            case 'siyuan_read_skill':
+                return await siyuan_read_skill(args.skillId);
+
+            case 'run_command':
+                return await run_command(args.command);
+
             default:
                 throw new Error(`未知的工具: ${name}`);
         }
     } catch (error) {
         console.error(`Execute tool ${name} error:`, error);
         return `执行工具失败: ${(error as Error).message}`;
+    }
+}
+
+/**
+ * 解析 YAML Frontmatter
+ */
+function parseYamlFrontmatter(content: string) {
+    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!match) return { yaml: null, markdown: content };
+    const yamlStr = match[1];
+    const markdown = content.substring(match[0].length).trim();
+    const yaml: Record<string, string> = {};
+    const lines = yamlStr.split('\n');
+    for (const line of lines) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex > 0) {
+            const key = line.substring(0, colonIndex).trim();
+            let val = line.substring(colonIndex + 1).trim();
+            // remove surrounding quotes
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+                val = val.substring(1, val.length - 1);
+            }
+            yaml[key] = val;
+        }
+    }
+    return { yaml, markdown };
+}
+
+const SIYUAN_SKILL_BLOCKS_MARKER = 'siyuan-plugin-copilot:skill-blocks';
+const SIYUAN_SKILL_BLOCKS_RE = /<!--\s*siyuan-plugin-copilot:skill-blocks\s*([\s\S]*?)\s*-->/m;
+
+function normalizeSkillBlockIds(blockIds: string[]): string[] {
+    return Array.from(
+        new Set(
+            blockIds
+                .map(id => id.trim())
+                .filter(Boolean)
+        )
+    );
+}
+
+export function extractSiyuanSkillBlockIds(content: string): string[] {
+    const markerMatch = content.match(SIYUAN_SKILL_BLOCKS_RE);
+    if (!markerMatch) {
+        return [];
+    }
+
+    const payload = markerMatch[1].trim();
+    if (!payload) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(payload);
+        if (Array.isArray(parsed)) {
+            return normalizeSkillBlockIds(parsed.filter(id => typeof id === 'string'));
+        }
+        if (Array.isArray(parsed?.blockIds)) {
+            return normalizeSkillBlockIds(parsed.blockIds.filter((id: unknown) => typeof id === 'string'));
+        }
+    } catch {
+        // 兼容手写的逐行/逗号分隔块 ID。
+    }
+
+    return normalizeSkillBlockIds(
+        payload
+            .split(/[\r\n,]+/)
+            .map(line => line.trim().replace(/^-\s*/, '').replace(/^["']|["']$/g, ''))
+    );
+}
+
+export function getSkillFrontmatter(content: string): string {
+    const match = content.match(/^---\r?\n[\s\S]*?\r?\n---/);
+    return match ? match[0] : '';
+}
+
+export function buildSiyuanBlockSkillMarkdown(frontmatter: string, blockIds: string[]): string {
+    return `${frontmatter.trim()}\n\n${buildSiyuanSkillBlocksMarker(blockIds)}\n`;
+}
+
+export function buildSiyuanSkillBlocksMarker(blockIds: string[]): string {
+    const normalizedBlockIds = normalizeSkillBlockIds(blockIds);
+    return `<!-- ${SIYUAN_SKILL_BLOCKS_MARKER}\n${JSON.stringify(normalizedBlockIds, null, 2)}\n-->`;
+}
+
+export function upsertSiyuanSkillBlockIds(content: string, blockIds: string[]): string {
+    const normalizedBlockIds = normalizeSkillBlockIds(blockIds);
+    const withoutTrailingSpace = content.trimEnd();
+
+    if (normalizedBlockIds.length === 0) {
+        const nextContent = withoutTrailingSpace
+            .replace(SIYUAN_SKILL_BLOCKS_RE, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trimEnd();
+        return nextContent ? `${nextContent}\n` : '';
+    }
+
+    const marker = buildSiyuanSkillBlocksMarker(normalizedBlockIds);
+    if (SIYUAN_SKILL_BLOCKS_RE.test(withoutTrailingSpace)) {
+        return `${withoutTrailingSpace.replace(SIYUAN_SKILL_BLOCKS_RE, marker)}\n`;
+    }
+
+    return `${withoutTrailingSpace}\n\n${marker}\n`;
+}
+
+async function resolveSiyuanBlockSkillContent(rawContent: string, blockIds: string[]): Promise<string> {
+    const sections: string[] = [];
+
+    for (const blockId of blockIds) {
+        try {
+            const data = await exportMdContent(blockId, false, false, 2, 0, false);
+            const content = data?.content?.trim();
+            const sourceComment = `<!-- siyuan-block-id: ${blockId}${data?.hPath ? ` hPath: ${data.hPath}` : ''} -->`;
+            sections.push(`${sourceComment}\n${content || `无法获取块内容：${blockId}`}`);
+        } catch (error) {
+            console.error('[Skills] Failed to export skill block:', blockId, error);
+            sections.push(`<!-- siyuan-block-id: ${blockId} -->\n无法获取块内容：${blockId}`);
+        }
+    }
+
+    return rawContent.replace(SIYUAN_SKILL_BLOCKS_RE, sections.join('\n\n')).trim();
+}
+
+function getSkillAbsolutePath(...pathParts: string[]): string {
+    // @ts-ignore
+    const dataDir = window.siyuan?.config?.system?.dataDir;
+    // @ts-ignore
+    if (!dataDir || !window?.require) {
+        return '';
+    }
+
+    try {
+        // @ts-ignore
+        const path = window.require('path');
+        return path.join(dataDir, 'storage', 'petal', 'siyuan-plugin-copilot', 'skills', ...pathParts);
+    } catch (err) {
+        console.error('Failed to get absolute path for skill:', err);
+        return '';
+    }
+}
+
+async function buildSkillReadResult(skillId: string, content: string, pathParts: string[]): Promise<string> {
+    const blockIds = extractSiyuanSkillBlockIds(content);
+    const isSiyuanBlockSkill = blockIds.length > 0;
+    const resolvedContent = isSiyuanBlockSkill
+        ? await resolveSiyuanBlockSkillContent(content, blockIds)
+        : content;
+
+    return JSON.stringify({
+        skillId: skillId,
+        source: isSiyuanBlockSkill ? 'siyuan-blocks' : 'markdown',
+        blockIds: isSiyuanBlockSkill ? blockIds : undefined,
+        absolutePath: getSkillAbsolutePath(...pathParts) || '未知绝对路径（可能非桌面版运行）',
+        content: resolvedContent
+    }, null, 2);
+}
+
+export interface Skill {
+    id: string;
+    name: string;
+    description: string;
+    filePath: string;
+    source: 'markdown' | 'siyuan-blocks';
+    blockIds: string[];
+    yamlHeaders: Record<string, string>;
+}
+
+/**
+ * 从 data/storage/petal/siyuan-plugin-copilot/skills 加载所有自定义 Skill
+ */
+export async function loadAllSkills(): Promise<Skill[]> {
+    const skillsDir = '/data/storage/petal/siyuan-plugin-copilot/skills';
+    const skills: Skill[] = [];
+    try {
+        // 确保目录存在
+        await putFile(skillsDir, true, null);
+
+        const items = await readDir(skillsDir);
+        if (items && Array.isArray(items)) {
+            for (const item of items) {
+                if (item.isDir) {
+                    const skillFolderName = item.name;
+                    const subDirPath = `${skillsDir}/${skillFolderName}`;
+                    const filesInFolder = await readDir(subDirPath);
+                    if (filesInFolder && Array.isArray(filesInFolder)) {
+                        // 支持 skill.md 或 SKILL.md
+                        const skillMdFile = filesInFolder.find(
+                            f => f.name.toLowerCase() === 'skill.md'
+                        );
+                        if (skillMdFile) {
+                            const skillFilePath = `${subDirPath}/${skillMdFile.name}`;
+                            const blob = await getFileBlob(skillFilePath);
+                            if (blob) {
+                                const text = await blob.text();
+                                const { yaml } = parseYamlFrontmatter(text);
+                                if (yaml) {
+                                    const blockIds = extractSiyuanSkillBlockIds(text);
+                                    skills.push({
+                                        id: skillFolderName,
+                                        name: yaml.name || skillFolderName,
+                                        description: yaml.description || '',
+                                        filePath: skillFilePath,
+                                        source: blockIds.length > 0 ? 'siyuan-blocks' : 'markdown',
+                                        blockIds: blockIds,
+                                        yamlHeaders: yaml
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[Skills] Failed to load skills:', e);
+    }
+    return skills;
+}
+
+/**
+ * 读取指定 Custom Skill 文件的完整 Markdown 内容，或其子文件的完整内容
+ */
+export async function siyuan_read_skill(skillId: string): Promise<string> {
+    const skillsDir = '/data/storage/petal/siyuan-plugin-copilot/skills';
+    const normalizedSkillId = skillId.replace(/\\/g, '/');
+    
+    // 如果 skillId 包含文件扩展名，则视为直接读取子文件路径
+    const isDirectFile = /\.[a-zA-Z0-9]+$/.test(normalizedSkillId);
+    
+    try {
+        if (isDirectFile) {
+            const filePath = `${skillsDir}/${normalizedSkillId}`;
+            const blob = await getFileBlob(filePath);
+            if (blob) {
+                const text = await blob.text();
+                return await buildSkillReadResult(skillId, text, normalizedSkillId.split('/'));
+            } else {
+                return `错误：未找到文件 "${filePath}"。`;
+            }
+        } else {
+            // 原有逻辑：读取 skillId 目录下的 skill.md
+            const subDirPath = `${skillsDir}/${normalizedSkillId}`;
+            const filesInFolder = await readDir(subDirPath);
+            if (filesInFolder && Array.isArray(filesInFolder)) {
+                const skillMdFile = filesInFolder.find(
+                    f => f.name.toLowerCase() === 'skill.md'
+                );
+                if (skillMdFile) {
+                    const skillFilePath = `${subDirPath}/${skillMdFile.name}`;
+                    const blob = await getFileBlob(skillFilePath);
+                    if (blob) {
+                        const text = await blob.text();
+                        return await buildSkillReadResult(skillId, text, [normalizedSkillId, skillMdFile.name]);
+                    }
+                }
+            }
+            return `错误：未找到 Skill "${skillId}" 对应的 skill.md 文件。`;
+        }
+    } catch (e) {
+        console.error('[Skills] Failed to read skill:', e);
+        return `错误：读取 Skill "${skillId}" 失败。${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+/**
+ * 执行本地终端命令（Windows 上使用 PowerShell）
+ */
+export async function run_command(command: string): Promise<string> {
+    try {
+        if (!command || command.trim() === '') {
+            throw new Error('命令内容是必需的');
+        }
+
+        // 检查是否在桌面环境
+        // @ts-ignore
+        if (!window?.require) {
+            throw new Error('当前环境不支持执行系统命令，请在思源笔记桌面版中使用此功能。');
+        }
+
+        // @ts-ignore
+        const childProcess = window.require('child_process');
+        
+        return new Promise((resolve) => {
+            // @ts-ignore
+            const envCopy = { ...(window.process?.env || {}) };
+            envCopy.PYTHONIOENCODING = 'utf-8';
+
+            const options: any = {
+                encoding: 'utf8',
+                maxBuffer: 10 * 1024 * 1024, // 10MB
+                env: envCopy
+            };
+            
+            let execCommand = command;
+            // @ts-ignore
+            if (window.process && window.process.platform === 'win32') {
+                options.shell = 'powershell.exe';
+                // 前置设置 PowerShell 的输出编码为 UTF-8，防止中文乱码
+                execCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
+            }
+            
+            childProcess.exec(execCommand, options, (error: any, stdout: string, stderr: string) => {
+                let result = '';
+                if (stdout) {
+                    result += stdout;
+                }
+                if (stderr) {
+                    result += `\n[标准错误输出]:\n${stderr}`;
+                }
+                if (error) {
+                    result += `\n[执行错误]:\n${error.message}`;
+                }
+                resolve(result.trim() || '[命令执行完毕，无输出内容]');
+            });
+        });
+    } catch (e) {
+        console.error('[Terminal] Failed to execute command:', e);
+        return `错误：执行命令失败。${e instanceof Error ? e.message : String(e)}`;
     }
 }

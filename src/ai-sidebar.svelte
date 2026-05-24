@@ -56,6 +56,8 @@
         TOOL_CATEGORIES,
         QA_TOOL_CATEGORIES,
         soul,
+        loadAllSkills,
+        type Skill,
     } from './tools';
 
     // Agent 模式工具使用强制规则（统一常量）
@@ -815,21 +817,31 @@
         try {
             // 准备 Agent/Ask 模式的工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                    currentSelectedTools.some(t => t.name === tool.function.name)
-                );
-                const filteredToolDefs = selectedToolDefs.filter(
-                    tool => tool.function.name !== 'get_siyuan_skills'
-                );
-                const descTool =
-                    chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(
-                              filteredToolDefs.map(tool => tool.function.name)
-                          )
-                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
+            if (chatMode === 'agent' || chatMode === 'ask') {
+                const skills = await loadAllSkills();
+                const hasSkills = skills && skills.length > 0;
+                if (userToolCount > 0 || hasSkills) {
+                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                        currentSelectedTools.some(t => t.name === tool.function.name)
+                    );
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                    );
+                    const descTool =
+                        chatMode === 'ask'
+                            ? createGetSiyuanSkillsTool(
+                                  filteredToolDefs.map(tool => tool.function.name)
+                              )
+                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
+                    
+                    const extraTools = [];
+                    if (descTool) extraTools.push(descTool);
+                    if (readSkillTool) extraTools.push(readSkillTool);
+                    
+                    toolsForAgent = [...extraTools, ...filteredToolDefs];
+                }
             }
 
             // 准备联网搜索工具（如果启用）
@@ -943,7 +955,7 @@
                                 const toolConfig = currentSelectedTools.find(
                                     t => t.name === tc.function.name
                                 );
-                                const isSystemTool = tc.function.name === 'get_siyuan_skills';
+                                const isSystemTool = tc.function.name === 'get_siyuan_skills' || tc.function.name === 'siyuan_read_skill';
                                 const autoApprove =
                                     isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
 
@@ -3184,22 +3196,32 @@
 
                 // 准备 Agent/Ask 模式的工具列表
                 let toolsForAgent: any[] | undefined = undefined;
-                if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-                    const currentSelectedTools =
-                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                        currentSelectedTools.some(t => t.name === tool.function.name)
-                    );
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills'
-                    );
-                    const descTool =
-                        chatMode === 'ask'
-                            ? createGetSiyuanSkillsTool(
-                                  filteredToolDefs.map(tool => tool.function.name)
-                              )
-                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
+                if (chatMode === 'agent' || chatMode === 'ask') {
+                    const skills = await loadAllSkills();
+                    const hasSkills = skills && skills.length > 0;
+                    if (userToolCount > 0 || hasSkills) {
+                        const currentSelectedTools =
+                            chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                        const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                            currentSelectedTools.some(t => t.name === tool.function.name)
+                        );
+                        const filteredToolDefs = selectedToolDefs.filter(
+                            tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                        );
+                        const descTool =
+                            chatMode === 'ask'
+                                ? createGetSiyuanSkillsTool(
+                                      filteredToolDefs.map(tool => tool.function.name)
+                                  )
+                                : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                        const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
+                        
+                        const extraTools = [];
+                        if (descTool) extraTools.push(descTool);
+                        if (readSkillTool) extraTools.push(readSkillTool);
+                        
+                        toolsForAgent = [...extraTools, ...filteredToolDefs];
+                    }
                 }
 
                 // 准备联网搜索工具（如果启用）
@@ -3322,7 +3344,7 @@
                                     const toolConfig = currentSelectedTools.find(
                                         t => t.name === tc.function.name
                                     );
-                                    const isSystemTool = tc.function.name === 'get_siyuan_skills';
+                                    const isSystemTool = tc.function.name === 'get_siyuan_skills' || tc.function.name === 'siyuan_read_skill';
                                     const autoApprove =
                                         isSystemTool ||
                                         (toolConfig && toolConfig.autoApprove) ||
@@ -3571,6 +3593,16 @@
         lastUserMessage: Message,
         thinkingEnabled: boolean = false
     ) {
+        // 先检查是否有自定义 skills
+        let skills: Skill[] = [];
+        let hasSkills = false;
+        try {
+            skills = await loadAllSkills();
+            hasSkills = skills && skills.length > 0;
+        } catch (e) {
+            console.error('[Skills] Failed to load skills:', e);
+        }
+
         // 过滤掉空的 assistant 消息，防止某些 Provider（例如 Kimi）报错
         // 但保留有生图的 assistant 消息
         let messagesToSend = messages
@@ -3603,7 +3635,7 @@
 
                 // 只有在启用 thinking 模式时才保留相关内容
                 // 特别是 Kimi 等模型，如果启用了 thinking，历史 assistant 消息必须包含 reasoning_content
-                const shouldKeepReasoning = thinkingEnabled && userToolCount > 0;
+                const shouldKeepReasoning = thinkingEnabled && (userToolCount > 0 || hasSkills);
 
                 if (msg.tool_calls) {
                     baseMsg.tool_calls = msg.tool_calls;
@@ -3926,10 +3958,19 @@
             baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
+        // 加载自定义 Skills
+        if (hasSkills && skills) {
+            let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+            for (const skill of skills) {
+                skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
+            }
+            baseSystemPrompt += skillsPrompt;
+        }
+
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
         let hasSoulEnabled = false;
-        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
             // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
@@ -5556,28 +5597,41 @@
         }
 
         // 根据模式添加系统提示词
-        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-            // Agent 模式或启用工具的问答模式下添加工具使用强制规则
-            let baseSystemPrompt = settings.aiSystemPrompt || '';
+        let baseSystemPrompt = settings.aiSystemPrompt || '';
+        if (tempModelSettings.systemPrompt.trim()) {
+            baseSystemPrompt = tempModelSettings.systemPrompt;
+        }
+
+        // 加载自定义 Skills
+        let hasSkills = false;
+        try {
+            const skills = await loadAllSkills();
+            if (skills && skills.length > 0) {
+                hasSkills = true;
+                let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+                for (const skill of skills) {
+                    skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
+                }
+                baseSystemPrompt += skillsPrompt;
+            }
+        } catch (error) {
+            console.error('[Skills] Failed to load skills for prompt:', error);
+        }
+
+        // Agent/Ask 模式带有工具时，添加工具使用强制规则
+        let hasToolInstruction = false;
+        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
                 baseSystemPrompt = AGENT_TOOL_USAGE_INSTRUCTION;
             }
-            messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
-        } else if (settings.aiSystemPrompt) {
-            messagesToSend.unshift({ role: 'system', content: settings.aiSystemPrompt });
+            hasToolInstruction = true;
         }
 
-        // 使用临时系统提示词（如果设置了）
-        if (tempModelSettings.systemPrompt.trim()) {
-            // 如果已有系统提示词，替换它；否则添加新的
-            const systemMsgIndex = messagesToSend.findIndex(msg => msg.role === 'system');
-            if (systemMsgIndex !== -1) {
-                messagesToSend[systemMsgIndex].content = tempModelSettings.systemPrompt;
-            } else {
-                messagesToSend.unshift({ role: 'system', content: tempModelSettings.systemPrompt });
-            }
+        // 添加最终的系统提示词
+        if (baseSystemPrompt.trim() || hasToolInstruction) {
+            messagesToSend.unshift({ role: 'system', content: baseSystemPrompt });
         }
 
         // 限制上下文消息数量
@@ -5647,22 +5701,32 @@
 
             // 准备工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-                // 根据选中的工具名称筛选出对应的工具定义
-                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                    currentSelectedTools.some(t => t.name === tool.function.name)
-                );
-                const filteredToolDefs = selectedToolDefs.filter(
-                    tool => tool.function.name !== 'get_siyuan_skills'
-                );
-                const descTool =
-                    chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(
-                              filteredToolDefs.map(tool => tool.function.name)
-                          )
-                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
+            if (chatMode === 'agent' || chatMode === 'ask') {
+                const skills = await loadAllSkills();
+                const hasSkills = skills && skills.length > 0;
+                if (userToolCount > 0 || hasSkills) {
+                    // 根据选中的工具名称筛选出对应的工具定义
+                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                        currentSelectedTools.some(t => t.name === tool.function.name)
+                    );
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                    );
+                    const descTool =
+                        chatMode === 'ask'
+                            ? createGetSiyuanSkillsTool(
+                                  filteredToolDefs.map(tool => tool.function.name)
+                              )
+                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
+                    
+                    const extraTools = [];
+                    if (descTool) extraTools.push(descTool);
+                    if (readSkillTool) extraTools.push(readSkillTool);
+                    
+                    toolsForAgent = [...extraTools, ...filteredToolDefs];
+                }
             }
 
             // 准备联网搜索工具（如果启用）
@@ -5837,7 +5901,8 @@
                                     );
                                     // get_siyuan_skills 是系统工具，默认自动批准
                                     const isSystemTool =
-                                        toolCall.function.name === 'get_siyuan_skills';
+                                        toolCall.function.name === 'get_siyuan_skills' ||
+                                        toolCall.function.name === 'siyuan_read_skill';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
@@ -11011,9 +11076,25 @@
             baseSystemPrompt = tempModelSettings.systemPrompt;
         }
 
+        // 加载自定义 Skills
+        let hasSkills = false;
+        try {
+            const skills = await loadAllSkills();
+            if (skills && skills.length > 0) {
+                hasSkills = true;
+                let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+                for (const skill of skills) {
+                    skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
+                }
+                baseSystemPrompt += skillsPrompt;
+            }
+        } catch (error) {
+            console.error('[Skills] Failed to load skills for prompt:', error);
+        }
+
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
-        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
@@ -11055,22 +11136,32 @@
 
             // 准备工具列表
             let toolsForAgent: any[] | undefined = undefined;
-            if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
-                // 根据选中的工具名称筛选出对应的工具定义
-                const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                    currentSelectedTools.some(t => t.name === tool.function.name)
-                );
-                const filteredToolDefs = selectedToolDefs.filter(
-                    tool => tool.function.name !== 'get_siyuan_skills'
-                );
-                const descTool =
-                    chatMode === 'ask'
-                        ? createGetSiyuanSkillsTool(
-                              filteredToolDefs.map(tool => tool.function.name)
-                          )
-                        : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                toolsForAgent = descTool ? [descTool, ...filteredToolDefs] : filteredToolDefs;
+            if (chatMode === 'agent' || chatMode === 'ask') {
+                const skills = await loadAllSkills();
+                const hasSkills = skills && skills.length > 0;
+                if (userToolCount > 0 || hasSkills) {
+                    // 根据选中的工具名称筛选出对应的工具定义
+                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+                        currentSelectedTools.some(t => t.name === tool.function.name)
+                    );
+                    const filteredToolDefs = selectedToolDefs.filter(
+                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                    );
+                    const descTool =
+                        chatMode === 'ask'
+                            ? createGetSiyuanSkillsTool(
+                                  filteredToolDefs.map(tool => tool.function.name)
+                              )
+                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
+                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
+                    
+                    const extraTools = [];
+                    if (descTool) extraTools.push(descTool);
+                    if (readSkillTool) extraTools.push(readSkillTool);
+                    
+                    toolsForAgent = [...extraTools, ...filteredToolDefs];
+                }
             }
 
             // 用于保存生成的图片
@@ -11233,7 +11324,8 @@
                                     );
                                     // get_siyuan_skills 是系统工具，默认自动批准
                                     const isSystemTool =
-                                        toolCall.function.name === 'get_siyuan_skills';
+                                        toolCall.function.name === 'get_siyuan_skills' ||
+                                        toolCall.function.name === 'siyuan_read_skill';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
