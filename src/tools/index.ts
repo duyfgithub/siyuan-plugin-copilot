@@ -42,6 +42,7 @@ import {
     putFile,
     readDir,
     getFileBlob,
+    renderSprig,
 } from '../api';
 import { getActiveEditor } from 'siyuan';
 import { parseWebPageToMarkdown, fetchWithWebView } from '../utils/webParser';
@@ -191,6 +192,47 @@ export interface ToolResult {
  */
 export const TOOL_FULL_DESCRIPTIONS: Record<string, string> = {};
 
+const BUILTIN_TOOL_SKILLS_DIR = '/data/plugins/siyuan-plugin-copilot/skills';
+const BUILTIN_TOOL_SKILL_MODULES = import.meta.glob('./skills/*.md', {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+}) as Record<string, string>;
+
+function registerBuiltinToolSkillDescriptions() {
+    for (const [filePath, content] of Object.entries(BUILTIN_TOOL_SKILL_MODULES)) {
+        const fileName = filePath.split('/').pop() || '';
+        const toolName = fileName.replace(/\.md$/i, '');
+        if (toolName) {
+            TOOL_FULL_DESCRIPTIONS[toolName] = content.trim();
+        }
+    }
+}
+
+registerBuiltinToolSkillDescriptions();
+
+function getBuiltinToolSkillDescription(toolName: string): string {
+    return TOOL_FULL_DESCRIPTIONS[toolName] || `工具 "${toolName}" 的说明文档缺失。`;
+}
+
+function isSafeBuiltinToolSkillName(toolName: string): boolean {
+    return /^[a-zA-Z0-9_]+$/.test(toolName);
+}
+
+async function readBuiltinToolSkillDescription(toolName: string): Promise<string | null> {
+    if (!isSafeBuiltinToolSkillName(toolName)) {
+        return null;
+    }
+
+    const skillPath = `${BUILTIN_TOOL_SKILLS_DIR}/${toolName}.md`;
+    const blob = await getFileBlob(skillPath);
+    if (!blob) {
+        return null;
+    }
+
+    return (await blob.text()).trim();
+}
+
 /**
  * 获取工具的简短描述（用于工具列表展示）
  * 从完整描述中提取第一行非空内容
@@ -272,26 +314,18 @@ export function buildToolDescriptionsPrompt(
  * 获取工具的详细描述文档
  * AI 应该先调用此工具获取目标工具的详细使用说明，然后再调用实际工具
  */
-export function getSiyuanSkills(toolName: string): string {
-    const description = TOOL_FULL_DESCRIPTIONS[toolName];
+export async function getSiyuanSkills(toolName: string): Promise<string> {
+    const normalizedToolName = toolName.trim();
+    const description =
+        await readBuiltinToolSkillDescription(normalizedToolName) ||
+        TOOL_FULL_DESCRIPTIONS[normalizedToolName];
     if (!description) {
         return `未找到工具 "${toolName}" 的详细描述。可用工具: ${Object.keys(TOOL_FULL_DESCRIPTIONS).join(', ')}`;
     }
     return description;
 }
 
-const GET_SIYUAN_SKILLS_TOOL_DESCRIPTION = `了解思源笔记AI使用规范，获取指定工具的详细使用说明文档。
-
-**重要规则**
-- 在使用任何工具之前，必须先调用此工具获取该工具的详细说明。
-## 使用流程
-1. 确定需要使用的工具名称
-2. 调用 get_siyuan_skills 获取该工具的详细文档
-3. 阅读文档了解参数要求、使用示例、注意事项
-4. 根据文档正确调用目标工具
-
-## 参数
-- toolName: 要查询的工具名称，如 "siyuan_sql_query" 等`;
+const GET_SIYUAN_SKILLS_TOOL_DESCRIPTION = getBuiltinToolSkillDescription('get_siyuan_skills');
 
 const GET_SIYUAN_SKILLS_ALL_TOOL_NAMES = [
     'siyuan_sql_query',
@@ -373,16 +407,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
     // 自定义 Skill 读取工具 - 隐藏工具，不在 UI 中显示
     createTool(
         'read_skill',
-        `获取指定自定义 Skill 的完整执行指令和工作流文档。
-        
-## 何时使用
-- 当发现有符合当前任务的自定义 Skill 且需要读取其详细执行步骤时调用。
-- 只有在系统提示词的 "=== 自定义 Skill ===" 列表中列出的 Skill 才可以被读取。
-- 支持读取 Skill 文件夹内的子文件（例如传入 "skillId/subfolder/file.md"）。
-- 如果 Skill 使用思源块作为内容，本工具会自动把 skill.md 中保存的块 ID 展开为对应的 Markdown 内容。
-
-## 参数
-- skillId: 要读取的 Skill 的标识符，或是 Skill 文件夹下某个子文件的相对路径（如 "my-skill" 或 "my-skill/references/guide.md"）`,
+        getBuiltinToolSkillDescription('read_skill'),
         {
             type: 'object',
             properties: {
@@ -398,18 +423,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
     // 运行本地命令工具
     createTool(
         'run_command',
-        `在本地终端中运行命令的工具（Windows 上使用 PowerShell，macOS/Linux 上使用默认 shell）。
-        
-## 何时使用
-- 需要在本地执行系统命令、管理文件、运行命令行工具等任务时使用。
-- 允许运行任何本地命令（例如：git、pip、npm、curl，或者直接运行 Python 脚本如 python test.py 等）。
-
-## 注意事项
-- 该命令将在用户机器上直接执行，请确保命令的安全性。
-- 支持多行命令。
-
-## 参数
-- command: 要执行的终端命令内容`,
+        getBuiltinToolSkillDescription('run_command'),
         {
             type: 'object',
             properties: {
@@ -425,92 +439,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
     // SQL查询工具
     createTool(
         'siyuan_sql_query',
-        `执行思源笔记SQL查询的工具。
-
-## 何时使用
-- 需要搜索、统计或分析笔记内容
-- 查找特定条件的块、文档
-- 获取笔记的元数据信息
-
-## 数据库表结构
-
-### blocks表：存储所有块信息
-| 字段名 | 说明     | 字段值示例 |
-| -------- | ---------------------------------------------------- | ------------ |
-| id       | 内容块 ID| 20210104091228-d0rzbmm  |
-| parent_id       | 上级块的 ID，文档块该字段为空      | 20200825162036-4dx365o   |
-| root_id       | 顶层块的 ID，即文档块 ID   | 20200825162036-4dx365o   |
-| hash       | content 字段的 SHA256 校验和      | a75d25c   |
-| box       | 笔记本 ID| 20210808180117-czj9bvb   |
-| path       | 内容块所在文档路径| /20200812220555-lj3enxa/20210808180320-abz7w6k/20200825162036-4dx365o.sy   |
-| hpath       | 人类可读的内容块所在文档路径       | /0 请从这里开始/编辑器/排版元素   |
-| name       | 内容块命名| 一级标题命名   |
-| alias       | 内容块别名| 一级标题别名   |
-| memo       | 内容块备注| 一级标题备注   |
-| tag       | 非文档块为块内包含的标签，文档块为文档的标签       | #标签1# #标签2# #标签3#   |
-| content       | 去除了 Markdown 标记符的文本,对于数据库type=av，不能查询content字段，否则上下文会剧增,请查询Markdown       | 一级标题   |
-| fcontent       | 第一个子块去除了 Markdown 标记符的文本(1.9.9 添加) | 第一个子块   |
-| markdown       | 包含完整 Markdown 标记符的文本     | # 一级标题   |
-| length       | fcontent 字段文本长度     | 6   |
-| type       | 内容块主类型，参考 [blocks.type](#blocks-type)| h   |
-| subtype       | 内容块次类型，参考 [blocks.subtype](#blocks-type)| h1   |
-| ial       | 内联属性列表，形如 {: name="value"}| {: id="20210104091228-d0rzbmm" updated="20210604222535"}   |
-| sort       | 排序权重，数值越小排序越靠前       | 5   |
-| created       | 创建时间 | 20210104091228   |
-| updated       | 更新时间 | 20210604222535   |
-
-### refs表：存储所有引用双链结构
-
-| 字段名 | 说明 | 字段值示例 |
-| --- | --- | --- |
-| id | 引用 ID | 20211127144458-idb32wk |
-| def_block_id | 被引用块的块 ID | 20200925095848-aon4lem |
-| def_block_parent_id | 被引用块的双亲节点的块 ID | 20200905090211-2vixtlf |
-| def_block_root_id | 被引用块所在文档的 ID | 20200905090211-2vixtlf |
-| def_block_path | 被引用块所在文档的路径 | /20200812220555-lj3enxa/20210808180320-fqgskfj/20200905090211-2vixtlf.sy |
-| block_id | 引用所在内容块 ID | 20210104090624-c5bu25o |
-| root_id | 引用所在文档块 ID | 20200905090211-2vixtlf |
-| box | 引用所在笔记本 ID | 20210808180117-czj9bvb |
-| path | 引用所在文档块路径 | /20200812220555-lj3enxa/20210808180320-fqgskfj/20200905090211-2vixtlf.sy |
-| content | 引用锚文本 | 元类型 |
-| markdown | 包含完整 Markdown 标记符的文本 | (()) |
-| type | 引用类型 | ref_id |
-
-### attributes表：查询特定块属性
-
-| 字段名 | 说明 | 字段值示例 |
-| --- | --- | --- |
-| id | 属性 ID | 20211127144458-h7y55zu |
-| name | 属性名称 | bookmark |
-| value | 属性值 | ✨ |
-| type | 类型 | b |
-| block_id | 块 ID | 20210428212840-859h45j |
-| root_id | 文档 ID | 20200812220555-lj3enxa |
-| box | 笔记本 ID | 20210808180117-czj9bvb |
-| path | 文档文件路径 | /20200812220555-lj3enxa.sy |
-
-## 查询示例
-
-\`\`\`sql
--- 搜索包含关键词的文档，为了查找更相关的结果，需要思考不同词，一起查询
--- 假设用户要搜索“时间管理”相关文档，需要想到“任务管理”或“GTD”等相关词。
-SELECT id,content FROM blocks
-WHERE (content LIKE '%时间管理%' OR content LIKE '%任务管理%' OR content LIKE '%GTD%')
-AND type='d'
-LIMIT 50;
-
--- 获取最近更新的文档
-SELECT id,content FROM blocks WHERE type='d' ORDER BY updated DESC LIMIT 50;
-
--- 查找带有特定标签的块
-SELECT id,content FROM blocks WHERE tag LIKE '%标签名%';
-\`\`\`
-
-## 注意事项
-- 避免查询过多数据，使用LIMIT限制结果数量，默认50，如用户的要求出现“所有”等关键词，则LIMIT为-1
-- 如果没有必要，不要用select *，只查询需要的字段如id和content，避免上下文爆炸，对于数据库type=av，不能查询content字段，否则上下文会剧增
-- 查询之后的结果总结，使用思源笔记块链接的格式包裹，如\`[脑机接口](siyuan://blocks/20240519195512-ccrifu0)\`
-`,
+        getBuiltinToolSkillDescription('siyuan_sql_query'),
         {
             type: 'object',
             properties: {
@@ -525,38 +454,7 @@ SELECT id,content FROM blocks WHERE tag LIKE '%标签名%';
     // 更新块工具
     createTool(
         'siyuan_update_block',
-        `更新思源笔记中已存在块的工具。
-
-## 何时使用
-- 需要修改现有笔记内容
-- 用户要求更新某个特定的块
-- 修正或改进已有信息
-
-## 使用方法
-1. 获取要更新的块ID（上下文提供、SQL查询等方式）
-2. 准备新的内容（Markdown格式）
-3. 调用工具更新块内容
-
-## 更新策略
-- 保留结构：尽量保持原有的块结构和子块
-- 属性保留：块属性（如别名、标签）会被保留
-
-## 注意事项
-- 必须提供准确的块ID
-- 思源笔记kramdown格式可以添加文字颜色：格式为<span data-type="text" style="background-color: var(--b3-card-error-background); color: var(--b3-card-error-color);">文本</span>，优先使用以下颜色变量：
-  - 红色文字：--b3-font-color1
-  - 橙色文字：--b3-font-color2
-  - 蓝色文字：--b3-font-color3
-  - 绿色文字：--b3-font-color4
-  - 灰色文字：--b3-font-color5
-  - 红色卡片：color: var(--b3-card-error-color); background-color: var(--b3-card-error-background);
-  - 绿色卡片：color: var(--b3-card-success-color); background-color: var(--b3-card-success-background);
-  - 蓝色卡片：color: var(--b3-card-info-color); background-color: var(--b3-card-info-background);
-  - 橙色卡片：color: var(--b3-card-warning-color); background-color: var(--b3-card-warning-background);
-- 不建议频繁更新大型文档块，考虑只更新特定段落
-
-## 调用工具后
-- 更新块后以思源块链接格式返回，方便用户点击跳转查看`,
+        getBuiltinToolSkillDescription('siyuan_update_block'),
         {
             type: 'object',
             properties: {
@@ -580,65 +478,7 @@ SELECT id,content FROM blocks WHERE tag LIKE '%标签名%';
     // 插入块工具
     createTool(
         'siyuan_insert_block',
-        `在思源笔记中插入新块的工具。
-
-## 何时使用
-- 用户要求添加新内容到笔记
-- 需要在特定位置插入信息
-- 创建新的笔记内容
-
-## 使用方法
-1. 使用markdown格式准备要插入的内容
-2. 确定插入位置（在某个块之前、之后，或作为子块）
-3. 调用工具插入内容，插入
-
-## 位置参数说明
-- parentID: 将新块作为指定块的子块插入（前置子块）
-- appendParentID: 将新块作为指定块的后置子块插入（追加到父块最后）
-- previousID: 在指定块之后插入新块
-- nextID: 在指定块之前插入新块
-
-## 使用示例
-
-\`\`\`javascript
-// 在块前插入新块
-siyuan_insert_block({
-  dataType: "markdown",
-  data: "# 新标题\\n\\n这是新插入的内容。",
-  nextID: "20210104091228-d0rzbmm"  // 在此块之前插入
-})
-
-// 在块后插入新块
-siyuan_insert_block({
-  dataType: "markdown",
-  data: "- 新列表项",
-  previousID: "20210104091228-d0rzbmm"  // 在此块之后插入
-})
-
-// 作为前置子块插入
-siyuan_insert_block({
-  dataType: "markdown",
-  data: "这是前置子块内容",
-  parentID: "20210104091228-d0rzbmm"  // 作为此块的前置子块
-})
-
-// 作为后置子块插入（追加到父块最后）
-siyuan_insert_block({
-  dataType: "markdown",
-  data: "这是后置子块内容",
-  appendParentID: "20210104091228-d0rzbmm"  // 作为此块的后置子块
-})
-\`\`\`
-
-## 注意事项
-- 插入块可以通过markdown换行符一次性插入多个块，可以一次性插入长文本
-- 至少需要指定一个位置参数（parentID、appendParentID、previousID或nextID）
-- 如果指定parentID，会作为子块追加到父块的最前面
-- 如果指定appendParentID，会作为子块追加到父块的最后面
-- previousID和nextID用于在同级块中定位
-
-## 调用工具后
-- 插入块后以思源块链接格式返回，方便用户点击跳转查看`,
+        getBuiltinToolSkillDescription('siyuan_insert_block'),
         {
             type: 'object',
             properties: {
@@ -677,69 +517,7 @@ siyuan_insert_block({
     // 获取块内容工具
     createTool(
         'siyuan_get_block_content',
-        `获取思源笔记块的详细内容的工具。
-
-## 何时使用
-- 需要查看特定块的完整内容
-- 获取块的Markdown或Kramdown源码
-- 分析块的结构和格式
-- 对内容进行过滤、搜索、替换处理
-
-## 返回格式
-支持两种格式：
-1. markdown: 标准Markdown格式，适合阅读
-2. kramdown: 包含块ID信息的格式，适合编程处理
-
-## Command 参数（可选）
-用于对返回的文本进行处理，支持管道符 | 拼接多个命令：
-
-### length
-返回文本的长度（字符数）。
-示例: "length"
-
-### grep [pattern]
-使用普通文本或正则表达式搜索匹配的行。
-- pattern: 搜索模式，支持普通字符串或正则表达式（用 /pattern/flags 格式）
-示例: "grep 关键字"
-示例: "grep /^# /"  (匹配所有一级标题)
-
-### replace [pattern] [replacement]
-使用普通文本或正则表达式替换文本。
-- pattern: 要替换的模式，支持普通字符串或正则（用 /pattern/flags 格式）
-- replacement: 替换内容，支持 $1, $2 等捕获组引用
-示例: "replace foo bar" (将 foo 替换为 bar)
-示例: "replace /\\d+/ [数字]" (将所有数字替换为 [数字])
-
-### head [n] 或 head [start] [end]
-获取指定范围的行。
-- head 10: 返回前10行
-- head 5 15: 返回第5到15行（包含）
-示例: "head 20"
-示例: "head 100 200"
-
-### 管道组合
-使用 | 拼接多个命令，按顺序执行。
-示例: "grep /^# / | head 10" (获取前10个标题)
-示例: "replace /foo/g bar | head 50" (替换后将结果限制为50行)
-
-## 使用场景
-- 读取文档内容用于分析或摘要
-- 获取代码块的源代码
-- 提取表格、列表等结构化数据
-- 检查块的引用和链接
-- 搜索特定内容（配合 grep）
-- 分块读取长文档（配合 head）
-
-## 长文档处理
-- 对于大型文档，建议配合 command 参数分块读取
-- 先使用 "length" 获取总长度
-- 使用 "head 1 100" 逐步读取内容
-- 使用 "grep 关键字" 快速定位相关内容
-
-## 注意事项
-- 块ID必须存在且有效
-- Kramdown格式包含额外的元数据
-- 命令执行顺序为从左到右`,
+        getBuiltinToolSkillDescription('siyuan_get_block_content'),
         {
             type: 'object',
             properties: {
@@ -764,41 +542,7 @@ siyuan_insert_block({
     // 创建文档工具
     createTool(
         'siyuan_create_document',
-        `在思源笔记中创建新文档的工具。
-
-## 何时使用
-- 用户要求创建新笔记
-- 需要基于对话内容生成文档
-- 整理信息并保存为新文档
-
-## 文档创建功能
-1. 自动创建层级目录
-2. 支持完整的Markdown格式
-3. 自动处理块引用
-
-## 路径格式
-- 使用 / 分隔的路径，如 /日记/2024/01
-- 不需要包含笔记本ID
-- 会自动创建不存在的父目录
-- 文件名会自动从路径中提取
-
-## 使用示例
-
-\`\`\`javascript
-// 创建日记
-siyuan_create_document({
-  notebook: "20210808180117-6v0mkxr",
-  path: "/日记/2026-01-01",
-  markdown: "# 今日总结\\n\\n学习了AI知识..."
-})
-\`\`\`
-
-## 注意事项
-- 必须提供有效的笔记本ID
-- 路径中的文档如果已存在会报错
-- Markdown内容会被解析并转换为块
-- 自动块引用功能会增加处理时间
-- 建议合理组织文档结构，避免过深的层级`,
+        getBuiltinToolSkillDescription('siyuan_create_document'),
         {
             type: 'object',
             properties: {
@@ -808,47 +552,21 @@ siyuan_create_document({
                 },
                 path: {
                     type: 'string',
-                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录',
+                    description: '文档路径，如 /日记/2024-01-01，会自动创建父目录。未提供时使用思源默认新建文档路径',
                 },
                 markdown: {
                     type: 'string',
                     description: '文档内容，使用Markdown格式。',
                 },
             },
-            required: ['notebook', 'path', 'markdown'],
+            required: ['markdown'],
         }
     ),
 
     // 创建子文档工具
     createTool(
         'siyuan_create_child_document',
-        `在指定父文档下创建子文档的工具。
-
-## 何时使用
-- 需要在指定文档下创建子文档
-- 用户要求在某个文档内部创建新文档
-- 整理层级笔记结构
-
-## 文档创建功能
-1. 自动在父文档路径下创建子文档
-2. 支持Markdown格式创建文档
-
-## 使用示例
-
-\`\`\`javascript
-// 在父文档下创建子文档
-siyuan_create_child_document({
-  parentId: "20210808180117-6v0mkxr",  // 父文档ID
-  title: "子文档标题",                 // 子文档标题（不含路径）
-  markdown: "# 子文档内容\\n\\n这是内容..."
-})
-\`\`\`
-
-## 参数说明
-- parentId: 父文档ID（必填）
-- title: 子文档标题（必填，不含路径，仅文档名）
-- markdown: 文档内容，使用Markdown格式（必填）
-`,
+        getBuiltinToolSkillDescription('siyuan_create_child_document'),
         {
             type: 'object',
             properties: {
@@ -872,29 +590,7 @@ siyuan_create_child_document({
     // 列出笔记本工具
     createTool(
         'siyuan_list_notebooks',
-        `获取所有笔记本列表的工具。
-
-## 何时使用
-- 需要查看系统中有哪些笔记本
-- 获取笔记本ID用于创建或查询文档
-- 检查笔记本是否存在或已打开
-
-## 返回信息
-- 笔记本ID (id)
-- 笔记本名称 (name)
-- 笔记本图标 (icon)
-- 排序权重 (sort)
-- 是否已关闭 (closed)
-
-## 使用场景
-- 在创建文档前选择目标笔记本
-- 列出可用的笔记本供用户选择
-- 检查笔记本状态
-
-## 注意事项
-- 返回包括已打开和已关闭的笔记本
-- 可以通过 closed 字段判断笔记本是否已关闭
-- 笔记本ID是创建文档等操作的必要参数`,
+        getBuiltinToolSkillDescription('siyuan_list_notebooks'),
         {
             type: 'object',
             properties: {},
@@ -905,30 +601,7 @@ siyuan_create_child_document({
     // 获取文档树工具
     createTool(
         'siyuan_get_doc_tree',
-        `获取指定路径下的子文档结构（文档树结构）
-
-## 何时使用
-- 需要列出某个笔记本下的文档树
-- 需要以树形结构展示文档层级
-- 需要获取父文档的子文档列表
-
-## 使用方法
-1. 提供笔记本ID，如果没提供，需要通过sql查询获取box值（select box from blocks where id = 'notebook_id'）
-2. 指定起始文档路径，根路径为'/', 文档路径举例，"/20241210222249-ovvy2kp/20241210222305-00azub2.sy"，如果没提供，需要通过sql查询获取path值（select path from blocks where id = 'block_id'）
-3. 可选排序模式（若不指定，将使用笔记本或全局配置决定）
-
-## 返回格式示例
-[
-  {
-    name: "文档名",
-    id: "文档ID",
-    children: [ ... ]
-  }
-]
-
-## 注意事项
-- 如果笔记本的 sortMode 为 15（文档树排序），函数会读取全局文件树排序设置：window.siyuan.config.fileTree.sort
-- 返回结果为 JSON 数组，节点包含 name、id 和 children 字段，children 为数组（可能为空）`,
+        getBuiltinToolSkillDescription('siyuan_get_doc_tree'),
         {
             type: 'object',
             properties: {
@@ -952,37 +625,7 @@ siyuan_create_child_document({
     // 创建笔记本工具
     createTool(
         'siyuan_create_notebook',
-        `创建新笔记本的工具。
-
-## 何时使用
-- 用户要求创建新的笔记本
-- 需要为特定项目或主题创建独立的笔记本
-- 组织和管理笔记结构
-
-## 创建功能
-- 创建指定名称的新笔记本
-- 自动生成笔记本ID
-- 新笔记本会自动打开
-
-## 使用示例
-
-\`\`\`javascript
-// 创建项目笔记本
-siyuan_create_notebook({
-  name: "项目管理"
-})
-
-// 创建学习笔记本
-siyuan_create_notebook({
-  name: "机器学习笔记"
-})
-\`\`\`
-
-## 注意事项
-- 笔记本名称不能为空
-- 如果同名笔记本已存在，可能会报错
-- 创建成功后会返回笔记本对象，包含ID等信息
-- 新笔记本默认会自动打开`,
+        getBuiltinToolSkillDescription('siyuan_create_notebook'),
         {
             type: 'object',
             properties: {
@@ -998,38 +641,7 @@ siyuan_create_notebook({
     // 重命名文档工具
     createTool(
         'siyuan_rename_document',
-        `重命名思源笔记文档的工具。
-
-## 何时使用
-- 用户要求修改文档标题
-- 需要更新文档名称以反映内容变化
-- 整理和优化文档命名
-
-## 使用方法
-1. 通过SQL查询或其他方式获取要重命名的文档ID
-2. 提供新的文档标题
-3. 调用工具完成重命名
-
-## 参数说明
-- id: 文档的块ID
-- title: 新的文档标题
-
-## 使用示例
-
-\`\`\`javascript
-// 重命名文档
-siyuan_rename_document({
-  id: "20210917220056-yxtyl7i",
-  title: "新标题"
-})
-\`\`\`
-
-## 注意事项
-- 必须提供准确的文档ID,如果上下文没有提供ID，需要自己使用sql获取ID
-- 新标题不能为空
-- 重命名不会改变文档ID
-- 不会影响文档的内容和结构
-- 文件系统中的文件名也会相应更新`,
+        getBuiltinToolSkillDescription('siyuan_rename_document'),
         {
             type: 'object',
             properties: {
@@ -1049,47 +661,7 @@ siyuan_rename_document({
     // 移动文档工具
     createTool(
         'siyuan_move_documents',
-        `移动思源笔记文档到指定位置的工具。
-
-## 何时使用
-- 用户要求移动文档到其他文档下或其他笔记本
-- 需要重新组织文档结构
-- 整理笔记层级关系
-
-## 使用方法
-1. 确定要移动的文档ID列表（可以是一个或多个）
-2. 确定目标位置（目标父文档ID或笔记本ID）
-3. 调用工具完成移动
-
-## 参数说明
-- fromIDs: 源文档ID数组，可以移动多个文档
-- toID: 目标父文档ID或笔记本ID
-  - 如果是文档ID，源文档会成为该文档的子文档
-  - 如果是笔记本ID，源文档会移动到笔记本根目录
-
-## 使用示例
-
-\`\`\`javascript
-// 移动单个文档到另一个文档下
-siyuan_move_documents({
-  fromIDs: ["20210917220056-yxtyl7i"],
-  toID: "20210817205410-2kvfpfn"
-})
-
-// 移动多个文档到笔记本根目录
-siyuan_move_documents({
-  fromIDs: ["20210917220056-yxtyl7i", "20210918120056-abcdefg"],
-  toID: "20210808180117-6v0mkxr"
-})
-\`\`\`
-
-## 注意事项
-- fromIDs 必须是有效的文档ID数组
-- toID 可以是文档ID或笔记本ID，如果上下文没有提供ID，需要自己使用sql获取ID
-- 移动后文档ID不会改变
-- 移动会改变文档的路径和层级关系
-- 可以批量移动多个文档
-- 不能将文档移动到其自身或其子文档下`,
+        getBuiltinToolSkillDescription('siyuan_move_documents'),
         {
             type: 'object',
             properties: {
@@ -1111,37 +683,7 @@ siyuan_move_documents({
     // 获取块属性工具
     createTool(
         'siyuan_get_block_attrs',
-        `获取指定块的属性。
-
-## 使用场景
-- 读取某个块的自定义属性（如 tags、bookmark、alias 等）
-
-## 参数
-- id: 要查询的块ID
-
-## 返回
-- 返回一个对象，键为属性名，值为属性值。
-
-## 对文档块返回的所有属性
-- icon: 文档图标
-- id: 文档 id
-- tags: 文档标签，多个标签使用逗号分隔
-- type: 文档类型（'d' 表示文档）
-- update: 更新时间戳或时间字符串
-- bookmark: 书签标识（如存在）
-- alias: 文档别名
-- name: 文档命名，可与title不同
-- title: 文档标题
-- memo: 备注
-
-## 普通块不包含的属性
-- icon
-- tags
-- title
-
-## 注意
-- 不包含文档路径、归属笔记本等信息，需要通过sql查询
-`,
+        getBuiltinToolSkillDescription('siyuan_get_block_attrs'),
         {
             type: 'object',
             properties: {
@@ -1157,26 +699,7 @@ siyuan_move_documents({
     // 设置块属性工具
     createTool(
         'siyuan_set_block_attrs',
-        `设置指定块的属性。
-
-## 使用场景
-- 修改或添加块属性（如 tags、bookmark、alias 等）
-
-## 参数
-- id: 要设置属性的块ID
-- attrs: 属性对象，键为属性名，值为属性值（字符串）
-
-## 示例
-\`\`\`js
-{
-  id: '20251217195359-2kjwv0x',
-  attrs: { tags: '1,3', bookmark: '✨' }
-}
-\`\`\`
-
-## 注意事项
-- 如果要设置标签需要先获取已有标签，然后根据用户需求是增加新标签还是直接覆盖标签，如果标签为空则直接覆盖
-`,
+        getBuiltinToolSkillDescription('siyuan_set_block_attrs'),
         {
             type: 'object',
             properties: {
@@ -1198,27 +721,7 @@ siyuan_move_documents({
     // 搜索数据库
     createTool(
         'siyuan_search_database',
-        `搜索思源笔记数据库(AttributeView)。
-
-## 何时使用
-- 需要查找特定的数据库
-- 获取数据库ID和视图信息
-- 列出系统中的所有数据库
-
-## 参数说明
-- keyword: 搜索关键词（必填）
-- avID: (可选)数据库ID，用于精确搜索
-
-## 返回信息
-- 数据库ID、名称、视图信息等
-
-## 使用示例
-\`\`\`javascript
-siyuan_search_database({
-  keyword: "项目管理",
-  avID: "20230804163730-1olpfp2"
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_search_database'),
         {
             type: 'object',
             properties: {
@@ -1238,36 +741,7 @@ siyuan_search_database({
     // 获取数据库列信息
     createTool(
         'siyuan_get_database_columns',
-        `获取数据库的列信息（表头）。
-
-## 何时使用
-- 需要了解数据库有哪些列
-- 获取列的ID和类型信息
-- 在添加/修改数据前确认列结构
-
-## 参数说明
-- avID: 数据库ID（必填）
-
-## 返回信息
-- 列信息数组，包含id、name、type等
-
-## 列类型说明
-- block: 块引用
-- text: 文本
-- number: 数字
-- select: 单选
-- mSelect: 多选
-- date: 日期
-- url: 链接
-- email: 邮箱
-- phone: 电话
-
-## 使用示例
-\`\`\`javascript
-siyuan_get_database_columns({
-  avID: "20241207205647-baw0ri8"
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_get_database_columns'),
         {
             type: 'object',
             properties: {
@@ -1283,36 +757,7 @@ siyuan_get_database_columns({
     // 渲染/获取数据库内容
     createTool(
         'siyuan_render_database',
-        `渲染并获取数据库的完整内容，包括所有行和列的数据。
-
-## 何时使用
-- 查看数据库的所有数据
-- 获取数据库的行信息
-- 在指定块中创建新的数据库视图
-
-## 参数说明
-- avID: 数据库ID（已存在的数据库）或块ID（要在其中创建新数据库的块）（必填）
-- viewID: 视图ID（必填）
-- pageSize: (可选)每页数量，默认9999999
-- page: (可选)页码，默认1
-- createIfNotExist: (可选)如果不存在是否创建，默认true
-
-## 在块中创建新数据库
-要在指定块中创建新数据库，需要先调用此工具获取数据库视图，然后使用 siyuan_update_block 在块内容中插入以下 HTML：
-
-\`\`\`html
-<div data-type="NodeAttributeView" data-av-id="数据库ID" data-av-type="table"></div>
-\`\`\`
-
-## 使用示例
-\`\`\`javascript
-siyuan_render_database({
-  avID: "20241017094451-2urncs9",
-  viewID: "20241017094451-91wdu3a",
-  pageSize: 9999999,
-  page: 1
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_render_database'),
         {
             type: 'object',
             properties: {
@@ -1344,58 +789,7 @@ siyuan_render_database({
     // 添加数据库行（非绑定行）
     createTool(
         'siyuan_add_database_rows',
-        `向数据库添加非绑定行（独立数据行）。
-
-## 何时使用
-- 向数据库添加新的数据行
-- 添加不绑定到具体块的数据
-
-## 参数说明
-- avID: 数据库ID（必填）
-- blocksValues: 二维数组，每个元素是一行的数据（必填）
-  - keyID: 列ID
-  - 根据列类型设置值: block/text/mSelect/number/date/url/email/phone等
-
-## 值格式示例
-
-**文本:**
-\`\`\`json
-{ "keyID": "列ID", "text": { "content": "文本内容" } }
-\`\`\`
-
-**数字:**
-\`\`\`json
-{ "keyID": "列ID", "number": { "content": 123 } }
-\`\`\`
-
-**单选/多选:**
-\`\`\`json
-{ "keyID": "列ID", "mSelect": [{ "content": "选项名", "color": "1" }] }
-\`\`\`
-
-**块引用:**
-\`\`\`json
-{ "keyID": "列ID", "block": { "content": "块标题" } }
-\`\`\`
-
-## 使用示例
-\`\`\`javascript
-siyuan_add_database_rows({
-  avID: "20241017094451-2urncs9",
-  blocksValues: [
-    [
-      { "keyID": "20241017094451-jwfegvp", "block": { "content": "Test block" } },
-      { "keyID": "20241017094451-fu1pv7s", "mSelect": [{"content": "Fiction", "color": "3"}] },
-      { "keyID": "20241017095436-2wlgb7o", "number": { "content": 1234 } }
-    ]
-  ]
-})
-\`\`\`
-
-## 注意事项
-- 单选设置值也使用mSelect类型来设置
-- 添加非绑定行时不关联到具体文档块
-- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
+        getBuiltinToolSkillDescription('siyuan_add_database_rows'),
         {
             type: 'object',
             properties: {
@@ -1423,29 +817,7 @@ siyuan_add_database_rows({
     // 添加绑定块到数据库
     createTool(
         'siyuan_add_database_blocks',
-        `向数据库添加绑定的文档块
-
-## 何时使用
-- 将已有文档块绑定到数据库
-- 在数据库中引用现有内容
-
-## 参数说明
-- avID: 数据库ID（必填）
-- blockIDs: 要绑定的块ID数组（必填）
-- itemIDs: (可选)指定itemID数组，与blockIDs一一对应
-
-## 使用示例
-\`\`\`javascript
-siyuan_add_database_blocks({
-  avID: "20241017094451-2urncs9",
-  blockIDs: ["20240107212802-727hsjv"],
-  itemIDs: ["20240107212802-727hsjv"]
-})
-\`\`\`
-
-## 注意事项
-- 绑定块会与文档块关联，文档内容变化时数据库中的显示也会更新
-- 绑定后可以通过块ID查询对应的ItemID`,
+        getBuiltinToolSkillDescription('siyuan_add_database_blocks'),
         {
             type: 'object',
             properties: {
@@ -1475,53 +847,7 @@ siyuan_add_database_blocks({
     // 设置数据库单元格值
     createTool(
         'siyuan_set_database_cell',
-        `设置数据库中某个单元格的属性值。
-
-## 何时使用
-- 修改数据库中特定行和列的值
-- 更新单个单元格数据
-
-## 参数说明
-- avID: 数据库ID（必填）
-- keyID: 列ID（必填）
-- itemID: 行ID/ItemID（必填）
-- value: 属性值对象（必填）
-
-## 值格式示例
-
-**文本:**
-\`\`\`json
-{ "text": { "content": "文本内容" } }
-\`\`\`
-
-**数字:**
-\`\`\`json
-{ "number": { "content": 123 } }
-\`\`\`
-
-**单选/多选:**
-\`\`\`json
-{ "mSelect": [{ "content": "选项名", "color": "1" }] }
-\`\`\`
-
-**块引用:**
-\`\`\`json
-{ "block": { "content": "块标题" } }
-\`\`\`
-
-## 使用示例
-\`\`\`javascript
-siyuan_set_database_cell({
-  avID: "20241017094451-2urncs9",
-  keyID: "20241102151935-gypad0k",
-  itemID: "20251217205758-el6y4i3",
-  value: { "text": { "content": "示例文本" } }
-})
-\`\`\`
-
-## 注意事项
-- 单选设置值也使用mSelect类型来设置
-- color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
+        getBuiltinToolSkillDescription('siyuan_set_database_cell'),
         {
             type: 'object',
             properties: {
@@ -1549,38 +875,7 @@ siyuan_set_database_cell({
     // 批量设置数据库单元格
     createTool(
         'siyuan_batch_set_database_cells',
-        `批量设置数据库多个单元格的属性值。
-
-## 何时使用
-- 同时修改多个单元格的值
-- 批量更新数据行
-
-## 参数说明
-- avID: 数据库ID（必填）
-- values: 属性值数组（必填）
-  - keyID: 列ID
-  - itemID: 行ID/ItemID
-  - value: 属性值对象
-
-## 使用示例
-\`\`\`javascript
-siyuan_batch_set_database_cells({
-  avID: "20250716235026-51p7441",
-  values: [
-    { "keyID": "20250716235026-njmx362", "itemID": "20250716235124-6qqlnpw", "value": { "block": { "content": "Test" } } },
-    { "keyID": "20250716235026-a0v1j35", "itemID": "20250716235124-6qqlnpw", "value": { "number": { "content": 111 } } },
-    { "keyID": "20250716235026-a0v1j35", "itemID": "20250716235124-6qqlnpw", "value": { "mSelect": [{ "content": "选项1", "color": "2" }] } }
-  ]
-})
-\`\`\`
-
-## 返回值
-- 成功时返回 null，这是正常行为
-- 失败时会抛出错误
-
-## 注意事项
-- 单选列和多选列都是用 mSelect 类型来设置值
-- 对于 mSelect 类型的值，color 范围为 1-13，如果传入的值大于 13，系统会自动取余数`,
+        getBuiltinToolSkillDescription('siyuan_batch_set_database_cells'),
         {
             type: 'object',
             properties: {
@@ -1619,24 +914,7 @@ siyuan_batch_set_database_cells({
     // 获取块所在的数据库
     createTool(
         'siyuan_get_block_databases',
-        `查询指定块被哪些数据库包含。
-
-## 何时使用
-- 查找块所属的数据库
-- 了解块被哪些数据库引用
-
-## 参数说明
-- blockID: 块ID（必填）
-
-## 返回信息
-- 包含该块的所有数据库信息
-
-## 使用示例
-\`\`\`javascript
-siyuan_get_block_databases({
-  blockID: "20220719202005-e3bn8ks"
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_get_block_databases'),
         {
             type: 'object',
             properties: {
@@ -1652,23 +930,7 @@ siyuan_get_block_databases({
     // 块ID转ItemID
     createTool(
         'siyuan_convert_blockid_to_itemid',
-        `根据绑定块ID获取对应的ItemID（v3.3.1+）。
-
-## 何时使用
-- 需要通过块ID查询数据库中的行ID
-- 块ID与ItemID的转换
-
-## 参数说明
-- avID: 数据库ID（必填）
-- blockIDs: 块ID数组（必填）
-
-## 使用示例
-\`\`\`javascript
-siyuan_convert_blockid_to_itemid({
-  avID: "20250829105223-fk06kth",
-  blockIDs: ["20250829105224-mh7mtd2", "20250829105226-8o6pfqb"]
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_convert_blockid_to_itemid'),
         {
             type: 'object',
             properties: {
@@ -1691,23 +953,7 @@ siyuan_convert_blockid_to_itemid({
     // ItemID转块ID
     createTool(
         'siyuan_convert_itemid_to_blockid',
-        `根据ItemID获取对应的绑定块ID（v3.3.1+）。
-
-## 何时使用
-- 需要通过数据库行ID查询对应的块ID
-- ItemID与块ID的转换
-
-## 参数说明
-- avID: 数据库ID（必填）
-- itemIDs: ItemID数组（必填）
-
-## 使用示例
-\`\`\`javascript
-siyuan_convert_itemid_to_blockid({
-  avID: "20250829105223-fk06kth",
-  itemIDs: ["20250830173630-y0h4nrx", "20250830185837-4ww0kcq"]
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_convert_itemid_to_blockid'),
         {
             type: 'object',
             properties: {
@@ -1730,38 +976,7 @@ siyuan_convert_itemid_to_blockid({
     // 添加数据库列
     createTool(
         'siyuan_add_database_column',
-        `向数据库添加新的列。
-
-## 何时使用
-- 扩展数据库结构，添加新字段
-- 创建新的属性列
-
-## 参数说明
-- avID: 数据库ID（必填）
-- keyName: 列名称（必填）
-- keyType: 列类型（必填）
-  - text: 文本
-  - number: 数字
-  - select: 单选
-  - mSelect: 多选
-  - block: 块引用
-  - date: 日期
-  - url: 链接
-  - email: 邮箱
-  - phone: 电话
-- previousKeyID: 前一列的ID，用于指定新列的位置（必填）
-- keyIcon: 列图标（可选，unicode字符，如2728、1f4cc）
-
-## 使用示例
-\`\`\`javascript
-siyuan_add_database_column({
-  avID: "20241017094451-2urncs9",
-  keyName: "优先级",
-  keyType: "select",
-  previousKeyID: "20251217230203-rm3hnkr",
-  keyIcon: "1f4cc"
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_add_database_column'),
         {
             type: 'object',
             properties: {
@@ -1794,26 +1009,7 @@ siyuan_add_database_column({
     // 删除数据库列
     createTool(
         'siyuan_remove_database_column',
-        `删除数据库中的指定列。
-
-## 何时使用
-- 移除不再需要的列
-- 调整数据库结构
-
-## 参数说明
-- avID: 数据库ID（必填）
-- keyID: 要删除的列ID（必填）
-
-## 使用示例
-\`\`\`javascript
-siyuan_remove_database_column({
-  avID: "20241017094451-2urncs9",
-  keyID: "20241102151935-gypad0k"
-})
-\`\`\`
-
-## 注意事项
-- 删除列会同时删除该列的所有数据，请谨慎操作`,
+        getBuiltinToolSkillDescription('siyuan_remove_database_column'),
         {
             type: 'object',
             properties: {
@@ -1833,26 +1029,7 @@ siyuan_remove_database_column({
     // 删除数据库行
     createTool(
         'siyuan_remove_database_rows',
-        `删除数据库中的指定行。
-
-## 何时使用
-- 移除不再需要的数据行
-- 清理数据库数据
-
-## 参数说明
-- avID: 数据库ID（必填）
-- srcIDs: 要删除的行ID数组（必填）
-
-## 使用示例
-\`\`\`javascript
-siyuan_remove_database_rows({
-  avID: "20241017094451-2urncs9",
-  srcIDs: ["20251217205758-el6y4i3", "20220719202005-e3bn8ks"]
-})
-\`\`\`
-
-## 注意事项
-- 删除操作不可恢复，请谨慎操作`,
+        getBuiltinToolSkillDescription('siyuan_remove_database_rows'),
         {
             type: 'object',
             properties: {
@@ -1875,45 +1052,7 @@ siyuan_remove_database_rows({
     // 网页内容获取工具
     createTool(
         'web_fetch',
-        `获取网页内容并转换为 Markdown 格式的工具。
-
-## 何时使用
-- 需要获取网页文章内容进行参考或分析
-- 需要抓取外部网页信息保存到笔记
-- 需要阅读和分析在线文档、博客、新闻等
-
-## 两种获取模式
-
-### 1. 普通模式（默认）
-直接发送 HTTP 请求获取网页内容，速度快，适用于大多数网站。
-
-### 2. WebView 模式
-使用内置浏览器加载页面，可以执行 JavaScript，适用于：
-- 需要登录才能查看内容的网站
-- 内容通过 JavaScript 动态加载的网站
-- 有反爬虫机制的网站
-- 需要执行页面脚本才能获取完整内容的网站
-
-## 使用示例
-
-\`\`\`javascript
-// 普通模式获取某篇文章
-web_fetch({
-  url: "https://example.com/article"
-})
-
-// WebView 模式获取某篇文章（适用于动态加载或有反爬虫机制的网站）
-web_fetch({
-  url: "https://example.com/article",
-  useWebView: true
-})
-\`\`\`
-
-## 注意事项
-- 某些网站有严格的反爬虫机制，如果普通模式失败，请尝试 WebView 模式
-- 知乎网站暂不支持解析
-- WebView 模式会实际加载页面，可能需要更长时间（最长等待30秒）
-- 获取的内容会转换为 Markdown 格式返回`,
+        getBuiltinToolSkillDescription('web_fetch'),
         {
             type: 'object',
             properties: {
@@ -1934,146 +1073,7 @@ web_fetch({
     // SOUL 工具 - 受限的笔记操作
     createTool(
         'soul',
-        `AI的记忆读写工具。
-
-## 何时使用
-- 当用户让AI记住某些信息、要求、偏好设置的时候
-- 当用户需要让AI回忆之前的要求时
-- 当用户要求查看或修改已记录的记忆时
-
-## 记录格式规范（重要）
-**每个用户要求必须使用二级标题（##）作为独立条目进行记录**，格式如下：
-
-\`\`\`
-## 要求标题（简明概括）
-
-具体要求内容的详细描述
-
-\`\`\`
-
-
-## 主要操作类型
-
-### 1. append - 追加记忆
-在 SOUL 文档末尾追加新的记忆条目。
-
-**参数:**
-- operation: "append"
-- content: 要追加的 Markdown 内容（必须遵循上述格式规范，使用二级标题）
-- parentId: (可选)父块ID，如果提供则作为该块的子块追加
-
-**示例:**
-\`\`\`json
-{
-  "operation": "append",
-  "content": "## 代码风格偏好\n\n用户要求所有代码块都必须包含详细注释，解释每行代码的作用。",
-  "parentId": "20260312120000-xxxxxxxx"
-}
-\`\`\`
-
-### 2. update - 更新记忆
-更新 SOUL 文档中已有的记忆条目。
-
-**参数:**
-- operation: "update"
-- blockId: 要更新的块ID
-- content: 新的 Markdown 内容（保持二级标题格式）
-
-**示例:**
-\`\`\`json
-{
-  "operation": "update",
-  "blockId": "20260312120000-xxxxxxxx",
-  "content": "## 代码风格偏好（已更新）\n\n用户要求所有代码块都必须包含详细注释，并且注释使用中文。"
-}
-\`\`\`
-
-### 3. delete - 删除记忆
-删除 SOUL 文档中的指定记忆条目。
-
-**参数:**
-- operation: "delete"
-- blockId: 要删除的块ID
-
-**示例:**
-\`\`\`json
-{
-  "operation": "delete",
-  "blockId": "20260312120000-xxxxxxxx"
-}
-\`\`\`
-
-### 4. sql - 查询记忆
-使用 SQL 查询 SOUL 文档中的内容，可用于查找特定要求的块ID。
-
-**参数:**
-- operation: "sql"
-- query: SQL 查询语句（自动限制在 SOUL 文档范围内）
-
-**示例:**
-\`\`\`json
-{
-  "operation": "sql",
-  "query": "SELECT * FROM blocks WHERE content LIKE '%代码风格%' LIMIT 10"
-}
-\`\`\`
-
-### 5. insert - 插入记忆
-在 SOUL 文档的指定位置插入新记忆条目。
-
-**参数:**
-- operation: "insert"
-- content: 要插入的 Markdown 内容（必须遵循二级标题格式）
-- previousId: (可选)前一个块ID，在此块之后插入
-- nextId: (可选)后一个块ID，在此块之前插入
-- parentId: (可选)父块ID，作为该块的子块插入（与 previousId/nextId 互斥）
-
-**注意:** 
-- previousId、nextId、parentId 至少需要提供一个
-- 所有涉及的块ID都必须在 SOUL 文档内
-
-**示例:**
-\`\`\`json
-// 在某个块之后插入新记忆
-{
-  "operation": "insert",
-  "content": "## 输出语言偏好\n\n用户要求所有回复使用中文，除非特别要求使用英文。",
-  "previousId": "20260312120000-xxxxxxxx"
-}
-\`\`\`
-
-### 6. getDoc - 获取完整文档
-获取 SOUL 文档的完整 Markdown 内容，用于回顾所有记忆。
-
-**参数:**
-- operation: "getDoc"
-
-**返回:**
-- 返回 SOUL 文档的完整 Markdown 内容
-
-**示例:**
-\`\`\`json
-{
-  "operation": "getDoc"
-}
-\`\`\`
-
-## 重要限制
-- **所有操作仅限于用户设置的 SOUL 文档内**
-- 如果用户未设置 SOUL 文档ID，工具会返回错误提示
-- 不能操作 SOUL 文档范围外的任何块
-- 查询结果会自动过滤，只返回 SOUL 文档内的块
-
-## 使用建议
-1. **记录新要求时**：使用 append 操作，确保使用二级标题格式
-2. **修改已有要求时**：先用 sql 查询找到对应块ID，再用 update 操作
-3. **查看所有记忆时**：使用 getDoc 获取完整文档
-4. **建议先查询再操作**：使用 sql 操作查询已有内容，了解现有记忆结构
-
-## 注意事项
-- 在操作前，SOUL 工具会自动验证块ID是否属于 SOUL 文档
-- 如果尝试操作非 SOUL 文档的块，会返回权限错误
-- 每个记忆条目必须是独立的二级标题，便于后续查找和更新`,
+        getBuiltinToolSkillDescription('soul'),
         {
             type: 'object',
             properties: {
@@ -2114,53 +1114,7 @@ web_fetch({
     // 获取当前时间工具
     createTool(
         'siyuan_get_current_time',
-        `获取当前日期和时间的工具。
-
-## 何时使用
-- 需要获取当前日期时间用于记录或计算
-- 设置定时通知时需要知道今天的日期
-- 需要计算时间差或时间戳
-- 在笔记中插入当前日期时间
-
-## 参数说明
-
-### format (可选)
-返回的时间格式：
-- **"local"**（默认）：本地格式，如 "2026/3/12 10:30:00"
-- **"iso"**：ISO 8601 格式，如 "2026-03-12T10:30:00.000Z"
-- **"date"**：仅日期，如 "2026-03-12"
-- **"time"**：仅时间，如 "10:30:00"
-- **"timestamp"**：时间戳（毫秒），如 "1710234600000"
-
-## 使用示例
-
-\`\`\`javascript
-// 获取本地格式时间（默认）
-siyuan_get_current_time({})
-
-// 获取完整 ISO 格式时间
-siyuan_get_current_time({
-  format: "iso"
-})
-
-// 获取今天日期（用于设置定时通知）
-siyuan_get_current_time({
-  format: "date"
-})
-
-// 获取当前时间戳
-siyuan_get_current_time({
-  format: "timestamp"
-})
-
-// 拼接今天指定时间用于定时通知
-// 先获取日期，然后拼接具体时间
-const date = "2026-03-12";  // 从 format: "date" 获取
-const timeString = date + "T14:30:00";  // "2026-03-12T14:30:00"
-\`\`\`
-
-## 返回值
-根据 format 参数返回不同格式的时间字符串`,
+        getBuiltinToolSkillDescription('siyuan_get_current_time'),
         {
             type: 'object',
             properties: {
@@ -2178,93 +1132,7 @@ const timeString = date + "T14:30:00";  // "2026-03-12T14:30:00"
     // 运行 JavaScript 代码工具
     createTool(
         'run_js',
-        `在浏览器环境中运行 JavaScript 代码并返回执行结果。需要进行复杂的计算或数据处理，或处理其他工具返回的输出时使用。支持通过 tool_input 参数直接运行其他工具，并将工具执行结果作为 input 传入 JavaScript 代码处理，可以大大节省token。
-
-
-## 可用 API
-代码在浏览器环境中运行，可以使用：
-- 所有 JavaScript 内置对象（Math, Date, JSON, Array, Object 等）
-- console.log() 用于调试（输出会包含在结果中）
-- 返回最终结果使用 return 语句
-- **input 变量：当使用 tool_input 时，工具执行结果会作为 input 变量传入（字符串类型）**
-
-## tool_input 参数说明
-tool_input 允许你在 run_js 内部直接调用其他工具，将工具的执行结果转为字符串后作为 input 变量传入 JavaScript 代码。
-
-**支持的 tool_input 类型：**
-- \`sql\`: 执行 SQL 查询，参数为 { query: "SQL语句" }
-- \`get_block_content\`: 获取块内容，参数为 { id: "块ID", format: "markdown" | "kramdown" }
-- \`fetch\`: 获取网页内容，参数为 { url: "网址", useWebView?: boolean }
-- \`get_doc_tree\`: 获取文档树，参数为 { notebook: "笔记本ID", path?: "/" }
-
-**注意：**
-- 如果同时提供 tool_input 和 input，tool_input 的执行结果会覆盖 input
-- 工具执行结果会被 JSON.stringify 转为字符串传入 input
-
-## 注意事项
-- 代码必须使用 return 语句返回结果
-- **支持使用 async/await 进行异步操作**
-- 不能访问 DOM 或浏览器特定 API
-- 不能访问思源笔记 API（请使用专用工具）
-- 代码在沙箱中运行，超时时间为 5 秒
-
-## 使用示例
-
-### 基本使用（无输入）
-\`\`\`javascript
-// 计算数学表达式
-run_js({
-  code: "return Math.sqrt(16) + Math.pow(2, 3);"
-})
-
-// 处理文本
-run_js({
-  code: "const text = 'Hello World'; return text.toUpperCase().split(' ').join('-');"
-})
-\`\`\`
-
-### 使用 tool_input 直接处理其他工具的输出（推荐用于大数据量处理）
-
-**示例 1：处理 SQL 查询结果，只返回统计信息**
-\`\`\`javascript
-// 查询大量数据，但在 JS 中处理只返回统计结果，避免大量数据返回给 AI
-run_js({
-  code: "const data = JSON.parse(input); return { count: data.length, firstId: data[0]?.id, lastId: data[data.length-1]?.id };",
-  tool_input: {
-    tool: "sql",
-    params: { query: "SELECT * FROM blocks WHERE type='d' LIMIT 1000" }
-  }
-})
-// 只返回统计信息，而不是 1000 条完整记录
-\`\`\`
-
-**示例 2：获取块内容并提取特定信息**
-\`\`\`javascript
-run_js({
-  code: "const lines = input.split('\\n'); const titles = lines.filter(l => l.startsWith('#')); return '包含 ' + titles.length + ' 个标题';",
-  tool_input: {
-    tool: "get_block_content",
-    params: { id: "20210104091228-d0rzbmm", format: "markdown" }
-  }
-})
-\`\`\`
-
-**示例 3：获取文档树并统计结构信息**
-\`\`\`javascript
-run_js({
-  code: "const tree = JSON.parse(input); function countDocs(nodes) { return nodes.reduce((sum, n) => sum + 1 + (n.children ? countDocs(n.children) : 0), 0); } return { docCount: countDocs(tree), topLevel: tree.map(n => n.name) };",
-  tool_input: {
-    tool: "get_doc_tree",
-    params: { notebook: "20210808180117-6v0mkxr", path: "/" }
-  }
-})
-\`\`\`
-
-
-\`\`\`
-
-## 返回值
-返回代码执行的结果（必须是 return 语句返回的值）`,
+        getBuiltinToolSkillDescription('run_js'),
         {
             type: 'object',
             properties: {
@@ -2300,67 +1168,7 @@ run_js({
     // 运行 Python 代码工具
     createTool(
         'run_python',
-        `在本地 Python 解释器中运行 Python 代码并返回执行结果。
-
-## 何时使用
-- 需要使用 Python 进行数据分析、科学计算
-- 需要使用 Python 的丰富标准库和第三方库
-- 需要进行文件操作、文本处理、正则表达式
-- 需要使用 NumPy、Pandas 等数据处理库（如果已安装）
-- JavaScript 难以完成的复杂计算或算法
-
-## 可用功能
-- Python 标准库（math, json, re, datetime, collections, itertools 等）
-- print() 输出会捕获并显示
-- 将结果赋值给 _result 变量可以返回结果值
-- **自动安装依赖**：如果代码导入的第三方库未安装，会自动尝试 pip 安装
-
-## 注意事项
-- 需要先设置 Python 解释器路径（在设置中配置）
-- 代码执行超时时间为 30 秒，pip 安装超时为 120 秒
-- **不要在顶层使用 return 语句**，Python 脚本中 return 只能在函数内使用
-- 如需返回结果，请将结果赋值给 _result 变量
-- 无法访问网络（除非使用特定工具）
-- 无法访问思源笔记 API（请使用专用工具）
-- 每次执行都是独立的环境，变量不会保留
-- 自动安装仅尝试一次，如果安装后仍失败则返回错误
-
-## 使用示例
-
-\`\`\`python
-# 数学计算
-run_python({
-  code: "import math; _result = math.sqrt(16) + math.pow(2, 3)"
-})
-
-# 列表推导式
-run_python({
-  code: "_result = [x**2 for x in range(1, 6) if x % 2 == 0]"
-})
-
-# 字符串处理
-run_python({
-  code: "text = 'Hello World'; _result = '-'.join(text.upper().split())"
-})
-
-# 日期处理
-run_python({
-  code: "from datetime import datetime, timedelta; _result = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')"
-})
-
-# JSON 处理
-run_python({
-  code: "import json; data = {'a': 1, 'b': 2}; _result = json.dumps(data, indent=2)"
-})
-
-# 正则表达式
-run_python({
-  code: "import re; text = 'Contact us at test@example.com'; _result = re.findall(r'[\w.-]+@[\w.-]+', text)"
-})
-\`\`\`
-
-## 返回值
-返回代码执行的结果（_result 变量的值）`,
+        getBuiltinToolSkillDescription('run_python'),
         {
             type: 'object',
             properties: {
@@ -2376,79 +1184,7 @@ run_python({
     // 系统通知工具
     createTool(
         'siyuan_send_notification',
-        `发送系统通知（桌面通知）到操作系统。
-
-## 何时使用
-- 需要向用户发送重要提醒或通知
-- 长时间操作完成后提醒用户
-- 定时任务到期提醒
-- 需要立即引起用户注意的消息
-
-## 参数说明
-
-### title (必填)
-通知标题，显示在通知的顶部。
-
-### body (可选)
-通知的详细内容，显示在标题下方。
-
-### delay (可选)
-延迟发送时间，支持三种格式：
-- **数字**：延迟秒数，如 60 表示 60 秒后发送
-- **时间字符串**：ISO 8601 格式的时间字符串
-  - **本地时间**（推荐）：\`"2026-03-12T11:50:00"\` - 表示本地时区的 11:50
-  - **UTC 时间**：\`"2026-03-12T11:50:00Z"\` - 表示 UTC 时区的 11:50，会自动转换为本地的对应时间
-- **0 或不传**：立即发送
-
-### timeoutType (可选)
-通知超时类型：
-- **"default"**（默认）：使用系统默认的超时时间
-- **"never"**：通知不会自动消失，直到用户点击
-
-## 使用示例
-
-\`\`\`javascript
-// 立即发送通知
-siyuan_send_notification({
-  title: "任务完成",
-  body: "文档已成功导出到指定位置。"
-})
-
-// 延迟 5 分钟后发送通知
-siyuan_send_notification({
-  title: "休息提醒",
-  body: "您已经工作了 25 分钟，该休息一下了！",
-  delay: 300
-})
-
-// 在本地时间 11:50 发送通知（推荐，无时区后缀表示本地时间）
-siyuan_send_notification({
-  title: "会议提醒",
-  body: "11:50 有团队会议，请做好准备。",
-  delay: "2026-03-12T11:50:00"
-})
-
-// 在 UTC 时间 11:50 发送通知（带 Z 后缀表示 UTC）
-// 系统会自动转换为本地对应时间
-siyuan_send_notification({
-  title: "国际会议",
-  body: "UTC 时间 11:50 的会议即将开始",
-  delay: "2026-03-12T11:50:00Z"
-})
-
-// 发送不会自动消失的重要通知
-siyuan_send_notification({
-  title: "重要提醒",
-  body: "请记得备份今天的笔记内容！",
-  timeoutType: "never"
-})
-\`\`\`
-
-## 注意事项
-- 通知会显示在操作系统的通知中心
-- 需要操作系统支持并允许思源笔记发送通知
-- 延迟通知会在后台等待，即使思源笔记最小化也能触发
-- **时区说明**：无时区标记（如T11:50:00）表示本地时间，带 Z标记（如 T11:50:00Z）表示 UTC 时间`,
+        getBuiltinToolSkillDescription('siyuan_send_notification'),
         {
             type: 'object',
             properties: {
@@ -2478,30 +1214,7 @@ siyuan_send_notification({
     // 删除块工具
     createTool(
         'siyuan_delete_block',
-        `删除思源笔记中的指定块。
-
-## 何时使用
-- 需要删除不再需要的内容块
-- 清理错误或重复的块
-- 删除空块或无用块
-
-## 使用方法
-1. 确定要删除的块ID
-2. 调用此工具删除该块
-
-## 注意事项
-- **此操作不可恢复**，删除前请确认块ID正确
-- 删除父块会同时删除其所有子块
-- 删除文档块会删除整个文档
-
-## 使用示例
-
-\`\`\`javascript
-// 删除指定块
-siyuan_delete_block({
-  id: "20210104091228-d0rzbmm"
-})
-\`\`\``,
+        getBuiltinToolSkillDescription('siyuan_delete_block'),
         {
             type: 'object',
             properties: {
@@ -2517,488 +1230,7 @@ siyuan_delete_block({
     // 通用思源API调用工具
     createTool(
         'siyuan_fetch_sync_post',
-        `通用思源笔记 API 调用工具。可以调用任何思源笔记提供的 API 接口（如无必要，不要使用）。
-
-## 何时使用
-- 需要使用当前工具列表中未提供的 API 功能
-- 执行高级或特殊的思源笔记操作
-- 访问底层思源笔记功能
-
-## 常用 API 列表及参数
-
-### 块操作
-
-#### POST /api/block/insertBlock - 插入块
-**参数:**
-- dataType: string - 数据类型，"markdown" 或 "dom"
-- data: string - 块内容
-- nextID?: string - 在此块之前插入
-- previousID?: string - 在此块之后插入  
-- parentID?: string - 作为此块的子块插入（前置子块）
-
-#### POST /api/block/prependBlock - 前置插入块
-**参数:**
-- dataType: string - 数据类型
-- data: string - 块内容
-- parentID: string - 父块ID
-
-#### POST /api/block/appendBlock - 后置追加块
-**参数:**
-- dataType: string - 数据类型
-- data: string - 块内容
-- parentID: string - 父块ID
-
-#### POST /api/block/updateBlock - 更新块
-**参数:**
-- dataType: string - 数据类型
-- data: string - 新内容
-- id: string - 块ID
-
-#### POST /api/block/deleteBlock - 删除块
-**参数:**
-- id: string - 块ID
-
-#### POST /api/block/moveBlock - 移动块
-**参数:**
-- id: string - 块ID
-- previousID?: string - 移动到此块之后
-- parentID?: string - 移动到此块下作为子块
-
-#### POST /api/block/getBlockKramdown - 获取块 Kramdown 格式
-**参数:**
-- id: string - 块ID
-- mode?: string - 模式，"md" 或 "textmark"（默认）
-
-#### POST /api/block/getBlockDOM - 获取块 DOM
-**参数:**
-- id: string - 块ID
-
-#### POST /api/block/getChildBlocks - 获取子块列表
-**参数:**
-- id: string - 块ID
-
-#### POST /api/block/foldBlock - 折叠块
-**参数:**
-- id: string - 块ID
-
-#### POST /api/block/unfoldBlock - 展开块
-**参数:**
-- id: string - 块ID
-
-#### POST /api/block/transferBlockRef - 转移块引用
-**参数:**
-- fromID: string - 源块ID
-- toID: string - 目标块ID
-- refIDs: string[] - 引用ID数组
-
----
-
-### 文档操作
-
-#### POST /api/filetree/getDoc - 获取文档内容
-**参数:**
-- id: string - 文档ID
-
-#### POST /api/filetree/createDocWithMd - 创建文档
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 文档路径，如 "/folder/doc"
-- markdown: string - 文档内容（Markdown格式）
-
-#### POST /api/filetree/renameDoc - 重命名文档（通过路径）
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 文档路径
-- title: string - 新标题
-
-#### POST /api/filetree/renameDocByID - 重命名文档（通过ID）
-**参数:**
-- id: string - 文档ID
-- title: string - 新标题
-
-#### POST /api/filetree/removeDoc - 删除文档
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 文档路径
-
-#### POST /api/filetree/moveDocs - 移动文档（通过路径）
-**参数:**
-- fromPaths: string[] - 源路径数组
-- toNotebook: string - 目标笔记本ID
-- toPath: string - 目标路径
-
-#### POST /api/filetree/moveDocsByID - 移动文档（通过ID）
-**参数:**
-- fromIDs: string[] - 源文档ID数组
-- toID: string - 目标文档ID
-
-#### POST /api/filetree/getHPathByPath - 获取可读路径（通过路径）
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 文档路径
-
-#### POST /api/filetree/getHPathByID - 获取可读路径（通过ID）
-**参数:**
-- id: string - 文档ID
-
-#### POST /api/filetree/getIDsByHPath - 通过可读路径获取ID
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 可读路径
-
-#### POST /api/filetree/searchDocs - 搜索文档
-**参数:**
-- k: string - 关键词
-- flashcard?: boolean - 是否搜索闪卡文档
-
-#### POST /api/filetree/listDocsByPath - 列出路径下文档
-**参数:**
-- notebook: string - 笔记本ID
-- path: string - 路径
-- sort?: number - 排序方式（默认15）
-- showHidden?: boolean - 是否显示隐藏文档
-- maxListCount?: number - 最大返回数量
-
----
-
-### 笔记本操作
-
-#### POST /api/notebook/lsNotebooks - 列出笔记本
-**参数:** 无
-
-#### POST /api/notebook/openNotebook - 打开笔记本
-**参数:**
-- notebook: string - 笔记本ID
-
-#### POST /api/notebook/closeNotebook - 关闭笔记本
-**参数:**
-- notebook: string - 笔记本ID
-
-#### POST /api/notebook/createNotebook - 创建笔记本
-**参数:**
-- name: string - 笔记本名称
-
-#### POST /api/notebook/removeNotebook - 删除笔记本
-**参数:**
-- notebook: string - 笔记本ID
-
-#### POST /api/notebook/renameNotebook - 重命名笔记本
-**参数:**
-- notebook: string - 笔记本ID
-- name: string - 新名称
-
-#### POST /api/notebook/getNotebookConf - 获取笔记本配置
-**参数:**
-- notebook: string - 笔记本ID
-
-#### POST /api/notebook/setNotebookConf - 设置笔记本配置
-**参数:**
-- notebook: string - 笔记本ID
-- conf: object - 配置对象
-
----
-
-### 属性操作
-
-#### POST /api/attr/getBlockAttrs - 获取块属性
-**参数:**
-- id: string - 块ID
-
-#### POST /api/attr/setBlockAttrs - 设置块属性
-**参数:**
-- id: string - 块ID
-- attrs: object - 属性对象，如 {"custom-key": "value"}
-
----
-
-### SQL 查询
-
-#### POST /api/query/sql - 执行 SQL 查询
-**参数:**
-- stmt: string - SQL 语句
-
----
-
-### 资源文件
-
-#### POST /api/asset/upload - 上传资源文件
-**参数:**
-- assetsDirPath: string - 资源目录路径
-- files: File[] - 文件数组（使用 FormData 格式）
-
----
-
-### 导出
-
-#### POST /api/export/exportMdContent - 导出 Markdown 内容
-**参数:**
-- id: string - 文档ID
-- yfm?: boolean - 是否包含 YAML Front Matter
-- fillCSSVar?: boolean - 是否填充 CSS 变量
-- refMode?: number - 引用模式（2:锚文本块链, 3:仅锚文本, 4:块引转脚注）
-- embedMode?: number - 嵌入模式（0:原始文本, 1:Blockquote）
-- adjustHeadingLevel?: boolean - 是否调整标题级别
-
-#### POST /api/export/exportResources - 导出资源
-**参数:**
-- paths: string[] - 路径数组
-- name: string - 导出文件名
-
----
-
-### 系统
-
-#### POST /api/system/version - 获取版本
-**参数:** 无
-
-#### POST /api/system/currentTime - 获取当前时间
-**参数:** 无
-
-#### POST /api/system/bootProgress - 获取启动进度
-**参数:** 无
-
----
-
-### 数据库 (AttributeView)
-
-#### POST /api/av/searchAttributeView - 搜索数据库
-**参数:**
-- keyword: string - 搜索关键词
-- avID?: string - 数据库ID（可选，精确搜索）
-
-#### POST /api/av/getAttributeViewKeys - 获取块所在数据库列表
-**参数:**
-- id: string - 块ID
-
-#### POST /api/av/getAttributeViewKeysByAvID - 获取数据库列信息
-**参数:**
-- avID: string - 数据库ID
-
-#### POST /api/av/renderAttributeView - 渲染数据库视图
-**参数:**
-- id: string - 数据库ID
-- viewID: string - 视图ID
--createIfNotExist
-:
-true
-- pageSize?: number - 每页数量（默认9999999）
-- page?: number - 页码（默认1）
-
-#### POST /api/av/appendAttributeViewDetachedBlocksWithValues - 添加非绑定块
-**参数:**
-- avID: string - 数据库ID
-- blocksValues: any[][] - 二维数组，每行数据
-
-#### POST /api/av/addAttributeViewBlocks - 添加绑定块
-**参数:**
-- avID: string - 数据库ID
-- srcs: Array<{id: string, isDetached: boolean, itemID?: string}> - 源块数组
-
-#### POST /api/av/setAttributeViewBlockAttr - 设置块属性值
-**参数:**
-- avID: string - 数据库ID
-- keyID: string - 列ID
-- itemID: string - 行ID
-- value: object - 属性值
-
-#### POST /api/av/batchSetAttributeViewBlockAttrs - 批量设置属性值
-**参数:**
-- avID: string - 数据库ID
-- values: Array<{keyID: string, itemID: string, value: any}> - 属性值数组
-
-#### POST /api/av/addAttributeViewKey - 添加数据库列
-**参数:**
-- avID: string - 数据库ID
-- keyName: string - 列名称
-- keyType: string - 列类型（text/number/select/mSelect/block/date/url/email/phone）
-- previousKeyID: string - 前一列ID（用于指定位置）
-- keyIcon?: string - 列图标（可选）
-
-#### POST /api/av/removeAttributeViewKey - 删除数据库列
-**参数:**
-- avID: string - 数据库ID
-- keyID: string - 列ID
-
-#### POST /api/av/removeAttributeViewBlocks - 删除数据库行
-**参数:**
-- avID: string - 数据库ID
-- srcIDs: string[] - 行ID数组
-
-#### POST /api/av/getAttributeViewBoundBlockIDsByItemIDs - 通过ItemID获取块ID
-**参数:**
-- avID: string - 数据库ID
-- itemIDs: string[] - ItemID数组
-
-#### POST /api/av/getAttributeViewItemIDsByBoundIDs - 通过块ID获取ItemID
-**参数:**
-- avID: string - 数据库ID
-- blockIDs: string[] - 块ID数组
-
----
-
-### 网络
-
-#### POST /api/network/forwardProxy - 正向代理请求
-**参数:**
-- url: string - 目标URL
-- method?: string - 请求方法（默认GET）
-- payload?: object - 请求体
-- headers?: any[] - 请求头数组
-- timeout?: number - 超时时间（默认7000ms）
-- contentType?: string - 内容类型（默认text/html）
-
----
-
-### 通知
-
-#### POST /api/notification/pushMsg - 推送消息
-**参数:**
-- msg: string - 消息内容
-- timeout?: number - 显示时间（默认7000ms）
-
-#### POST /api/notification/pushErrMsg - 推送错误消息
-**参数:**
-- msg: string - 错误消息内容
-- timeout?: number - 显示时间（默认7000ms）
-
----
-
-### 闪卡
-
-#### POST /api/riff/addRiffCards - 添加闪卡
-**参数:**
-- blockIDs: string[] - 块ID数组
-- deckID?: string - 闪卡组ID（默认快速闪卡组）
-
-#### POST /api/riff/removeRiffCards - 移除闪卡
-**参数:**
-- blockIDs: string[] - 块ID数组
-- deckID?: string - 闪卡组ID
-
-#### POST /api/riff/getRiffDecks - 获取闪卡组列表
-**参数:** 无
-
-#### POST /api/riff/createRiffDeck - 创建闪卡组
-**参数:**
-- name: string - 闪卡组名称
-
-#### POST /api/riff/removeRiffDeck - 删除闪卡组
-**参数:**
-- deckID: string - 闪卡组ID
-
-#### POST /api/riff/renameRiffDeck - 重命名闪卡组
-**参数:**
-- deckID: string - 闪卡组ID
-- name: string - 新名称
-
-#### POST /api/riff/getRiffCards - 获取闪卡列表
-**参数:**
-- deckID: string - 闪卡组ID
-
----
-
-### 文件
-
-#### POST /api/file/getFile - 获取文件
-**参数:**
-- path: string - 文件路径
-
-#### POST /api/file/putFile - 保存文件（使用 FormData）
-**参数:**
-- path: string - 文件路径
-- isDir: boolean - 是否为目录
-- file: File - 文件内容
-
-#### POST /api/file/removeFile - 删除文件
-**参数:**
-- path: string - 文件路径
-
-#### POST /api/file/readDir - 读取目录
-**参数:**
-- path: string - 目录路径
-
----
-
-### 模板
-
-#### POST /api/template/render - 渲染模板
-**参数:**
-- id: string - 文档ID
-- path: string - 模板路径
-
-#### POST /api/template/renderSprig - 渲染 Sprig 模板
-**参数:**
-- template: string - 模板字符串
-
----
-
-### 转换
-
-#### POST /api/convert/pandoc - Pandoc 转换
-**参数:**
-- args: string[] - Pandoc 参数数组
-
----
-
-## 使用示例
-
-\`\`\`javascript
-// 获取块的 Kramdown 格式内容
-siyuan_fetch_sync_post({
-  api: "/api/block/getBlockKramdown",
-  data: {
-    id: "20210104091228-d0rzbmm",
-    mode: "textmark"
-  }
-})
-
-// 获取子块列表
-siyuan_fetch_sync_post({
-  api: "/api/block/getChildBlocks",
-  data: {
-    id: "20210104091228-d0rzbmm"
-  }
-})
-
-// 列出笔记本
-siyuan_fetch_sync_post({
-  api: "/api/notebook/lsNotebooks",
-  data: {}
-})
-
-// 执行 SQL 查询
-siyuan_fetch_sync_post({
-  api: "/api/query/sql",
-  data: {
-    stmt: "SELECT * FROM blocks WHERE type='d' LIMIT 10"
-  }
-})
-
-// 折叠块
-siyuan_fetch_sync_post({
-  api: "/api/block/foldBlock",
-  data: {
-    id: "20210104091228-d0rzbmm"
-  }
-})
-
-// 推送通知
-siyuan_fetch_sync_post({
-  api: "/api/notification/pushMsg",
-  data: {
-    msg: "操作完成！",
-    timeout: 5000
-  }
-})
-\`\`\`
-
-## 注意事项
-- API 路径可以带或不带 "/api/" 前缀，工具会自动处理
-- 所有参数都通过 data 对象传递
-- 可选参数可以不传或使用 null/undefined
-- 此工具提供底层 API 访问，请谨慎使用
-- 部分 API 可能需要特定的权限或前提条件
-- 文件上传类 API（如 /api/asset/upload、/api/file/putFile）可能需要特殊处理，建议使用专用工具`,
+        getBuiltinToolSkillDescription('siyuan_fetch_sync_post'),
         {
             type: 'object',
             properties: {
@@ -3343,14 +1575,51 @@ export async function siyuan_get_block_content(
 /**
  * 创建文档
  */
+function normalizeDocumentPath(path: string): string {
+    const normalizedPath = path.trim();
+    if (!normalizedPath) {
+        return '';
+    }
+    return normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+}
+
+async function resolveCreateDocumentDefaults(
+    notebook?: string,
+    path?: string
+): Promise<{ notebook: string; path: string }> {
+    const fileTreeConfig = window.siyuan?.config?.fileTree;
+    const resolvedNotebook = notebook?.trim() || fileTreeConfig?.docCreateSaveBox;
+    let resolvedPath = path?.trim() || fileTreeConfig?.docCreateSavePath;
+
+    if (resolvedPath && resolvedPath.includes('{{')) {
+        resolvedPath = await renderSprig(resolvedPath);
+    }
+
+    resolvedPath = normalizeDocumentPath(resolvedPath || '');
+
+    if (!resolvedNotebook) {
+        throw new Error('未提供笔记本ID，且无法读取思源默认新建文档笔记本 docCreateSaveBox');
+    }
+    if (!resolvedPath) {
+        throw new Error('未提供文档路径，且无法读取或解析思源默认新建文档路径 docCreateSavePath');
+    }
+
+    return {
+        notebook: resolvedNotebook,
+        path: resolvedPath,
+    };
+}
+
 export async function siyuan_create_document(
-    notebook: string,
-    path: string,
+    notebook: string | undefined,
+    path: string | undefined,
     markdown: string
 ): Promise<string> {
     try {
+        const createOptions = await resolveCreateDocumentDefaults(notebook, path);
+
         // 首先创建文档
-        const docId = await createDocWithMd(notebook, path, markdown);
+        const docId = await createDocWithMd(createOptions.notebook, createOptions.path, markdown);
 
         // 自动打开创建的文档
         try {
@@ -4795,7 +3064,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
 
             case 'get_siyuan_skills':
                 // 获取工具详细描述
-                const toolDesc = getSiyuanSkills(args.toolName);
+                const toolDesc = await getSiyuanSkills(args.toolName);
                 return toolDesc;
 
             case 'siyuan_sql_query':

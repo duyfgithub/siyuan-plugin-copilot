@@ -38,6 +38,7 @@ export default defineConfig({
                 { src: "./icon.png", dest: "./" },
                 { src: "./assets/*", dest: "./assets/" },
                 { src: "./i18n/*", dest: "./i18n/" },
+                { src: "./src/tools/skills/*.md", dest: "./skills/" },
             ],
         }),
 
@@ -87,6 +88,7 @@ export default defineConfig({
                         async buildStart() {
                             const files = await fg([
                                 './i18n/**',
+                                './src/tools/skills/**',
                                 './README*.md',
                                 './CHANGELOG.md',
                                 './plugin.json'
