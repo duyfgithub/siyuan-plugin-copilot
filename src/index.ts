@@ -494,6 +494,11 @@ export default class PluginSample extends Plugin {
                 // 从 this.data 中获取 app 信息
                 const app = this.data?.app;
                 if (app) {
+                    const normalizedAppUrl = pluginInstance.normalizeWebViewUrl(app.url);
+                    if (normalizedAppUrl) {
+                        app.url = normalizedAppUrl;
+                    }
+
                     const initialTitle = app.name || 'Web Link';
                     // 创建 webview 容器
                     const container = document.createElement('div');
@@ -1958,17 +1963,18 @@ export default class PluginSample extends Plugin {
         if (!element) return;
 
         const href = element.getAttribute('data-href');
-        if (!href || !href.startsWith('https://')) return;
+        const normalizedHref = this.normalizeWebViewUrl(href);
+        if (!normalizedHref) return;
 
         menu.addItem({
             icon: "iconCopilotWebApp",
             label: i18n('menu.openLinkInTab'),
             click: () => {
-                const linkTitle = element.textContent?.trim() || href;
+                const linkTitle = element.textContent?.trim() || normalizedHref;
                 const appData = {
                     id: `link-${Date.now()}`,
                     name: linkTitle.length > 50 ? linkTitle.substring(0, 50) + '...' : linkTitle,
-                    url: href,
+                    url: normalizedHref,
                     createdAt: Date.now(),
                     updatedAt: Date.now()
                 };
@@ -1987,9 +1993,9 @@ export default class PluginSample extends Plugin {
                 // 后台异步检查本地 favicon 缓存并更新标签图标
                 (async () => {
                     try {
-                        const iconId = await this.getOrCreateIconForDomain(href);
+                        const iconId = await this.getOrCreateIconForDomain(normalizedHref);
                         if (iconId && iconId !== 'iconCopilotWebApp') {
-                            this.registerWebAppIcon(this.getDomainFromUrl(href), iconId);
+                            this.registerWebAppIcon(this.getDomainFromUrl(normalizedHref), iconId);
                         }
                     } catch (e) {
                         // ignore

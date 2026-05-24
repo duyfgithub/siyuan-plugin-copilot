@@ -81,6 +81,13 @@
         iconFile = null;
     }
 
+    function normalizeWebAppUrl(url: string): string {
+        const trimmed = url.trim();
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        if (/^www\./i.test(trimmed)) return `https://${trimmed}`;
+        return trimmed;
+    }
+
     // 保存小程序
     async function saveWebApp() {
         if (!editForm.name.trim()) {
@@ -92,9 +99,11 @@
             return;
         }
 
+        const normalizedUrl = normalizeWebAppUrl(editForm.url);
+
         // 验证 URL 格式
         try {
-            new URL(editForm.url);
+            new URL(normalizedUrl);
         } catch (e) {
             pushErrMsg('网站链接格式不正确');
             return;
@@ -117,7 +126,7 @@
                     webApps[index] = {
                         ...editingApp,
                         name: editForm.name.trim(),
-                        url: editForm.url.trim(),
+                        url: normalizedUrl,
                         icon: iconBase64,
                         updatedAt: Date.now(),
                     };
@@ -128,7 +137,7 @@
                 const newApp = {
                     id: generateId(),
                     name: editForm.name.trim(),
-                    url: editForm.url.trim(),
+                    url: normalizedUrl,
                     icon: iconBase64,
                     createdAt: Date.now(),
                     updatedAt: Date.now(),
@@ -672,7 +681,7 @@
                                     type="text"
                                     class="b3-text-field"
                                     bind:value={editForm.url}
-                                    placeholder="https://example.com"
+                                    placeholder="https://example.com 或 www.example.com"
                                 />
                             </div>
 
