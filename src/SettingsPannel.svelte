@@ -2052,11 +2052,6 @@ description: 描述这个 Skill 的功能
                                             style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface);"
                                         >
                                             {skill.name}
-                                            <code
-                                                style="font-weight: normal; font-size: 12px; background: var(--b3-theme-background); padding: 2px 6px; border-radius: 3px; margin-left: 6px;"
-                                            >
-                                                {skill.id}
-                                            </code>
                                             <span
                                                 style="font-weight: normal; font-size: 12px; color: var(--b3-theme-on-surface-light); margin-left: 6px;"
                                             >
