@@ -1,3 +1,7 @@
+
+## v2.4.1 / 20260524
+- 🎨 skill列表优化：不显示skill目录
+
 ## v2.4.0 / 20260524
 - ✨ 支持创建和调用skill
 - 🎨 完善思源 forwardProxy 代理支持,感谢[BorisZhangYYY](https://github.com/BorisZhangYYY)
