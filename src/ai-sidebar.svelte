@@ -33,7 +33,13 @@
         putFile,
         removeFile,
     } from './api';
-    import { saveAsset, loadAsset, base64ToBlob, readAssetAsText, createGeneratedImageFileName } from './utils/assets';
+    import {
+        saveAsset,
+        loadAsset,
+        base64ToBlob,
+        readAssetAsText,
+        createGeneratedImageFileName,
+    } from './utils/assets';
     import {
         parseMultipleWebPages,
         fetchWithWebView,
@@ -821,12 +827,15 @@
                 const skills = await loadAllSkills();
                 const hasSkills = skills && skills.length > 0;
                 if (userToolCount > 0 || hasSkills) {
-                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const currentSelectedTools =
+                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                     const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                         currentSelectedTools.some(t => t.name === tool.function.name)
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                        tool =>
+                            tool.function.name !== 'get_siyuan_skills' &&
+                            tool.function.name !== 'read_skill'
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -834,12 +843,14 @@
                                   filteredToolDefs.map(tool => tool.function.name)
                               )
                             : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
-                    
+                    const readSkillTool = AVAILABLE_TOOLS.find(
+                        t => t.function.name === 'read_skill'
+                    );
+
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
-                    
+
                     toolsForAgent = [...extraTools, ...filteredToolDefs];
                 }
             }
@@ -955,7 +966,9 @@
                                 const toolConfig = currentSelectedTools.find(
                                     t => t.name === tc.function.name
                                 );
-                                const isSystemTool = tc.function.name === 'get_siyuan_skills' || tc.function.name === 'siyuan_read_skill';
+                                const isSystemTool =
+                                    tc.function.name === 'get_siyuan_skills' ||
+                                    tc.function.name === 'read_skill';
                                 const autoApprove =
                                     isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
 
@@ -2670,7 +2683,10 @@
     }
 
     function roundToDrawSizeUnit(value: number): number {
-        return Math.max(64, Math.min(8192, Math.round(value / DRAW_IMAGE_SIZE_STEP) * DRAW_IMAGE_SIZE_STEP));
+        return Math.max(
+            64,
+            Math.min(8192, Math.round(value / DRAW_IMAGE_SIZE_STEP) * DRAW_IMAGE_SIZE_STEP)
+        );
     }
 
     function normalizeDrawImagePixelSize(width: number, height: number) {
@@ -2728,10 +2744,12 @@
                   ? '横版'
                   : '竖版';
         const existingOption = DRAW_IMAGE_SIZE_OPTIONS.find(option => option.value === size);
-        return existingOption || {
-            value: size,
-            label: `${size} ${formatDrawRatio(normalizedSize.width, normalizedSize.height)} ${orientation} 自动识别`,
-        };
+        return (
+            existingOption || {
+                value: size,
+                label: `${size} ${formatDrawRatio(normalizedSize.width, normalizedSize.height)} ${orientation} 自动识别`,
+            }
+        );
     }
 
     function createDrawImageSizeOptionFromRatio(widthRatio: number, heightRatio: number) {
@@ -2897,7 +2915,8 @@
 
     function getDrawSelectableImageCount(message: Message): number {
         const generatedCount = message.generatedImages?.length || 0;
-        const attachmentCount = message.attachments?.filter(att => att.type === 'image').length || 0;
+        const attachmentCount =
+            message.attachments?.filter(att => att.type === 'image').length || 0;
         return Math.max(generatedCount, attachmentCount);
     }
 
@@ -2929,10 +2948,9 @@
 
     function getImageAttachmentIndex(message: Message, attachmentIndex: number): number {
         return (
-            message.attachments
-                ?.slice(0, attachmentIndex + 1)
-                .filter(att => att.type === 'image').length || 0
-        ) - 1;
+            (message.attachments?.slice(0, attachmentIndex + 1).filter(att => att.type === 'image')
+                .length || 0) - 1
+        );
     }
 
     function isDrawAttachmentSelected(message: Message, attachmentIndex: number): boolean {
@@ -3206,20 +3224,26 @@
                             currentSelectedTools.some(t => t.name === tool.function.name)
                         );
                         const filteredToolDefs = selectedToolDefs.filter(
-                            tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                            tool =>
+                                tool.function.name !== 'get_siyuan_skills' &&
+                                tool.function.name !== 'read_skill'
                         );
                         const descTool =
                             chatMode === 'ask'
                                 ? createGetSiyuanSkillsTool(
                                       filteredToolDefs.map(tool => tool.function.name)
                                   )
-                                : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                        const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
-                        
+                                : AVAILABLE_TOOLS.find(
+                                      t => t.function.name === 'get_siyuan_skills'
+                                  );
+                        const readSkillTool = AVAILABLE_TOOLS.find(
+                            t => t.function.name === 'read_skill'
+                        );
+
                         const extraTools = [];
                         if (descTool) extraTools.push(descTool);
                         if (readSkillTool) extraTools.push(readSkillTool);
-                        
+
                         toolsForAgent = [...extraTools, ...filteredToolDefs];
                     }
                 }
@@ -3344,7 +3368,9 @@
                                     const toolConfig = currentSelectedTools.find(
                                         t => t.name === tc.function.name
                                     );
-                                    const isSystemTool = tc.function.name === 'get_siyuan_skills' || tc.function.name === 'siyuan_read_skill';
+                                    const isSystemTool =
+                                        tc.function.name === 'get_siyuan_skills' ||
+                                        tc.function.name === 'read_skill';
                                     const autoApprove =
                                         isSystemTool ||
                                         (toolConfig && toolConfig.autoApprove) ||
@@ -3960,7 +3986,8 @@
 
         // 加载自定义 Skills
         if (hasSkills && skills) {
-            let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+            let skillsPrompt =
+                '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
             for (const skill of skills) {
                 skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
             }
@@ -4299,7 +4326,10 @@
         return `${url}/v1`;
     }
 
-    function getOpenAIImageEndpointUrl(providerConfig: any, endpoint: '/images/generations' | '/images/edits') {
+    function getOpenAIImageEndpointUrl(
+        providerConfig: any,
+        endpoint: '/images/generations' | '/images/edits'
+    ) {
         const rawBaseUrl =
             providerConfig?.customApiUrl?.trim() || getBuiltInImageApiBaseUrl(currentProvider);
         if (!rawBaseUrl) {
@@ -4314,7 +4344,10 @@
             .trim()
             .replace(/#$/, '')
             .replace(/\/+$/, '')
-            .replace(/\/v\d+(?:beta)?\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i, '')
+            .replace(
+                /\/v\d+(?:beta)?\/models\/[^/]+:(?:streamGenerateContent|generateContent)$/i,
+                ''
+            )
             .replace(/\/v\d+(?:beta)?\/models$/i, '');
     }
 
@@ -4417,9 +4450,11 @@
             '2160x3840': { aspectRatio: '9:16', imageSize: '4K' },
         };
         const parsedSize = parseDrawImageSizeValue(size);
-        const config = sizeMap[size] || (parsedSize
-            ? { aspectRatio: getClosestGeminiAspectRatio(parsedSize.width, parsedSize.height) }
-            : null);
+        const config =
+            sizeMap[size] ||
+            (parsedSize
+                ? { aspectRatio: getClosestGeminiAspectRatio(parsedSize.width, parsedSize.height) }
+                : null);
         if (!config) return null;
 
         if (!geminiModelSupportsImageSize(modelId)) {
@@ -4429,10 +4464,7 @@
         return config;
     }
 
-    async function buildGeminiImageParts(
-        prompt: string,
-        editImageSources: MessageAttachment[]
-    ) {
+    async function buildGeminiImageParts(prompt: string, editImageSources: MessageAttachment[]) {
         const parts: Array<Record<string, any>> = [{ text: prompt }];
 
         for (const imageSource of editImageSources) {
@@ -4511,7 +4543,10 @@
 
             if (!response.ok) {
                 throw new Error(
-                    await getImageApiError(response, isEdit ? 'Gemini 图片编辑失败' : 'Gemini 图片生成失败')
+                    await getImageApiError(
+                        response,
+                        isEdit ? 'Gemini 图片编辑失败' : 'Gemini 图片生成失败'
+                    )
                 );
             }
 
@@ -4519,7 +4554,9 @@
         };
 
         const count = Math.max(1, Math.min(10, Number(drawImageCount) || 1));
-        const rawImages = (await Promise.all(Array.from({ length: count }, () => requestOnce()))).flat();
+        const rawImages = (
+            await Promise.all(Array.from({ length: count }, () => requestOnce()))
+        ).flat();
         const savedImages = await Promise.all(rawImages.map(saveGeneratedImageFromApiResult));
         return savedImages.filter(Boolean);
     }
@@ -4594,7 +4631,12 @@
                 if (data) {
                     imageAttachmentsFromMarkdown.push({
                         type: 'image',
-                        name: match[1] || createGeneratedImageFileName('image/png', imageAttachmentsFromMarkdown.length),
+                        name:
+                            match[1] ||
+                            createGeneratedImageFileName(
+                                'image/png',
+                                imageAttachmentsFromMarkdown.length
+                            ),
                         data,
                         path: url.startsWith('/data/storage/petal/siyuan-plugin-copilot/assets/')
                             ? url
@@ -4729,7 +4771,9 @@
         }
 
         if (!response.ok) {
-            throw new Error(await getImageApiError(response, isEdit ? '图片编辑失败' : '图片生成失败'));
+            throw new Error(
+                await getImageApiError(response, isEdit ? '图片编辑失败' : '图片生成失败')
+            );
         }
 
         const data = await response.json();
@@ -4784,15 +4828,11 @@
     }
 
     // 画图模式：把 contextDocuments 作为参考资料拼到提示词末尾
-    function buildDrawPromptWithContext(
-        prompt: string,
-        contextDocs: ContextDocument[]
-    ): string {
+    function buildDrawPromptWithContext(prompt: string, contextDocs: ContextDocument[]): string {
         if (!contextDocs || contextDocs.length === 0) return prompt;
         const contextText = contextDocs
             .map(doc => {
-                const label =
-                    doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
+                const label = doc.type === 'doc' ? '文档' : doc.type === 'webpage' ? '网页' : '块';
                 if (doc.content) {
                     return `## ${label}: ${doc.title}\n\n\`\`\`markdown\n${doc.content}\n\`\`\``;
                 }
@@ -4825,9 +4865,8 @@
         normalizeDrawImageCount();
         applyPromptDrawImageSize(userContent);
 
-        const contextDocumentsWithLatestContent = await collectDrawModeContextDocuments(
-            contextDocuments
-        );
+        const contextDocumentsWithLatestContent =
+            await collectDrawModeContextDocuments(contextDocuments);
         const promptWithSystemPrompt = buildDrawPromptWithSystemPrompt(userContent);
         const promptWithContext = buildDrawPromptWithContext(
             promptWithSystemPrompt,
@@ -4932,7 +4971,10 @@
             await saveCurrentSession(true);
             autoRenameSession(userContent);
         } catch (error) {
-            if ((error as Error).name === 'AbortError' || (error as Error).message === 'Request aborted') {
+            if (
+                (error as Error).name === 'AbortError' ||
+                (error as Error).message === 'Request aborted'
+            ) {
                 isAborted = true;
             } else {
                 const errorMessage: Message = {
@@ -5608,7 +5650,8 @@
             const skills = await loadAllSkills();
             if (skills && skills.length > 0) {
                 hasSkills = true;
-                let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+                let skillsPrompt =
+                    '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
                 for (const skill of skills) {
                     skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
                 }
@@ -5706,12 +5749,15 @@
                 const hasSkills = skills && skills.length > 0;
                 if (userToolCount > 0 || hasSkills) {
                     // 根据选中的工具名称筛选出对应的工具定义
-                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const currentSelectedTools =
+                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                     const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                         currentSelectedTools.some(t => t.name === tool.function.name)
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                        tool =>
+                            tool.function.name !== 'get_siyuan_skills' &&
+                            tool.function.name !== 'read_skill'
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -5719,12 +5765,14 @@
                                   filteredToolDefs.map(tool => tool.function.name)
                               )
                             : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
-                    
+                    const readSkillTool = AVAILABLE_TOOLS.find(
+                        t => t.function.name === 'read_skill'
+                    );
+
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
-                    
+
                     toolsForAgent = [...extraTools, ...filteredToolDefs];
                 }
             }
@@ -5902,7 +5950,7 @@
                                     // get_siyuan_skills 是系统工具，默认自动批准
                                     const isSystemTool =
                                         toolCall.function.name === 'get_siyuan_skills' ||
-                                        toolCall.function.name === 'siyuan_read_skill';
+                                        toolCall.function.name === 'read_skill';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
@@ -9979,7 +10027,7 @@
             suppressPromptClickOnce = false;
             return;
         }
-        currentInput = prompt.content +'\n'+ currentInput;
+        currentInput = prompt.content + '\n' + currentInput;
         isPromptSelectorOpen = false;
         tick().then(() => {
             autoResizeTextarea();
@@ -11082,7 +11130,8 @@
             const skills = await loadAllSkills();
             if (skills && skills.length > 0) {
                 hasSkills = true;
-                let skillsPrompt = '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `siyuan_read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
+                let skillsPrompt =
+                    '\n\n=== 自定义 Skill ===\n你拥有以下自定义 Skill。当用户要求的任务符合某个 Skill 的描述时，你**必须**调用 `read_skill(skillId: "...")` 工具读取该 Skill 的完整工作流文档：\n';
                 for (const skill of skills) {
                     skillsPrompt += `- **${skill.id}** (${skill.name}): ${skill.description}\n`;
                 }
@@ -11141,12 +11190,15 @@
                 const hasSkills = skills && skills.length > 0;
                 if (userToolCount > 0 || hasSkills) {
                     // 根据选中的工具名称筛选出对应的工具定义
-                    const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+                    const currentSelectedTools =
+                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
                     const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
                         currentSelectedTools.some(t => t.name === tool.function.name)
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
-                        tool => tool.function.name !== 'get_siyuan_skills' && tool.function.name !== 'siyuan_read_skill'
+                        tool =>
+                            tool.function.name !== 'get_siyuan_skills' &&
+                            tool.function.name !== 'read_skill'
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -11154,12 +11206,14 @@
                                   filteredToolDefs.map(tool => tool.function.name)
                               )
                             : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'siyuan_read_skill');
-                    
+                    const readSkillTool = AVAILABLE_TOOLS.find(
+                        t => t.function.name === 'read_skill'
+                    );
+
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
-                    
+
                     toolsForAgent = [...extraTools, ...filteredToolDefs];
                 }
             }
@@ -11325,7 +11379,7 @@
                                     // get_siyuan_skills 是系统工具，默认自动批准
                                     const isSystemTool =
                                         toolCall.function.name === 'get_siyuan_skills' ||
-                                        toolCall.function.name === 'siyuan_read_skill';
+                                        toolCall.function.name === 'read_skill';
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
@@ -12035,12 +12089,17 @@
                                 {@const baseIndex = (messageIndex + msgIndex) * 100 + roundIndex}
 
                                 <!-- 该轮工具调用前的AI回复内容（非思考部分） -->
-                                {@const actualContentBefore = round.contentBefore || (roundIndex === 0 ? message.content : '')}
+                                {@const actualContentBefore =
+                                    round.contentBefore ||
+                                    (roundIndex === 0 ? message.content : '')}
                                 {#if actualContentBefore && actualContentBefore.toString().trim()}
-                                    {@const contentBeforeDisplay = getDisplayContent(actualContentBefore)}
+                                    {@const contentBeforeDisplay =
+                                        getDisplayContent(actualContentBefore)}
                                     <div
                                         class="ai-message__content b3-typography"
-                                        style={messageFontSize ? `font-size: ${messageFontSize}px;` : ''}
+                                        style={messageFontSize
+                                            ? `font-size: ${messageFontSize}px;`
+                                            : ''}
                                     >
                                         {@html contentBeforeDisplay}
                                     </div>
@@ -13471,10 +13530,7 @@
                                                             disabled={isLoading}
                                                             title="选择这张图片用于继续编辑"
                                                         >
-                                                            {#if isDrawAttachmentSelected(
-                                                                message,
-                                                                attachmentIndex
-                                                            )}
+                                                            {#if isDrawAttachmentSelected(message, attachmentIndex)}
                                                                 已选择
                                                             {:else}
                                                                 选择这张
@@ -13742,7 +13798,10 @@
                     >
                         {#if chatMode === 'draw'}
                             <span>{streamingMessage}</span>
-                            <span class="jumping-dots ai-message__draw-loading-indicator" aria-hidden="true">
+                            <span
+                                class="jumping-dots ai-message__draw-loading-indicator"
+                                aria-hidden="true"
+                            >
                                 <span class="dot"></span>
                                 <span class="dot"></span>
                                 <span class="dot"></span>
@@ -14984,14 +15043,16 @@
                         {#each prompts as prompt (prompt.id)}
                             <button
                                 class="ai-sidebar__prompt-item"
-                                class:ai-sidebar__prompt-item--dragging={draggingPromptId === prompt.id}
-                                class:ai-sidebar__prompt-item--drop-target={promptDropTargetId === prompt.id}
+                                class:ai-sidebar__prompt-item--dragging={draggingPromptId ===
+                                    prompt.id}
+                                class:ai-sidebar__prompt-item--drop-target={promptDropTargetId ===
+                                    prompt.id}
                                 draggable="true"
                                 on:click={() => usePrompt(prompt)}
-                                on:dragstart={(event) => handlePromptDragStart(event, prompt.id)}
-                                on:dragover|preventDefault|stopPropagation={(event) =>
+                                on:dragstart={event => handlePromptDragStart(event, prompt.id)}
+                                on:dragover|preventDefault|stopPropagation={event =>
                                     handlePromptItemDragOver(event, prompt.id)}
-                                on:drop|preventDefault|stopPropagation={(event) =>
+                                on:drop|preventDefault|stopPropagation={event =>
                                     handlePromptItemDrop(event, prompt.id)}
                                 on:dragend={handlePromptDragEnd}
                                 title={prompt.content}

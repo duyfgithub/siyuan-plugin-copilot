@@ -224,6 +224,15 @@ export default class PluginSample extends Plugin {
         return false;
     }
 
+    // 规范化可在 WebView 中打开的网址：支持 http(s)，并为 www. 开头的网址补全协议
+    private normalizeWebViewUrl(input?: string | null): string | null {
+        const url = input?.trim();
+        if (!url) return null;
+        if (/^https?:\/\//i.test(url)) return url;
+        if (/^www\./i.test(url)) return `https://${url}`;
+        return null;
+    }
+
     // 依次尝试多个 favicon 源，遇到第一个成功的就返回 data:image...
     private async tryFetchFavicon(domain: string): Promise<string | null> {
         if (!domain) return null;
@@ -749,7 +758,7 @@ export default class PluginSample extends Plugin {
 
                                     if (pluginInstance.isLikelyUrl(raw)) {
                                         // 把可能的域名或网址补全协议
-                                        targetUrl = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw;
+                                        targetUrl = pluginInstance.normalizeWebViewUrl(raw) || 'https://' + raw;
 
                                         suggestionList.style.display = 'none';
                                         redirectCount = 0;
@@ -1733,9 +1742,10 @@ export default class PluginSample extends Plugin {
             // 检查点击的是否为思源链接: span[data-type="a"]
             if (target.tagName === 'SPAN' && target.getAttribute('data-type') === 'a') {
                 const href = target.getAttribute('data-href');
+                const normalizedHref = this.normalizeWebViewUrl(href);
 
-                // 只处理 https 开头的链接
-                if (href && href.startsWith('https://')) {
+                // 只处理 WebView 支持的网址
+                if (normalizedHref) {
                     // 检查是否在 protyle-wysiwyg 容器内
                     if (target.closest('.protyle-wysiwyg')) {
                         // 立即阻止默认行为（必须在异步操作之前）
@@ -1747,20 +1757,20 @@ export default class PluginSample extends Plugin {
 
                         // 如果未启用 webview 打开链接功能，在外部浏览器打开
                         if (!settings.openLinksInWebView) {
-                            window.open(href, '_blank', 'noopener,noreferrer');
+                            window.open(normalizedHref, '_blank', 'noopener,noreferrer');
                             return false;
                         }
 
-                        console.log('[Link Click] 在 webview 中打开:', href);
+                        console.log('[Link Click] 在 webview 中打开:', normalizedHref);
 
                         // 提取链接标题
-                        const linkTitle = target.textContent?.trim() || href;
+                        const linkTitle = target.textContent?.trim() || normalizedHref;
 
                         // 在新的 webview 标签页中打开
                         const appData = {
                             id: `link-${Date.now()}`,
                             name: linkTitle.length > 50 ? linkTitle.substring(0, 50) + '...' : linkTitle,
-                            url: href,
+                            url: normalizedHref,
                             createdAt: Date.now(),
                             updatedAt: Date.now()
                         };
@@ -1784,7 +1794,7 @@ export default class PluginSample extends Plugin {
                         // 后台检查本地 favicon 缓存（不触发网络请求）；若存在则注册并更新标签图标
                         (async () => {
                             try {
-                                const domain = this.getDomainFromUrl(href);
+                                const domain = this.getDomainFromUrl(normalizedHref);
                                 if (!domain) return;
 
                                 if (this.domainIconMap.has(domain)) {

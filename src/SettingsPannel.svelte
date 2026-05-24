@@ -3,11 +3,27 @@
     import SettingPanel from '@/libs/components/setting-panel.svelte';
     import { i18n } from './utils/i18n';
     import { getDefaultSettings } from './defaultSettings';
-    import { pushMsg, pushErrMsg, lsNotebooks, getBlockByID, putFile, getFileBlob, removeFile, exportMdContent, openBlock } from './api';
+    import {
+        pushMsg,
+        pushErrMsg,
+        lsNotebooks,
+        getBlockByID,
+        putFile,
+        getFileBlob,
+        removeFile,
+        exportMdContent,
+        openBlock,
+    } from './api';
     import { confirm, Constants, getActiveEditor } from 'siyuan';
     import ProviderConfigPanel from './components/ProviderConfigPanel.svelte';
     import type { CustomProviderConfig } from './defaultSettings';
-    import { buildSiyuanSkillBlocksMarker, extractSiyuanSkillBlockIds, loadAllSkills, upsertSiyuanSkillBlockIds, type Skill } from './tools';
+    import {
+        buildSiyuanSkillBlocksMarker,
+        extractSiyuanSkillBlockIds,
+        loadAllSkills,
+        upsertSiyuanSkillBlockIds,
+        type Skill,
+    } from './tools';
     export let plugin;
 
     type SkillEditorMode = 'markdown' | 'siyuan-blocks';
@@ -49,7 +65,13 @@ description: 描述这个 Skill 的功能
                 pushErrMsg('无法获取思源笔记数据目录。');
                 return;
             }
-            const absolutePath = path.join(dataDir, 'storage', 'petal', 'siyuan-plugin-copilot', 'skills');
+            const absolutePath = path.join(
+                dataDir,
+                'storage',
+                'petal',
+                'siyuan-plugin-copilot',
+                'skills'
+            );
             shell.openPath(absolutePath);
         } catch (e) {
             console.error('Failed to open skills folder:', e);
@@ -165,7 +187,12 @@ description: 描述这个 Skill 的功能
     function syncSkillBlocksToEditorContent(blocks: SkillContentBlock[]) {
         const blockIds = blocks.map(block => block.id);
         const hasExistingMarker = editorContent.includes('siyuan-plugin-copilot:skill-blocks');
-        if (hasExistingMarker || blockIds.length === 0 || editorSelectionStart === null || editorSelectionEnd === null) {
+        if (
+            hasExistingMarker ||
+            blockIds.length === 0 ||
+            editorSelectionStart === null ||
+            editorSelectionEnd === null
+        ) {
             editorContent = upsertSiyuanSkillBlockIds(editorContent, blockIds);
             return;
         }
@@ -186,8 +213,11 @@ description: 描述这个 Skill 的功能
 
     async function addSkillBlocksByIds(blockIds: string[]) {
         const sourceBlockIds = extractSiyuanSkillBlockIds(editorContent);
-        const baseBlockIds = sourceBlockIds.length > 0 ? sourceBlockIds : skillBlocks.map(block => block.id);
-        const idsToAdd = parseBlockIdList(blockIds.join(',')).filter(id => !baseBlockIds.includes(id));
+        const baseBlockIds =
+            sourceBlockIds.length > 0 ? sourceBlockIds : skillBlocks.map(block => block.id);
+        const idsToAdd = parseBlockIdList(blockIds.join(',')).filter(
+            id => !baseBlockIds.includes(id)
+        );
 
         if (idsToAdd.length === 0) {
             pushMsg('Skill 块已添加');
@@ -196,15 +226,20 @@ description: 描述这个 Skill 的功能
 
         isAddingSkillBlock = true;
         try {
-            const existingBlocks = sourceBlockIds.length > 0
-                ? await buildSkillBlocksFromIds(sourceBlockIds)
-                : skillBlocks;
+            const existingBlocks =
+                sourceBlockIds.length > 0
+                    ? await buildSkillBlocksFromIds(sourceBlockIds)
+                    : skillBlocks;
             const newBlocks = await buildSkillBlocksFromIds(idsToAdd);
             if (newBlocks.length === 0) return;
             const nextBlocks = [...existingBlocks, ...newBlocks];
             skillBlocks = nextBlocks;
             syncSkillBlocksToEditorContent(nextBlocks);
-            pushMsg(newBlocks.length === 1 ? '已添加 Skill 块' : `已添加 ${newBlocks.length} 个 Skill 块`);
+            pushMsg(
+                newBlocks.length === 1
+                    ? '已添加 Skill 块'
+                    : `已添加 ${newBlocks.length} 个 Skill 块`
+            );
         } finally {
             isAddingSkillBlock = false;
             isSkillBlockDragOver = false;
@@ -223,7 +258,9 @@ description: 描述这个 Skill 的功能
     async function refreshSkillBlocksFromEditorContent() {
         const blockIds = extractSiyuanSkillBlockIds(editorContent);
         skillBlocks = await buildSkillBlocksFromIds(blockIds);
-        pushMsg(blockIds.length > 0 ? `已从源码同步 ${blockIds.length} 个块` : '源码中未找到思源块标记');
+        pushMsg(
+            blockIds.length > 0 ? `已从源码同步 ${blockIds.length} 个块` : '源码中未找到思源块标记'
+        );
     }
 
     async function addSkillBlockIdsFromInput() {
@@ -333,7 +370,14 @@ description: 描述这个 Skill 的功能
                 pushErrMsg('无法获取思源笔记数据目录。');
                 return;
             }
-            const absolutePath = path.join(dataDir, 'storage', 'petal', 'siyuan-plugin-copilot', 'skills', skillId);
+            const absolutePath = path.join(
+                dataDir,
+                'storage',
+                'petal',
+                'siyuan-plugin-copilot',
+                'skills',
+                skillId
+            );
             shell.openPath(absolutePath);
         } catch (e) {
             console.error('Failed to open skill folder:', e);
@@ -348,14 +392,15 @@ description: 描述这个 Skill 的功能
             if (blob) {
                 content = await blob.text();
             }
-            const blockIds = skill.blockIds?.length ? skill.blockIds : extractSiyuanSkillBlockIds(content);
+            const blockIds = skill.blockIds?.length
+                ? skill.blockIds
+                : extractSiyuanSkillBlockIds(content);
             editorSkillId = skill.id;
             skillIdInput = skill.id;
             editorMode = blockIds.length > 0 ? 'siyuan-blocks' : 'markdown';
             editorContent = content;
-            skillBlocks = editorMode === 'siyuan-blocks'
-                ? await buildSkillBlocksFromIds(blockIds)
-                : [];
+            skillBlocks =
+                editorMode === 'siyuan-blocks' ? await buildSkillBlocksFromIds(blockIds) : [];
             skillBlockIdInput = '';
             editorTitle = '编辑 Skill: ' + skill.name;
             showEditor = true;
@@ -392,7 +437,7 @@ description: 描述这个 Skill 的功能
             const skillFilePath = `/data/storage/petal/siyuan-plugin-copilot/skills/${normalizedId}/skill.md`;
             const fileBlob = new Blob([editorContent], { type: 'text/markdown' });
             await putFile(skillFilePath, false, fileBlob);
-            
+
             pushMsg('保存成功');
             showEditor = false;
             await refreshSkills();
@@ -403,16 +448,20 @@ description: 描述这个 Skill 的功能
     }
 
     async function deleteSkill(skill: Skill) {
-        confirm('确定删除', `确定要删除 Skill "${skill.name}" (${skill.id}) 吗？此操作无法撤销。`, async () => {
-            try {
-                await removeFile(skill.filePath);
-                pushMsg('删除成功');
-                await refreshSkills();
-            } catch (e) {
-                console.error('Failed to delete skill:', e);
-                pushErrMsg('删除 Skill 失败: ' + (e instanceof Error ? e.message : String(e)));
+        confirm(
+            '确定删除',
+            `确定要删除 Skill "${skill.name}" (${skill.id}) 吗？此操作无法撤销。`,
+            async () => {
+                try {
+                    await removeFile(skill.filePath);
+                    pushMsg('删除成功');
+                    await refreshSkills();
+                } catch (e) {
+                    console.error('Failed to delete skill:', e);
+                    pushErrMsg('删除 Skill 失败: ' + (e instanceof Error ? e.message : String(e)));
+                }
             }
-        });
+        );
     }
 
     // 使用动态默认设置
@@ -701,7 +750,8 @@ description: 描述这个 Skill 的功能
                 if (builtInProviderNames[providerId]) {
                     const providerConfig = settings.aiProviders?.[providerId];
                     if (providerConfig) {
-                        const disabledBuiltIn = settings.aiProviders?.disabledBuiltInProviders || [];
+                        const disabledBuiltIn =
+                            settings.aiProviders?.disabledBuiltInProviders || [];
                         const nextDisabledBuiltIn = disabledBuiltIn.includes(providerId)
                             ? disabledBuiltIn
                             : [...disabledBuiltIn, providerId];
@@ -759,7 +809,10 @@ description: 描述这个 Skill 的功能
 
         // Achuan 平台已下架：只有已配置的旧用户才显示
         const achuanConfig = settings.aiProviders?.Achuan;
-        const showAchuan = !!achuanConfig?.apiKey || (achuanConfig?.models?.length > 0) || !!achuanConfig?.customApiUrl;
+        const showAchuan =
+            !!achuanConfig?.apiKey ||
+            achuanConfig?.models?.length > 0 ||
+            !!achuanConfig?.customApiUrl;
 
         const builtIn = Object.keys(builtInProviderNames)
             .filter(id => {
@@ -1173,10 +1226,12 @@ description: 描述这个 Skill 的功能
         if (!settings.aiProviders.customProviders) {
             settings.aiProviders.customProviders = [];
         }
-        settings.aiProviders.customProviders = settings.aiProviders.customProviders.map(provider => ({
-            ...provider,
-            enabled: provider.enabled !== false,
-        }));
+        settings.aiProviders.customProviders = settings.aiProviders.customProviders.map(
+            provider => ({
+                ...provider,
+                enabled: provider.enabled !== false,
+            })
+        );
 
         // 确保 disabledBuiltInProviders 数组存在
         if (!settings.aiProviders.disabledBuiltInProviders) {
@@ -1432,7 +1487,7 @@ description: 描述这个 Skill 的功能
                                         openPlatformContextMenu(e, item.platform.id)}
                                     role="button"
                                     tabindex="0"
-                                    title={`${platformSearchQuery.trim() ? '搜索中暂不支持拖拽排序' :  '拖动以排序'} · ${i18n('common.delete') || '删除'}：右键`}
+                                    title={`${platformSearchQuery.trim() ? '搜索中暂不支持拖拽排序' : '拖动以排序'} · ${i18n('common.delete') || '删除'}：右键`}
                                 >
                                     <div class="platform-item__drag-handle">
                                         <svg class="b3-button__icon">
@@ -1440,7 +1495,9 @@ description: 描述这个 Skill 的功能
                                         </svg>
                                     </div>
                                     <div class="platform-item__info">
-                                        <span class="platform-item__name">{item.platform.name}</span>
+                                        <span class="platform-item__name">
+                                            {item.platform.name}
+                                        </span>
                                         <span class="platform-item__type">
                                             {item.platform.type === 'built-in'
                                                 ? i18n('platform.type.builtin')
@@ -1682,77 +1739,216 @@ description: 描述这个 Skill 的功能
             </div>
         {:else if focusGroup === '自定义 Skill'}
             <!-- 自定义 Skill 页面 -->
-            <div style="padding: 24px; max-width: 800px; display: flex; flex-direction: column; gap: 16px; height: 100%; overflow-y: auto;">
-                <h3 style="margin: 0; font-size: 16px; font-weight: 500;">自定义 Skill (Custom Skills)</h3>
-                <div style="padding: 12px; background: var(--b3-theme-primary-lightest); border-radius: 4px; font-size: 13px; color: var(--b3-theme-on-surface); display: flex; align-items: flex-start; gap: 8px;">
-                    <svg class="svg" style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"><use xlink:href="#iconInfo"></use></svg>
+            <div
+                style="padding: 24px; max-width: 800px; display: flex; flex-direction: column; gap: 16px; height: 100%; overflow-y: auto;"
+            >
+                <h3 style="margin: 0; font-size: 16px; font-weight: 500;">
+                    自定义 Skill (Custom Skills)
+                </h3>
+                <div
+                    style="padding: 12px; background: var(--b3-theme-primary-lightest); border-radius: 4px; font-size: 13px; color: var(--b3-theme-on-surface); display: flex; align-items: flex-start; gap: 8px;"
+                >
+                    <svg
+                        class="svg"
+                        style="width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;"
+                    >
+                        <use xlink:href="#iconInfo"></use>
+                    </svg>
                     <div>
-                        <p style="margin: 0 0 8px 0;">模仿 Codex 和 Claude Code 的 Skills 设计。数据存储在 <code>data/storage/petal/siyuan-plugin-copilot/skills/</code> 目录下。</p>
-                        <p style="margin: 0;">为每个 Skill 创建一个子文件夹并包含一个 <code>skill.md</code> (有 YAML 头)。切换到引用思源块模式时，会在 <code>skill.md</code> 中保存块 ID，并在 <code>siyuan_read_skill</code> 读取时自动展开为 Markdown。</p>
+                        <p style="margin: 0 0 8px 0;">
+                            模仿 Codex 和 Claude Code 的 Skills 设计。数据存储在 <code>
+                                data/storage/petal/siyuan-plugin-copilot/skills/
+                            </code>
+                             目录下。
+                        </p>
+                        <p style="margin: 0;">
+                            为每个 Skill 创建一个子文件夹并包含一个 <code>skill.md</code>
+                            (有 YAML 头)。切换到引用思源块模式时，会在
+                            <code>skill.md</code>
+                            中保存块 ID，并在
+                            <code>read_skill</code>
+                             读取时自动展开为 Markdown。
+                        </p>
                     </div>
                 </div>
 
                 {#if showEditor}
                     <!-- Editor View -->
-                    <div style="padding: 16px; border: 1px solid var(--b3-border-color); border-radius: 6px; background: var(--b3-theme-surface); display: flex; flex-direction: column; gap: 12px;">
-                        <h4 style="margin: 0; font-size: 14px; font-weight: 500; color: var(--b3-theme-primary);">{editorTitle}</h4>
-                        
+                    <div
+                        style="padding: 16px; border: 1px solid var(--b3-border-color); border-radius: 6px; background: var(--b3-theme-surface); display: flex; flex-direction: column; gap: 12px;"
+                    >
+                        <h4
+                            style="margin: 0; font-size: 14px; font-weight: 500; color: var(--b3-theme-primary);"
+                        >
+                            {editorTitle}
+                        </h4>
+
                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <div style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;">Skill 标识符 (也是子文件夹名称，支持中文/英文/数字/下划线/短横线)</div>
-                            <input 
-                                class="b3-text-field" 
-                                type="text" 
-                                placeholder="例如: my-skill 或 介绍思源笔记" 
-                                bind:value={skillIdInput} 
-                                disabled={editorSkillId !== ''} 
+                            <div
+                                style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;"
+                            >
+                                Skill 标识符 (也是子文件夹名称，支持中文/英文/数字/下划线/短横线)
+                            </div>
+                            <input
+                                class="b3-text-field"
+                                type="text"
+                                placeholder="例如: my-skill 或 介绍思源笔记"
+                                bind:value={skillIdInput}
+                                disabled={editorSkillId !== ''}
                             />
                         </div>
 
                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <div style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;">内容模式</div>
+                            <div
+                                style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;"
+                            >
+                                内容模式
+                            </div>
                             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                <button class={editorMode === 'markdown' ? 'b3-button' : 'b3-button b3-button--outline'} on:click={() => setEditorMode('markdown')}>Markdown</button>
-                                <button class={editorMode === 'siyuan-blocks' ? 'b3-button' : 'b3-button b3-button--outline'} on:click={() => setEditorMode('siyuan-blocks')}>引用思源块</button>
+                                <button
+                                    class={editorMode === 'markdown'
+                                        ? 'b3-button'
+                                        : 'b3-button b3-button--outline'}
+                                    on:click={() => setEditorMode('markdown')}
+                                >
+                                    Markdown
+                                </button>
+                                <button
+                                    class={editorMode === 'siyuan-blocks'
+                                        ? 'b3-button'
+                                        : 'b3-button b3-button--outline'}
+                                    on:click={() => setEditorMode('siyuan-blocks')}
+                                >
+                                    引用思源块
+                                </button>
                             </div>
                         </div>
 
                         {#if editorMode === 'siyuan-blocks'}
-                            <div 
-                                style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed {isSkillBlockDragOver ? 'var(--b3-theme-primary)' : 'var(--b3-border-color)'}; border-radius: 6px; background: {isSkillBlockDragOver ? 'var(--b3-theme-primary-lightest)' : 'var(--b3-theme-background)'};"
+                            <div
+                                style="display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px dashed {isSkillBlockDragOver
+                                    ? 'var(--b3-theme-primary)'
+                                    : 'var(--b3-border-color)'}; border-radius: 6px; background: {isSkillBlockDragOver
+                                    ? 'var(--b3-theme-primary-lightest)'
+                                    : 'var(--b3-theme-background)'};"
                                 on:dragover={handleSkillBlockDragOver}
                                 on:dragleave={handleSkillBlockDragLeave}
                                 on:drop={handleSkillBlockDrop}
                             >
-                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                                    <span style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;">Skill 内容块 ({skillBlocks.length})</span>
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; gap: 8px;"
+                                >
+                                    <span
+                                        style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;"
+                                    >
+                                        Skill 内容块 ({skillBlocks.length})
+                                    </span>
                                     <div style="display: flex; gap: 8px;">
-                                        <button class="b3-button b3-button--outline" style="padding: 4px 8px; font-size: 12px;" disabled={isAddingSkillBlock} on:click={refreshSkillBlocksFromEditorContent}>从源码同步</button>
-                                        <button class="b3-button b3-button--outline" style="padding: 4px 8px; font-size: 12px;" disabled={isAddingSkillBlock} on:click={addCurrentBlockAsSkillBlock}>添加当前块</button>
+                                        <button
+                                            class="b3-button b3-button--outline"
+                                            style="padding: 4px 8px; font-size: 12px;"
+                                            disabled={isAddingSkillBlock}
+                                            on:click={refreshSkillBlocksFromEditorContent}
+                                        >
+                                            从源码同步
+                                        </button>
+                                        <button
+                                            class="b3-button b3-button--outline"
+                                            style="padding: 4px 8px; font-size: 12px;"
+                                            disabled={isAddingSkillBlock}
+                                            on:click={addCurrentBlockAsSkillBlock}
+                                        >
+                                            添加当前块
+                                        </button>
                                     </div>
                                 </div>
 
                                 <div style="display: flex; gap: 8px;">
-                                    <input class="b3-text-field" type="text" placeholder="粘贴一个或多个块 ID，用逗号或空格分隔" bind:value={skillBlockIdInput} />
-                                    <button class="b3-button b3-button--outline" style="white-space: nowrap;" disabled={isAddingSkillBlock} on:click={addSkillBlockIdsFromInput}>添加 ID</button>
+                                    <input
+                                        class="b3-text-field"
+                                        type="text"
+                                        placeholder="粘贴一个或多个块 ID，用逗号或空格分隔"
+                                        bind:value={skillBlockIdInput}
+                                    />
+                                    <button
+                                        class="b3-button b3-button--outline"
+                                        style="white-space: nowrap;"
+                                        disabled={isAddingSkillBlock}
+                                        on:click={addSkillBlockIdsFromInput}
+                                    >
+                                        添加 ID
+                                    </button>
                                 </div>
 
                                 {#if skillBlocks.length === 0}
-                                    <div style="padding: 18px; text-align: center; color: var(--b3-theme-on-surface-light); border: 1px dashed var(--b3-border-color); border-radius: 4px;">
+                                    <div
+                                        style="padding: 18px; text-align: center; color: var(--b3-theme-on-surface-light); border: 1px dashed var(--b3-border-color); border-radius: 4px;"
+                                    >
                                         拖入思源块，或使用当前块/块 ID 添加
                                     </div>
                                 {:else}
                                     <div style="display: flex; flex-direction: column; gap: 8px;">
                                         {#each skillBlocks as block, index (block.id)}
-                                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--b3-border-color); border-radius: 4px; background: var(--b3-theme-surface);">
-                                                <div style="min-width: 0; display: flex; flex-direction: column; gap: 2px;">
-                                                    <span style="font-size: 13px; color: var(--b3-theme-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{index + 1}. {block.title}</span>
-                                                    <code style="font-size: 11px; color: var(--b3-theme-on-surface-light); word-break: break-all;">{block.id}</code>
+                                            <div
+                                                style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--b3-border-color); border-radius: 4px; background: var(--b3-theme-surface);"
+                                            >
+                                                <div
+                                                    style="min-width: 0; display: flex; flex-direction: column; gap: 2px;"
+                                                >
+                                                    <span
+                                                        style="font-size: 13px; color: var(--b3-theme-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                                    >
+                                                        {index + 1}. {block.title}
+                                                    </span>
+                                                    <code
+                                                        style="font-size: 11px; color: var(--b3-theme-on-surface-light); word-break: break-all;"
+                                                    >
+                                                        {block.id}
+                                                    </code>
                                                 </div>
-                                                <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                                                    <button class="b3-button b3-button--text" style="padding: 4px 6px; font-size: 12px;" disabled={index === 0} on:click={() => moveSkillBlock(block.id, -1)}>上移</button>
-                                                    <button class="b3-button b3-button--text" style="padding: 4px 6px; font-size: 12px;" disabled={index === skillBlocks.length - 1} on:click={() => moveSkillBlock(block.id, 1)}>下移</button>
-                                                    <button class="b3-button b3-button--text" style="padding: 4px 6px; font-size: 12px;" data-type="block-ref" data-id={block.id} prevent-popover="true" on:mouseenter={(event) => showSkillBlockFloatLayer(block.id, event)} on:click={() => handleOpenSkillBlock(block.id)}>打开</button>
-                                                    <button class="b3-button b3-button--text" style="padding: 4px 6px; font-size: 12px; color: var(--b3-theme-error);" on:click={() => removeSkillBlock(block.id)}>移除</button>
+                                                <div
+                                                    style="display: flex; gap: 6px; flex-shrink: 0;"
+                                                >
+                                                    <button
+                                                        class="b3-button b3-button--text"
+                                                        style="padding: 4px 6px; font-size: 12px;"
+                                                        disabled={index === 0}
+                                                        on:click={() =>
+                                                            moveSkillBlock(block.id, -1)}
+                                                    >
+                                                        上移
+                                                    </button>
+                                                    <button
+                                                        class="b3-button b3-button--text"
+                                                        style="padding: 4px 6px; font-size: 12px;"
+                                                        disabled={index === skillBlocks.length - 1}
+                                                        on:click={() => moveSkillBlock(block.id, 1)}
+                                                    >
+                                                        下移
+                                                    </button>
+                                                    <button
+                                                        class="b3-button b3-button--text"
+                                                        style="padding: 4px 6px; font-size: 12px;"
+                                                        data-type="block-ref"
+                                                        data-id={block.id}
+                                                        prevent-popover="true"
+                                                        on:mouseenter={event =>
+                                                            showSkillBlockFloatLayer(
+                                                                block.id,
+                                                                event
+                                                            )}
+                                                        on:click={() =>
+                                                            handleOpenSkillBlock(block.id)}
+                                                    >
+                                                        打开
+                                                    </button>
+                                                    <button
+                                                        class="b3-button b3-button--text"
+                                                        style="padding: 4px 6px; font-size: 12px; color: var(--b3-theme-error);"
+                                                        on:click={() => removeSkillBlock(block.id)}
+                                                    >
+                                                        移除
+                                                    </button>
                                                 </div>
                                             </div>
                                         {/each}
@@ -1762,9 +1958,13 @@ description: 描述这个 Skill 的功能
                         {/if}
 
                         <div style="display: flex; flex-direction: column; gap: 4px; flex: 1;">
-                            <div style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;">Markdown 源码 (skill.md，包含 YAML 头信息)</div>
-                            <textarea 
-                                class="b3-text-field" 
+                            <div
+                                style="font-size: 12px; color: var(--b3-theme-on-surface-light); font-weight: 500;"
+                            >
+                                Markdown 源码 (skill.md，包含 YAML 头信息)
+                            </div>
+                            <textarea
+                                class="b3-text-field"
                                 style="font-family: monospace; min-height: 300px; resize: vertical; line-height: 1.5; font-size: 13px; padding: 8px;"
                                 placeholder="输入 Markdown 内容..."
                                 bind:value={editorContent}
@@ -1776,55 +1976,147 @@ description: 描述这个 Skill 的功能
                             ></textarea>
                         </div>
 
-                        <div style="padding: 10px 12px; border-left: 3px solid var(--b3-theme-primary); background: var(--b3-theme-background); font-size: 12px; color: var(--b3-theme-on-surface-light);">
+                        <div
+                            style="padding: 10px 12px; border-left: 3px solid var(--b3-theme-primary); background: var(--b3-theme-background); font-size: 12px; color: var(--b3-theme-on-surface-light);"
+                        >
                             {#if editorMode === 'siyuan-blocks'}
-                                添加、排序或移除块时会更新源码中的 <code>&lt;!-- siyuan-plugin-copilot:skill-blocks ... --&gt;</code> 标记；你也可以直接编辑这段源码。
+                                添加、排序或移除块时会更新源码中的 <code>
+                                    &lt;!-- siyuan-plugin-copilot:skill-blocks ... --&gt;
+                                </code>
+                                 标记；你也可以直接编辑这段源码。
                             {:else}
                                 Markdown 模式会直接保存并读取完整 skill.md 内容。
                             {/if}
                         </div>
 
-                        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
-                            <button class="b3-button b3-button--text" on:click={() => showEditor = false}>取消</button>
+                        <div
+                            style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;"
+                        >
+                            <button
+                                class="b3-button b3-button--text"
+                                on:click={() => (showEditor = false)}
+                            >
+                                取消
+                            </button>
                             <button class="b3-button" on:click={saveSkill}>保存</button>
                         </div>
                     </div>
                 {:else}
                     <!-- List View -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
-                        <h4 style="margin: 0; font-size: 14px; font-weight: 500; color: var(--b3-theme-primary);">已加载的 Skills ({loadedSkills.length})</h4>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;"
+                    >
+                        <h4
+                            style="margin: 0; font-size: 14px; font-weight: 500; color: var(--b3-theme-primary);"
+                        >
+                            已加载的 Skills ({loadedSkills.length})
+                        </h4>
                         <div style="display: flex; gap: 8px;">
-                            <button class="b3-button b3-button--outline" on:click={openSkillsFolder}>打开 Skills 文件夹</button>
-                            <button class="b3-button b3-button--outline" on:click={startCreateSkill}>新建 Skill</button>
-                            <button class="b3-button b3-button--outline" on:click={refreshSkills}>刷新列表</button>
+                            <button
+                                class="b3-button b3-button--outline"
+                                on:click={openSkillsFolder}
+                            >
+                                打开 Skills 文件夹
+                            </button>
+                            <button
+                                class="b3-button b3-button--outline"
+                                on:click={startCreateSkill}
+                            >
+                                新建 Skill
+                            </button>
+                            <button class="b3-button b3-button--outline" on:click={refreshSkills}>
+                                刷新列表
+                            </button>
                         </div>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         {#if loadedSkills.length === 0}
-                            <div style="padding: 24px; text-align: center; border: 1px dashed var(--b3-border-color); border-radius: 4px; color: var(--b3-theme-on-surface-light);">
-                                暂无自定义 Skill，请点击“新建 Skill”或在 <code>data/storage/petal/siyuan-plugin-copilot/skills/</code> 文件夹下创建
+                            <div
+                                style="padding: 24px; text-align: center; border: 1px dashed var(--b3-border-color); border-radius: 4px; color: var(--b3-theme-on-surface-light);"
+                            >
+                                暂无自定义 Skill，请点击“新建 Skill”或在 <code>
+                                    data/storage/petal/siyuan-plugin-copilot/skills/
+                                </code>
+                                 文件夹下创建
                             </div>
                         {:else}
                             {#each loadedSkills as skill}
-                                <div style="padding: 16px; border: 1px solid var(--b3-border-color); border-radius: 6px; background: var(--b3-theme-surface); display: flex; flex-direction: column; gap: 8px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface);">{skill.name} <code style="font-weight: normal; font-size: 12px; background: var(--b3-theme-background); padding: 2px 6px; border-radius: 3px; margin-left: 6px;">{skill.id}</code> <span style="font-weight: normal; font-size: 12px; color: var(--b3-theme-on-surface-light); margin-left: 6px;">{skill.source === 'siyuan-blocks' ? `思源块 · ${skill.blockIds.length} 个` : 'Markdown'}</span></span>
+                                <div
+                                    style="padding: 16px; border: 1px solid var(--b3-border-color); border-radius: 6px; background: var(--b3-theme-surface); display: flex; flex-direction: column; gap: 8px;"
+                                >
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center;"
+                                    >
+                                        <span
+                                            style="font-weight: 600; font-size: 14px; color: var(--b3-theme-on-surface);"
+                                        >
+                                            {skill.name}
+                                            <code
+                                                style="font-weight: normal; font-size: 12px; background: var(--b3-theme-background); padding: 2px 6px; border-radius: 3px; margin-left: 6px;"
+                                            >
+                                                {skill.id}
+                                            </code>
+                                            <span
+                                                style="font-weight: normal; font-size: 12px; color: var(--b3-theme-on-surface-light); margin-left: 6px;"
+                                            >
+                                                {skill.source === 'siyuan-blocks'
+                                                    ? `思源块 · ${skill.blockIds.length} 个`
+                                                    : 'Markdown'}
+                                            </span>
+                                        </span>
                                         <div style="display: flex; gap: 8px;">
-                                            <button class="b3-button b3-button--text" style="padding: 4px 8px; font-size: 12px;" on:click={() => openSkillFolder(skill.id)}>打开文件夹</button>
-                                            <button class="b3-button b3-button--text" style="padding: 4px 8px; font-size: 12px;" on:click={() => startEditSkill(skill)}>编辑</button>
-                                            <button class="b3-button b3-button--text" style="padding: 4px 8px; font-size: 12px; color: var(--b3-theme-error);" on:click={() => deleteSkill(skill)}>删除</button>
+                                            <button
+                                                class="b3-button b3-button--text"
+                                                style="padding: 4px 8px; font-size: 12px;"
+                                                on:click={() => openSkillFolder(skill.id)}
+                                            >
+                                                打开文件夹
+                                            </button>
+                                            <button
+                                                class="b3-button b3-button--text"
+                                                style="padding: 4px 8px; font-size: 12px;"
+                                                on:click={() => startEditSkill(skill)}
+                                            >
+                                                编辑
+                                            </button>
+                                            <button
+                                                class="b3-button b3-button--text"
+                                                style="padding: 4px 8px; font-size: 12px; color: var(--b3-theme-error);"
+                                                on:click={() => deleteSkill(skill)}
+                                            >
+                                                删除
+                                            </button>
                                         </div>
                                     </div>
-                                    <div style="font-size: 13px; color: var(--b3-theme-on-surface-light);">{skill.description}</div>
+                                    <div
+                                        style="font-size: 13px; color: var(--b3-theme-on-surface-light);"
+                                    >
+                                        {skill.description}
+                                    </div>
                                     {#if skill.source === 'siyuan-blocks'}
-                                        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--b3-theme-on-surface-light);">
+                                        <div
+                                            style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--b3-theme-on-surface-light);"
+                                        >
                                             {#each skill.blockIds as blockId}
-                                                <button class="b3-button b3-button--text" style="padding: 2px 6px; font-size: 12px;" data-type="block-ref" data-id={blockId} prevent-popover="true" on:mouseenter={(event) => showSkillBlockFloatLayer(blockId, event)} on:click={() => handleOpenSkillBlock(blockId)}>打开 {blockId}</button>
+                                                <button
+                                                    class="b3-button b3-button--text"
+                                                    style="padding: 2px 6px; font-size: 12px;"
+                                                    data-type="block-ref"
+                                                    data-id={blockId}
+                                                    prevent-popover="true"
+                                                    on:mouseenter={event =>
+                                                        showSkillBlockFloatLayer(blockId, event)}
+                                                    on:click={() => handleOpenSkillBlock(blockId)}
+                                                >
+                                                    打开 {blockId}
+                                                </button>
                                             {/each}
                                         </div>
                                     {/if}
-                                    <div style="font-size: 12px; color: var(--b3-theme-on-surface-light); margin-top: 4px; font-family: monospace; word-break: break-all;">
+                                    <div
+                                        style="font-size: 12px; color: var(--b3-theme-on-surface-light); margin-top: 4px; font-family: monospace; word-break: break-all;"
+                                    >
                                         路径: {skill.filePath}
                                     </div>
                                 </div>

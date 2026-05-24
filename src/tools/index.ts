@@ -372,7 +372,7 @@ export const AVAILABLE_TOOLS: Tool[] = [
 
     // 自定义 Skill 读取工具 - 隐藏工具，不在 UI 中显示
     createTool(
-        'siyuan_read_skill',
+        'read_skill',
         `获取指定自定义 Skill 的完整执行指令和工作流文档。
         
 ## 何时使用
@@ -3202,19 +3202,19 @@ export async function siyuan_update_block(
 function executeCommand(content: string, cmdStr: string): string {
     const parts = cmdStr.trim().split(/\s+/);
     const cmd = parts[0]?.toLowerCase();
-    
+
     switch (cmd) {
         case 'length': {
             return String(content.length);
         }
-        
+
         case 'grep': {
             if (parts.length < 2) {
                 throw new Error('grep 命令需要 pattern 参数');
             }
             const patternStr = parts.slice(1).join(' ');
             let regex: RegExp;
-            
+
             // 检测是否为 /pattern/flags 格式
             const regexMatch = patternStr.match(/^\/(.*)\/([gimuy]*)$/);
             if (regexMatch) {
@@ -3223,21 +3223,21 @@ function executeCommand(content: string, cmdStr: string): string {
                 // 普通字符串匹配
                 regex = new RegExp(patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'm');
             }
-            
+
             const lines = content.split('\n');
             const matchedLines = lines.filter(line => regex.test(line));
             return matchedLines.join('\n');
         }
-        
+
         case 'replace': {
             if (parts.length < 3) {
                 throw new Error('replace 命令需要 pattern 和 replacement 参数');
             }
-            
+
             // 最后一个参数是 replacement，中间的是 pattern
             const replacement = parts[parts.length - 1];
             const patternStr = parts.slice(1, -1).join(' ');
-            
+
             let regex: RegExp;
             // 检测是否为 /pattern/flags 格式
             const regexMatch = patternStr.match(/^\/(.*)\/([gimuy]*)$/);
@@ -3247,17 +3247,17 @@ function executeCommand(content: string, cmdStr: string): string {
                 // 普通字符串替换，全局替换
                 regex = new RegExp(patternStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
             }
-            
+
             return content.replace(regex, replacement);
         }
-        
+
         case 'head': {
             if (parts.length < 2) {
                 throw new Error('head 命令需要行数参数');
             }
-            
+
             const lines = content.split('\n');
-            
+
             if (parts.length === 2) {
                 // head n: 返回前 n 行
                 const n = parseInt(parts[1], 10);
@@ -3275,7 +3275,7 @@ function executeCommand(content: string, cmdStr: string): string {
                 return lines.slice(start - 1, end).join('\n');
             }
         }
-        
+
         default:
             throw new Error(`未知命令: ${cmd}`);
     }
@@ -3288,15 +3288,15 @@ function executeCommandPipeline(content: string, command: string): string {
     if (!command || command.trim() === '') {
         return content;
     }
-    
+
     // 分割管道命令
     const commands = command.split('|').map(cmd => cmd.trim()).filter(cmd => cmd);
-    
+
     let result = content;
     for (const cmd of commands) {
         result = executeCommand(result, cmd);
     }
-    
+
     return result;
 }
 
@@ -3313,7 +3313,7 @@ export async function siyuan_get_block_content(
 ): Promise<string> {
     try {
         let content: string;
-        
+
         if (format === 'kramdown') {
             const result = await getBlockKramdown(id);
             if (!result || !result.kramdown) {
@@ -3327,12 +3327,12 @@ export async function siyuan_get_block_content(
             }
             content = result.content;
         }
-        
+
         // 如果有命令参数，执行文本处理
         if (command && command.trim()) {
             content = executeCommandPipeline(content, command);
         }
-        
+
         return content;
     } catch (error) {
         console.error('Get block content error:', error);
@@ -3390,7 +3390,7 @@ export async function siyuan_create_child_document(
         // 获取父文档的笔记本和路径
         const notebook = parentBlock.box;
         const parentPath = parentBlock.hpath;
-        
+
         // 构建子文档路径
         const childTitle = title || '未命名文档';
         const path = `${parentPath}/${childTitle}`;
@@ -4003,7 +4003,7 @@ export async function siyuan_get_current_time(
     format: 'iso' | 'local' | 'date' | 'time' | 'timestamp' = 'local'
 ): Promise<string> {
     const now = new Date();
-    
+
     switch (format) {
         case 'iso':
             return now.toISOString();
@@ -4124,12 +4124,12 @@ export async function run_js(
             input: actualInput,
             console: {
                 log: (...args: any[]) => {
-                    consoleLogs.push(args.map(arg => 
+                    consoleLogs.push(args.map(arg =>
                         typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
                     ).join(' '));
                 },
                 error: (...args: any[]) => {
-                    consoleLogs.push('[ERROR] ' + args.map(arg => 
+                    consoleLogs.push('[ERROR] ' + args.map(arg =>
                         typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
                     ).join(' '));
                 },
@@ -4170,7 +4170,7 @@ export async function run_js(
                 ${wrappedCode}
             })();
         `);
-        
+
         // 设置 5 秒超时
         const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => reject(new Error('代码执行超时（超过 5 秒）')), 5000);
@@ -4335,7 +4335,7 @@ print(json.dumps(__output, ensure_ascii=False))
                 const execOptions = {
                     timeout: 30000, // 30 秒超时
                     encoding: 'utf8',
-                    env: { 
+                    env: {
                         ...process.env,
                         PYTHONIOENCODING: 'utf-8',
                         NO_COLOR: '1'
@@ -4490,14 +4490,14 @@ print(json.dumps(__output, ensure_ascii=False))
     } catch (error) {
         console.error('Run Python error:', error);
         const errorMsg = (error as Error).message;
-        
+
         if (errorMsg.includes('window.require is not a function')) {
             throw new Error('当前环境不支持执行系统命令，请在思源笔记桌面版中使用此功能。');
         }
         if (errorMsg.includes('ENOENT') || errorMsg.includes('No such file')) {
             throw new Error(`Python 解释器未找到。请在设置中配置正确的 Python 路径，或将 Python 添加到系统 PATH。`);
         }
-        
+
         throw new Error(`Python 执行失败: ${errorMsg}`);
     }
 }
@@ -4512,7 +4512,7 @@ export async function web_fetch(url: string, useWebView: boolean = false): Promi
     if (useWebView) {
         try {
             const webviewResult = await fetchWithWebView(url);
-            
+
             if (webviewResult.success) {
                 return `# ${webviewResult.title}\n\n来源: ${url}\n\n---\n\n${webviewResult.markdown}`;
             } else {
@@ -4523,14 +4523,14 @@ export async function web_fetch(url: string, useWebView: boolean = false): Promi
             return `WebView 模式获取失败: ${(error as Error).message}`;
         }
     }
-    
+
     // 普通模式：直接获取
     const result = await parseWebPageToMarkdown(url);
-    
+
     if (result.success) {
         return `# ${result.title}\n\n来源: ${result.url}\n\n---\n\n${result.markdown}`;
     }
-    
+
     // 普通模式失败，提示用户可以尝试 WebView 模式
     return `获取网页内容失败: ${result.error}\n\n提示: 如果该网站需要登录、使用 JavaScript 动态加载内容或有反爬虫机制，请使用 WebView 模式重试。设置 useWebView: true 即可。`;
 }
@@ -4687,13 +4687,13 @@ export async function soul(params: {
 
             // 使用 insertBlock API 插入块
             const result = await insertBlock('markdown', content, nextId as any, previousId as any, parentId as any);
-            return { 
-                success: true, 
-                operation: 'insert', 
-                previousId, 
-                nextId, 
+            return {
+                success: true,
+                operation: 'insert',
+                previousId,
+                nextId,
                 parentId,
-                result 
+                result
             };
         }
 
@@ -4706,7 +4706,7 @@ export async function soul(params: {
             // 构建限制在 SOUL 文档内的查询
             // 将用户的查询包装在子查询中，限制 root_id
             let limitedQuery: string;
-            
+
             // 检查是否已经有 WHERE 子句
             const lowerQuery = query.toLowerCase();
             if (lowerQuery.includes('where')) {
@@ -4718,7 +4718,7 @@ export async function soul(params: {
                 const orderMatch = lowerQuery.match(/\s+order\s+by\s+/i);
                 const limitMatch = lowerQuery.match(/\s+limit\s+/i);
                 const groupMatch = lowerQuery.match(/\s+group\s+by\s+/i);
-                
+
                 let insertPos = query.length;
                 if (orderMatch && orderMatch.index) {
                     insertPos = Math.min(insertPos, orderMatch.index);
@@ -4729,10 +4729,10 @@ export async function soul(params: {
                 if (groupMatch && groupMatch.index) {
                     insertPos = Math.min(insertPos, groupMatch.index);
                 }
-                
+
                 const beforeClause = query.substring(0, insertPos);
                 const afterClause = query.substring(insertPos);
-                
+
                 // 检查是否从 FROM 开始
                 if (lowerQuery.includes('from')) {
                     limitedQuery = `${beforeClause} WHERE root_id = '${soulDocId}'${afterClause}`;
@@ -4748,14 +4748,14 @@ export async function soul(params: {
             }
 
             const results = await sql(limitedQuery);
-            return { 
-                success: true, 
-                operation: 'sql', 
+            return {
+                success: true,
+                operation: 'sql',
                 docId: soulDocId,
                 originalQuery: query,
                 executedQuery: limitedQuery,
                 count: results.length,
-                results 
+                results
             };
         }
 
@@ -4765,12 +4765,12 @@ export async function soul(params: {
             if (!docContent || !docContent.content) {
                 throw new Error('获取 SOUL 文档内容失败');
             }
-            
-            return { 
-                success: true, 
-                operation: 'getDoc', 
+
+            return {
+                success: true,
+                operation: 'getDoc',
                 docId: soulDocId,
-                content: docContent.content 
+                content: docContent.content
             };
         }
 
@@ -4984,8 +4984,8 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
                 const pyResult = await run_python(args.code, pythonPath);
                 return pyResult;
 
-            case 'siyuan_read_skill':
-                return await siyuan_read_skill(args.skillId);
+            case 'read_skill':
+                return await read_skill(args.skillId);
 
             case 'run_command':
                 return await run_command(args.command);
@@ -5218,13 +5218,13 @@ export async function loadAllSkills(): Promise<Skill[]> {
 /**
  * 读取指定 Custom Skill 文件的完整 Markdown 内容，或其子文件的完整内容
  */
-export async function siyuan_read_skill(skillId: string): Promise<string> {
+export async function read_skill(skillId: string): Promise<string> {
     const skillsDir = '/data/storage/petal/siyuan-plugin-copilot/skills';
     const normalizedSkillId = skillId.replace(/\\/g, '/');
-    
+
     // 如果 skillId 包含文件扩展名，则视为直接读取子文件路径
     const isDirectFile = /\.[a-zA-Z0-9]+$/.test(normalizedSkillId);
-    
+
     try {
         if (isDirectFile) {
             const filePath = `${skillsDir}/${normalizedSkillId}`;
@@ -5277,7 +5277,7 @@ export async function run_command(command: string): Promise<string> {
 
         // @ts-ignore
         const childProcess = window.require('child_process');
-        
+
         return new Promise((resolve) => {
             // @ts-ignore
             const envCopy = { ...(window.process?.env || {}) };
@@ -5288,7 +5288,7 @@ export async function run_command(command: string): Promise<string> {
                 maxBuffer: 10 * 1024 * 1024, // 10MB
                 env: envCopy
             };
-            
+
             let execCommand = command;
             // @ts-ignore
             if (window.process && window.process.platform === 'win32') {
@@ -5296,7 +5296,7 @@ export async function run_command(command: string): Promise<string> {
                 // 前置设置 PowerShell 的输出编码为 UTF-8，防止中文乱码
                 execCommand = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; ${command}`;
             }
-            
+
             childProcess.exec(execCommand, options, (error: any, stdout: string, stderr: string) => {
                 let result = '';
                 if (stdout) {
