@@ -2489,7 +2489,8 @@ export async function run_js(
 
         const consoleLogs: string[] = [];
 
-        // 创建沙箱环境，限制可访问的全局对象
+        // 创建受控执行环境，显式传入常用对象和 input。
+        // 保留 window 全局对象，方便访问思源/浏览器环境能力。
         const sandbox = {
             Math: Math,
             Date: Date,
@@ -2532,8 +2533,7 @@ export async function run_js(
             unescape: unescape,
             btoa: btoa,
             atob: atob,
-            // 禁止访问的危险对象
-            window: undefined,
+            // 禁止直接访问的全局对象
             document: undefined,
             globalThis: undefined,
         };
