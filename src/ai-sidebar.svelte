@@ -79,9 +79,14 @@
 **为什么要这样做？**
 - 每个工具都有复杂的参数和特定的使用场景，直接使用而不看文档极有可能导致错误操作`;
 
-    const MULTI_MODEL_AUTO_EXECUTE_TOOLS = new Set([
+    const SYSTEM_TOOL_NAMES = new Set([
         'get_siyuan_skills',
         'read_skill',
+    ]);
+    const AGENT_ONLY_TOOL_NAMES = new Set(['create_skill']);
+
+    const MULTI_MODEL_AUTO_EXECUTE_TOOLS = new Set([
+        ...SYSTEM_TOOL_NAMES,
         'siyuan_get_block_content',
     ]);
 
@@ -847,8 +852,8 @@
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
                         tool =>
-                            tool.function.name !== 'get_siyuan_skills' &&
-                            tool.function.name !== 'read_skill'
+                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
+                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -859,7 +864,6 @@
                     const readSkillTool = AVAILABLE_TOOLS.find(
                         t => t.function.name === 'read_skill'
                     );
-
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
@@ -1259,12 +1263,12 @@
     let selectedToolsAsk: ToolConfig[] = []; // 问答模式选中的工具配置列表
     let toolAutoApproveSettings: Record<string, boolean> = {}; // 所有工具的 autoApprove 配置（包括未选中的）
     let toolAutoApproveSettingsAsk: Record<string, boolean> = {}; // 问答模式所有工具的 autoApprove 配置
-    // 用户选择的工具数量（排除系统工具 get_siyuan_skills）
+    // 用户选择的工具数量（排除系统工具）
     $: userToolCount =
         chatMode === 'draw'
             ? 0
             : (chatMode === 'ask' ? selectedToolsAsk || [] : selectedTools || []).filter(
-                  t => t.name !== 'get_siyuan_skills'
+                  t => !SYSTEM_TOOL_NAMES.has(t.name)
               ).length;
 
     $: providersForModelSelector =
@@ -3239,8 +3243,9 @@
                         );
                         const filteredToolDefs = selectedToolDefs.filter(
                             tool =>
-                                tool.function.name !== 'get_siyuan_skills' &&
-                                tool.function.name !== 'read_skill'
+                                !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
+                                (chatMode === 'agent' ||
+                                    !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
                         );
                         const descTool =
                             chatMode === 'ask'
@@ -3253,7 +3258,6 @@
                         const readSkillTool = AVAILABLE_TOOLS.find(
                             t => t.function.name === 'read_skill'
                         );
-
                         const extraTools = [];
                         if (descTool) extraTools.push(descTool);
                         if (readSkillTool) extraTools.push(readSkillTool);
@@ -5767,8 +5771,8 @@
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
                         tool =>
-                            tool.function.name !== 'get_siyuan_skills' &&
-                            tool.function.name !== 'read_skill'
+                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
+                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -5779,7 +5783,6 @@
                     const readSkillTool = AVAILABLE_TOOLS.find(
                         t => t.function.name === 'read_skill'
                     );
-
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
@@ -5958,10 +5961,10 @@
                                     const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
-                                    // get_siyuan_skills 是系统工具，默认自动批准
-                                    const isSystemTool =
-                                        toolCall.function.name === 'get_siyuan_skills' ||
-                                        toolCall.function.name === 'read_skill';
+                                    // 系统工具默认自动批准
+                                    const isSystemTool = SYSTEM_TOOL_NAMES.has(
+                                        toolCall.function.name
+                                    );
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
@@ -11208,8 +11211,8 @@
                     );
                     const filteredToolDefs = selectedToolDefs.filter(
                         tool =>
-                            tool.function.name !== 'get_siyuan_skills' &&
-                            tool.function.name !== 'read_skill'
+                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
+                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
                     );
                     const descTool =
                         chatMode === 'ask'
@@ -11220,7 +11223,6 @@
                     const readSkillTool = AVAILABLE_TOOLS.find(
                         t => t.function.name === 'read_skill'
                     );
-
                     const extraTools = [];
                     if (descTool) extraTools.push(descTool);
                     if (readSkillTool) extraTools.push(readSkillTool);
@@ -11387,10 +11389,10 @@
                                     const toolConfig = currentSelectedToolsInLoop.find(
                                         t => t.name === toolCall.function.name
                                     );
-                                    // get_siyuan_skills 是系统工具，默认自动批准
-                                    const isSystemTool =
-                                        toolCall.function.name === 'get_siyuan_skills' ||
-                                        toolCall.function.name === 'read_skill';
+                                    // 系统工具默认自动批准
+                                    const isSystemTool = SYSTEM_TOOL_NAMES.has(
+                                        toolCall.function.name
+                                    );
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =

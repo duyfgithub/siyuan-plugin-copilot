@@ -108,6 +108,7 @@ export const TOOL_CATEGORIES: Record<string, { tools: string[] }> = {
             'run_js',
             'run_python',
             'run_command',
+            'create_skill',
         ],
     },
 };
@@ -363,6 +364,7 @@ const GET_SIYUAN_SKILLS_ALL_TOOL_NAMES = [
     'run_js',
     'run_python',
     'run_command',
+    'create_skill',
 ] as const;
 
 function buildGetSiyuanSkillsEnum(allowedToolNames?: string[]): string[] {
@@ -417,6 +419,42 @@ export const AVAILABLE_TOOLS: Tool[] = [
                 },
             },
             required: ['skillId'],
+        }
+    ),
+
+    // 自定义 Skill 创建/更新工具
+    createTool(
+        'create_skill',
+        getBuiltinToolSkillDescription('create_skill'),
+        {
+            type: 'object',
+            properties: {
+                skillId: {
+                    type: 'string',
+                    description: 'Skill 标识符，会保存到 data/storage/petal/siyuan-plugin-copilot/skills/{skillId}/skill.md。不能包含路径分隔符或文件名非法字符。',
+                },
+                content: {
+                    type: 'string',
+                    description: '完整的 skill.md Markdown 内容。建议包含 YAML Frontmatter；缺失时会使用 name/description 自动补全。',
+                },
+                name: {
+                    type: 'string',
+                    description: '可选。content 缺少 YAML Frontmatter 时写入 Frontmatter 的 Skill 名称。',
+                },
+                description: {
+                    type: 'string',
+                    description: '可选。content 缺少 YAML Frontmatter 时写入 Frontmatter 的 Skill 描述。',
+                },
+                blockIds: {
+                    type: 'array',
+                    description: '可选。思源块 ID 列表。提供后会写入或更新 siyuan-plugin-copilot:skill-blocks 标记，使 Skill 内容从这些块展开。',
+                    items: {
+                        type: 'string',
+                        description: '思源块 ID',
+                    },
+                },
+            },
+            required: ['skillId', 'content'],
         }
     ),
 
@@ -3335,6 +3373,15 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
             case 'read_skill':
                 return await read_skill(args.skillId);
 
+            case 'create_skill':
+                return await create_skill(
+                    args.skillId,
+                    args.content,
+                    args.name,
+                    args.description,
+                    args.blockIds
+                );
+
             case 'run_command':
                 return await run_command(args.command);
 
@@ -3511,22 +3558,118 @@ export interface Skill {
     yamlHeaders: Record<string, string>;
 }
 
+const CUSTOM_SKILLS_DIR = '/data/storage/petal/siyuan-plugin-copilot/skills';
+const CUSTOM_SKILL_FILE_NAME = 'skill.md';
+
+function normalizeCustomSkillId(skillId: string): string {
+    if (typeof skillId !== 'string') {
+        throw new Error('skillId 必须是字符串');
+    }
+
+    const normalizedSkillId = skillId.trim();
+    if (!normalizedSkillId) {
+        throw new Error('skillId 不能为空');
+    }
+
+    if (
+        normalizedSkillId === '.' ||
+        normalizedSkillId === '..' ||
+        /[\u0000-\u001f\\/:*?"<>|]/.test(normalizedSkillId)
+    ) {
+        throw new Error('skillId 不能包含路径分隔符、控制字符或文件名非法字符');
+    }
+
+    return normalizedSkillId;
+}
+
+function hasSkillYamlFrontmatter(content: string): boolean {
+    return /^---\r?\n[\s\S]*?\r?\n---/.test(content);
+}
+
+function formatSkillYamlScalar(value: string): string {
+    const normalizedValue = value.replace(/\r?\n/g, ' ').trim();
+    if (!normalizedValue) {
+        return '""';
+    }
+
+    if (/[:#"'{}\[\],&*?|<>=!%@`]/.test(normalizedValue)) {
+        return `"${normalizedValue.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+
+    return normalizedValue;
+}
+
+function buildSkillFrontmatterFromMetadata(
+    skillId: string,
+    name?: string,
+    description?: string
+): string {
+    return [
+        '---',
+        `name: ${formatSkillYamlScalar(name || skillId)}`,
+        `description: ${formatSkillYamlScalar(description || '')}`,
+        '---',
+    ].join('\n');
+}
+
+function normalizeOptionalSkillBlockIds(blockIds: unknown): string[] | undefined {
+    if (blockIds === undefined || blockIds === null) {
+        return undefined;
+    }
+
+    if (Array.isArray(blockIds)) {
+        return normalizeSkillBlockIds(blockIds.filter(id => typeof id === 'string'));
+    }
+
+    if (typeof blockIds === 'string') {
+        return normalizeSkillBlockIds(blockIds.split(/[\r\n,]+/));
+    }
+
+    throw new Error('blockIds 必须是字符串数组');
+}
+
+function buildCustomSkillMarkdown(
+    skillId: string,
+    content: string,
+    name?: string,
+    description?: string,
+    blockIds?: string[]
+): string {
+    if (typeof content !== 'string') {
+        throw new Error('content 必须是字符串');
+    }
+
+    let markdown = content.trimStart();
+    if (!markdown.trim()) {
+        throw new Error('content 不能为空');
+    }
+
+    if (!hasSkillYamlFrontmatter(markdown)) {
+        markdown = `${buildSkillFrontmatterFromMetadata(skillId, name, description)}\n\n${markdown}`;
+    }
+
+    if (blockIds) {
+        markdown = upsertSiyuanSkillBlockIds(markdown, blockIds);
+    }
+
+    return markdown.endsWith('\n') ? markdown : `${markdown}\n`;
+}
+
 /**
  * 从 data/storage/petal/siyuan-plugin-copilot/skills 加载所有自定义 Skill
  */
 export async function loadAllSkills(): Promise<Skill[]> {
-    const skillsDir = '/data/storage/petal/siyuan-plugin-copilot/skills';
     const skills: Skill[] = [];
     try {
         // 确保目录存在
-        await putFile(skillsDir, true, null);
+        await putFile(CUSTOM_SKILLS_DIR, true, null);
 
-        const items = await readDir(skillsDir);
+        const items = await readDir(CUSTOM_SKILLS_DIR);
         if (items && Array.isArray(items)) {
             for (const item of items) {
                 if (item.isDir) {
                     const skillFolderName = item.name;
-                    const subDirPath = `${skillsDir}/${skillFolderName}`;
+                    const subDirPath = `${CUSTOM_SKILLS_DIR}/${skillFolderName}`;
                     const filesInFolder = await readDir(subDirPath);
                     if (filesInFolder && Array.isArray(filesInFolder)) {
                         // 支持 skill.md 或 SKILL.md
@@ -3564,10 +3707,61 @@ export async function loadAllSkills(): Promise<Skill[]> {
 }
 
 /**
+ * 创建或更新指定 Custom Skill 的 skill.md 内容
+ */
+export async function create_skill(
+    skillId: string,
+    content: string,
+    name?: string,
+    description?: string,
+    blockIds?: unknown
+): Promise<string> {
+    try {
+        const normalizedSkillId = normalizeCustomSkillId(skillId);
+        const normalizedBlockIds = normalizeOptionalSkillBlockIds(blockIds);
+        const markdown = buildCustomSkillMarkdown(
+            normalizedSkillId,
+            content,
+            name,
+            description,
+            normalizedBlockIds
+        );
+        const skillDirPath = `${CUSTOM_SKILLS_DIR}/${normalizedSkillId}`;
+        const skillFilePath = `${skillDirPath}/${CUSTOM_SKILL_FILE_NAME}`;
+        const existed = !!(await getFileBlob(skillFilePath));
+
+        await putFile(CUSTOM_SKILLS_DIR, true, null);
+        await putFile(skillDirPath, true, null);
+
+        const fileBlob = new Blob([markdown], { type: 'text/markdown' });
+        const result = await putFile(skillFilePath, false, fileBlob);
+        if (!result) {
+            throw new Error(`写入 Skill 文件失败: ${skillFilePath}`);
+        }
+
+        const { yaml } = parseYamlFrontmatter(markdown);
+        const savedBlockIds = extractSiyuanSkillBlockIds(markdown);
+
+        return JSON.stringify({
+            action: existed ? 'updated' : 'created',
+            skillId: normalizedSkillId,
+            name: yaml?.name || normalizedSkillId,
+            description: yaml?.description || '',
+            source: savedBlockIds.length > 0 ? 'siyuan-blocks' : 'markdown',
+            blockIds: savedBlockIds.length > 0 ? savedBlockIds : undefined,
+            filePath: skillFilePath,
+            absolutePath: getSkillAbsolutePath(normalizedSkillId, CUSTOM_SKILL_FILE_NAME) || '未知绝对路径（可能非桌面版运行）',
+        }, null, 2);
+    } catch (e) {
+        console.error('[Skills] Failed to create/update skill:', e);
+        return `错误：创建或更新 Skill "${skillId}" 失败。${e instanceof Error ? e.message : String(e)}`;
+    }
+}
+
+/**
  * 读取指定 Custom Skill 文件的完整 Markdown 内容，或其子文件的完整内容
  */
 export async function read_skill(skillId: string): Promise<string> {
-    const skillsDir = '/data/storage/petal/siyuan-plugin-copilot/skills';
     const normalizedSkillId = skillId.replace(/\\/g, '/');
 
     // 如果 skillId 包含文件扩展名，则视为直接读取子文件路径
@@ -3575,7 +3769,7 @@ export async function read_skill(skillId: string): Promise<string> {
 
     try {
         if (isDirectFile) {
-            const filePath = `${skillsDir}/${normalizedSkillId}`;
+            const filePath = `${CUSTOM_SKILLS_DIR}/${normalizedSkillId}`;
             const blob = await getFileBlob(filePath);
             if (blob) {
                 const text = await blob.text();
@@ -3585,7 +3779,7 @@ export async function read_skill(skillId: string): Promise<string> {
             }
         } else {
             // 原有逻辑：读取 skillId 目录下的 skill.md
-            const subDirPath = `${skillsDir}/${normalizedSkillId}`;
+            const subDirPath = `${CUSTOM_SKILLS_DIR}/${normalizedSkillId}`;
             const filesInFolder = await readDir(subDirPath);
             if (filesInFolder && Array.isArray(filesInFolder)) {
                 const skillMdFile = filesInFolder.find(
