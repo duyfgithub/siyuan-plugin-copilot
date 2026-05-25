@@ -315,13 +315,51 @@ export function buildToolDescriptionsPrompt(
  * 获取工具的详细描述文档
  * AI 应该先调用此工具获取目标工具的详细使用说明，然后再调用实际工具
  */
-export async function getSiyuanSkills(toolName: string): Promise<string> {
+const TOOL_DESCRIPTION_SYSTEM_TOOL_NAMES = new Set(['get_siyuan_skills', 'read_skill']);
+
+function normalizeAllowedToolNames(allowedToolNames?: Iterable<string>): Set<string> | undefined {
+    if (!allowedToolNames) {
+        return undefined;
+    }
+
+    return new Set(
+        Array.from(allowedToolNames)
+            .map(name => name.trim())
+            .filter(Boolean)
+    );
+}
+
+function formatEnabledToolNames(allowedToolNames: Set<string>): string {
+    const enabledToolNames = Array.from(allowedToolNames).filter(
+        name => !TOOL_DESCRIPTION_SYSTEM_TOOL_NAMES.has(name)
+    );
+    return enabledToolNames.length > 0 ? enabledToolNames.join(', ') : '无';
+}
+
+export async function getSiyuanSkills(
+    toolName: string,
+    allowedToolNames?: Iterable<string>
+): Promise<string> {
     const normalizedToolName = toolName.trim();
+    const allowedToolNameSet = normalizeAllowedToolNames(allowedToolNames);
+    if (
+        allowedToolNameSet &&
+        (
+            !allowedToolNameSet.has(normalizedToolName) ||
+            TOOL_DESCRIPTION_SYSTEM_TOOL_NAMES.has(normalizedToolName)
+        )
+    ) {
+        return `工具 "${toolName}" 当前未启用。当前可用工具: ${formatEnabledToolNames(allowedToolNameSet)}`;
+    }
+
     const description =
         await readBuiltinToolSkillDescription(normalizedToolName) ||
         TOOL_FULL_DESCRIPTIONS[normalizedToolName];
     if (!description) {
-        return `未找到工具 "${toolName}" 的详细描述。可用工具: ${Object.keys(TOOL_FULL_DESCRIPTIONS).join(', ')}`;
+        const availableTools = allowedToolNameSet
+            ? formatEnabledToolNames(allowedToolNameSet)
+            : Object.keys(TOOL_FULL_DESCRIPTIONS).join(', ');
+        return `未找到工具 "${toolName}" 的详细描述。可用工具: ${availableTools}`;
     }
     return description;
 }
@@ -368,7 +406,7 @@ const GET_SIYUAN_SKILLS_ALL_TOOL_NAMES = [
 ] as const;
 
 function buildGetSiyuanSkillsEnum(allowedToolNames?: string[]): string[] {
-    if (!allowedToolNames || allowedToolNames.length === 0) {
+    if (!allowedToolNames) {
         return [...GET_SIYUAN_SKILLS_ALL_TOOL_NAMES];
     }
 
@@ -378,8 +416,8 @@ function buildGetSiyuanSkillsEnum(allowedToolNames?: string[]): string[] {
 
 /**
  * 构建 get_siyuan_skills 工具定义
- * - 默认返回全量工具 enum（兼容 agent 模式）
- * - 传入 allowedToolNames 后只保留该范围（用于问答模式）
+ * - 未传入 allowedToolNames 时返回全量工具 enum（兼容旧调用）
+ * - 传入 allowedToolNames 后只保留该范围（用于当前会话已启用工具）
  */
 export function createGetSiyuanSkillsTool(allowedToolNames?: string[]): Tool {
     return {
@@ -3168,8 +3206,16 @@ export async function soul(params: {
 /**
  * 执行工具调用
  */
-export async function executeToolCall(toolCall: ToolCall): Promise<string> {
+export async function executeToolCall(
+    toolCall: ToolCall,
+    allowedToolNames?: Iterable<string>
+): Promise<string> {
     const { name, arguments: argsStr } = toolCall.function;
+    const allowedToolNameSet = normalizeAllowedToolNames(allowedToolNames);
+
+    if (allowedToolNameSet && !allowedToolNameSet.has(name)) {
+        return `工具 "${name}" 当前未启用，已拒绝执行。当前可用工具: ${formatEnabledToolNames(allowedToolNameSet)}`;
+    }
 
     try {
         const args = JSON.parse(argsStr);
@@ -3181,7 +3227,7 @@ export async function executeToolCall(toolCall: ToolCall): Promise<string> {
 
             case 'get_siyuan_skills':
                 // 获取工具详细描述
-                const toolDesc = await getSiyuanSkills(args.toolName);
+                const toolDesc = await getSiyuanSkills(args.toolName, allowedToolNameSet);
                 return toolDesc;
 
             case 'siyuan_sql_query':

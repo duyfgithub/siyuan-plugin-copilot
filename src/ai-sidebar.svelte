@@ -97,6 +97,47 @@
         return MULTI_MODEL_AUTO_EXECUTE_TOOLS.has(toolName) || !!toolConfig?.autoApprove;
     }
 
+    function getToolDefinitionName(tool: any): string {
+        return tool?.function?.name || tool?.name || '';
+    }
+
+    function getToolDefinitionNameSet(tools?: any[]): Set<string> {
+        return new Set((tools || []).map(getToolDefinitionName).filter(Boolean));
+    }
+
+    function buildToolsForCurrentMode(hasSkills: boolean): any[] | undefined {
+        if (chatMode !== 'agent' && chatMode !== 'ask') {
+            return undefined;
+        }
+
+        const currentSelectedTools = chatMode === 'ask' ? selectedToolsAsk : selectedTools;
+        const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
+            currentSelectedTools.some(t => t.name === tool.function.name)
+        );
+        const filteredToolDefs = selectedToolDefs.filter(
+            tool =>
+                !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
+                (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
+        );
+        const extraTools = [];
+
+        if (filteredToolDefs.length > 0) {
+            extraTools.push(
+                createGetSiyuanSkillsTool(filteredToolDefs.map(tool => tool.function.name))
+            );
+        }
+
+        if (hasSkills) {
+            const readSkillTool = AVAILABLE_TOOLS.find(t => t.function.name === 'read_skill');
+            if (readSkillTool) {
+                extraTools.push(readSkillTool);
+            }
+        }
+
+        const toolsForCurrentMode = [...extraTools, ...filteredToolDefs];
+        return toolsForCurrentMode.length > 0 ? toolsForCurrentMode : undefined;
+    }
+
     export let plugin: any;
     export let initialMessage: string = ''; // 初始消息
     export let mode: 'sidebar' | 'dialog' = 'sidebar'; // 使用模式：sidebar或dialog
@@ -844,32 +885,7 @@
             if (chatMode === 'agent' || chatMode === 'ask') {
                 const skills = await loadAllSkills();
                 const hasSkills = skills && skills.length > 0;
-                if (userToolCount > 0 || hasSkills) {
-                    const currentSelectedTools =
-                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                        currentSelectedTools.some(t => t.name === tool.function.name)
-                    );
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool =>
-                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
-                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
-                    );
-                    const descTool =
-                        chatMode === 'ask'
-                            ? createGetSiyuanSkillsTool(
-                                  filteredToolDefs.map(tool => tool.function.name)
-                              )
-                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(
-                        t => t.function.name === 'read_skill'
-                    );
-                    const extraTools = [];
-                    if (descTool) extraTools.push(descTool);
-                    if (readSkillTool) extraTools.push(readSkillTool);
-
-                    toolsForAgent = [...extraTools, ...filteredToolDefs];
-                }
+                toolsForAgent = buildToolsForCurrentMode(hasSkills);
             }
 
             // 准备联网搜索工具（如果启用）
@@ -891,6 +907,7 @@
             // 合并工具列表
             const finalTools = [...(toolsForAgent || []), ...(webSearchTools || [])];
             const toolsToPass = finalTools.length > 0 ? finalTools : undefined;
+            const allowedExecutableToolNames = getToolDefinitionNameSet(toolsForAgent);
 
             // 多模型工具调用循环
             let modelMessagesToSend = [...messagesToSend];
@@ -987,13 +1004,24 @@
                                     tc.function.name,
                                     toolConfig
                                 );
+                                const isEnabledTool = allowedExecutableToolNames.has(
+                                    tc.function.name
+                                );
 
                                 let toolResult: string;
-                                if (autoApprove) {
+                                if (!isEnabledTool) {
+                                    toolResult = await executeToolCall(
+                                        tc,
+                                        allowedExecutableToolNames
+                                    );
+                                } else if (autoApprove) {
                                     console.log(
                                         `[RegenerateMultiModel] Auto-approving tool: ${tc.function.name}`
                                     );
-                                    toolResult = await executeToolCall(tc);
+                                    toolResult = await executeToolCall(
+                                        tc,
+                                        allowedExecutableToolNames
+                                    );
                                 } else {
                                     console.log(
                                         `[RegenerateMultiModel] Skipping non-auto-approved tool: ${tc.function.name}`
@@ -3235,35 +3263,7 @@
                 if (chatMode === 'agent' || chatMode === 'ask') {
                     const skills = await loadAllSkills();
                     const hasSkills = skills && skills.length > 0;
-                    if (userToolCount > 0 || hasSkills) {
-                        const currentSelectedTools =
-                            chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                        const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                            currentSelectedTools.some(t => t.name === tool.function.name)
-                        );
-                        const filteredToolDefs = selectedToolDefs.filter(
-                            tool =>
-                                !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
-                                (chatMode === 'agent' ||
-                                    !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
-                        );
-                        const descTool =
-                            chatMode === 'ask'
-                                ? createGetSiyuanSkillsTool(
-                                      filteredToolDefs.map(tool => tool.function.name)
-                                  )
-                                : AVAILABLE_TOOLS.find(
-                                      t => t.function.name === 'get_siyuan_skills'
-                                  );
-                        const readSkillTool = AVAILABLE_TOOLS.find(
-                            t => t.function.name === 'read_skill'
-                        );
-                        const extraTools = [];
-                        if (descTool) extraTools.push(descTool);
-                        if (readSkillTool) extraTools.push(readSkillTool);
-
-                        toolsForAgent = [...extraTools, ...filteredToolDefs];
-                    }
+                    toolsForAgent = buildToolsForCurrentMode(hasSkills);
                 }
 
                 // 准备联网搜索工具（如果启用）
@@ -3286,6 +3286,7 @@
                 // 合并工具列表
                 const finalTools = [...(toolsForAgent || []), ...(webSearchTools || [])];
                 const toolsToPass = finalTools.length > 0 ? finalTools : undefined;
+                const allowedExecutableToolNames = getToolDefinitionNameSet(toolsForAgent);
 
                 // 多模型工具调用循环
                 let modelMessagesToSend = [...messagesToSend];
@@ -3390,13 +3391,24 @@
                                         tc.function.name,
                                         toolConfig
                                     );
+                                    const isEnabledTool = allowedExecutableToolNames.has(
+                                        tc.function.name
+                                    );
 
                                     let toolResult: string;
-                                    if (autoApprove) {
+                                    if (!isEnabledTool) {
+                                        toolResult = await executeToolCall(
+                                            tc,
+                                            allowedExecutableToolNames
+                                        );
+                                    } else if (autoApprove) {
                                         console.log(
                                             `[MultiModel] Auto-approving tool: ${tc.function.name}`
                                         );
-                                        toolResult = await executeToolCall(tc);
+                                        toolResult = await executeToolCall(
+                                            tc,
+                                            allowedExecutableToolNames
+                                        );
                                     } else {
                                         // 多模型模式下，非自动批准的工具暂时直接拒绝，避免 UI 冲突
                                         console.log(
@@ -4012,7 +4024,7 @@
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
         let hasSoulEnabled = false;
-        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             // 如果已有基础提示词，添加换行后追加工具说明；否则直接使用工具说明
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
@@ -5678,7 +5690,7 @@
 
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
-        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
@@ -5762,34 +5774,9 @@
             if (chatMode === 'agent' || chatMode === 'ask') {
                 const skills = await loadAllSkills();
                 const hasSkills = skills && skills.length > 0;
-                if (userToolCount > 0 || hasSkills) {
-                    // 根据选中的工具名称筛选出对应的工具定义
-                    const currentSelectedTools =
-                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                        currentSelectedTools.some(t => t.name === tool.function.name)
-                    );
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool =>
-                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
-                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
-                    );
-                    const descTool =
-                        chatMode === 'ask'
-                            ? createGetSiyuanSkillsTool(
-                                  filteredToolDefs.map(tool => tool.function.name)
-                              )
-                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(
-                        t => t.function.name === 'read_skill'
-                    );
-                    const extraTools = [];
-                    if (descTool) extraTools.push(descTool);
-                    if (readSkillTool) extraTools.push(readSkillTool);
-
-                    toolsForAgent = [...extraTools, ...filteredToolDefs];
-                }
+                toolsForAgent = buildToolsForCurrentMode(hasSkills);
             }
+            const allowedExecutableToolNames = getToolDefinitionNameSet(toolsForAgent);
 
             // 准备联网搜索工具（如果启用）
             let webSearchTools: any[] | undefined = undefined;
@@ -5965,10 +5952,15 @@
                                     const isSystemTool = SYSTEM_TOOL_NAMES.has(
                                         toolCall.function.name
                                     );
+                                    const isEnabledTool = allowedExecutableToolNames.has(
+                                        toolCall.function.name
+                                    );
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
-                                        await resolveToolChangeContext(toolCall);
+                                        isEnabledTool
+                                            ? await resolveToolChangeContext(toolCall)
+                                            : null;
                                     if (firstToolCallMessageIndex !== null && toolChangeContext) {
                                         await ensureDocDiffSnapshotBefore(
                                             firstToolCallMessageIndex,
@@ -5979,12 +5971,28 @@
                                     try {
                                         let toolResult: string;
 
-                                        if (autoApprove) {
+                                        if (!isEnabledTool) {
+                                            toolResult = await executeToolCall(
+                                                toolCall,
+                                                allowedExecutableToolNames
+                                            );
+
+                                            const toolResultMessage: Message = {
+                                                role: 'tool',
+                                                tool_call_id: toolCall.id,
+                                                name: toolCall.function.name,
+                                                content: toolResult,
+                                            };
+                                            messages = [...messages, toolResultMessage];
+                                        } else if (autoApprove) {
                                             // 自动批准：直接执行工具
                                             console.log(
                                                 `Auto-approving tool call: ${toolCall.function.name}`
                                             );
-                                            toolResult = await executeToolCall(toolCall);
+                                            toolResult = await executeToolCall(
+                                                toolCall,
+                                                allowedExecutableToolNames
+                                            );
 
                                             // 添加工具结果消息
                                             const toolResultMessage: Message = {
@@ -6020,7 +6028,10 @@
                                             });
 
                                             if (approved) {
-                                                toolResult = await executeToolCall(toolCall);
+                                                toolResult = await executeToolCall(
+                                                    toolCall,
+                                                    allowedExecutableToolNames
+                                                );
 
                                                 // 添加工具结果消息
                                                 const toolResultMessage: Message = {
@@ -11157,7 +11168,7 @@
 
         // Agent/Ask 模式带有工具时，添加工具使用强制规则
         let hasToolInstruction = false;
-        if ((chatMode === 'agent' || chatMode === 'ask') && (userToolCount > 0 || hasSkills)) {
+        if ((chatMode === 'agent' || chatMode === 'ask') && userToolCount > 0) {
             if (baseSystemPrompt.trim()) {
                 baseSystemPrompt += '\n\n' + AGENT_TOOL_USAGE_INSTRUCTION;
             } else {
@@ -11202,34 +11213,9 @@
             if (chatMode === 'agent' || chatMode === 'ask') {
                 const skills = await loadAllSkills();
                 const hasSkills = skills && skills.length > 0;
-                if (userToolCount > 0 || hasSkills) {
-                    // 根据选中的工具名称筛选出对应的工具定义
-                    const currentSelectedTools =
-                        chatMode === 'ask' ? selectedToolsAsk : selectedTools;
-                    const selectedToolDefs = AVAILABLE_TOOLS.filter(tool =>
-                        currentSelectedTools.some(t => t.name === tool.function.name)
-                    );
-                    const filteredToolDefs = selectedToolDefs.filter(
-                        tool =>
-                            !SYSTEM_TOOL_NAMES.has(tool.function.name) &&
-                            (chatMode === 'agent' || !AGENT_ONLY_TOOL_NAMES.has(tool.function.name))
-                    );
-                    const descTool =
-                        chatMode === 'ask'
-                            ? createGetSiyuanSkillsTool(
-                                  filteredToolDefs.map(tool => tool.function.name)
-                              )
-                            : AVAILABLE_TOOLS.find(t => t.function.name === 'get_siyuan_skills');
-                    const readSkillTool = AVAILABLE_TOOLS.find(
-                        t => t.function.name === 'read_skill'
-                    );
-                    const extraTools = [];
-                    if (descTool) extraTools.push(descTool);
-                    if (readSkillTool) extraTools.push(readSkillTool);
-
-                    toolsForAgent = [...extraTools, ...filteredToolDefs];
-                }
+                toolsForAgent = buildToolsForCurrentMode(hasSkills);
             }
+            const allowedExecutableToolNames = getToolDefinitionNameSet(toolsForAgent);
 
             // 用于保存生成的图片
             let generatedImages: any[] = [];
@@ -11393,10 +11379,15 @@
                                     const isSystemTool = SYSTEM_TOOL_NAMES.has(
                                         toolCall.function.name
                                     );
+                                    const isEnabledTool = allowedExecutableToolNames.has(
+                                        toolCall.function.name
+                                    );
                                     const autoApprove =
                                         isSystemTool || toolConfig?.autoApprove || false;
                                     const toolChangeContext =
-                                        await resolveToolChangeContext(toolCall);
+                                        isEnabledTool
+                                            ? await resolveToolChangeContext(toolCall)
+                                            : null;
                                     if (firstToolCallMessageIndex !== null && toolChangeContext) {
                                         await ensureDocDiffSnapshotBefore(
                                             firstToolCallMessageIndex,
@@ -11407,12 +11398,28 @@
                                     try {
                                         let toolResult: string;
 
-                                        if (autoApprove) {
+                                        if (!isEnabledTool) {
+                                            toolResult = await executeToolCall(
+                                                toolCall,
+                                                allowedExecutableToolNames
+                                            );
+
+                                            const toolResultMessage: Message = {
+                                                role: 'tool',
+                                                tool_call_id: toolCall.id,
+                                                name: toolCall.function.name,
+                                                content: toolResult,
+                                            };
+                                            messages = [...messages, toolResultMessage];
+                                        } else if (autoApprove) {
                                             // 自动批准：直接执行工具
                                             console.log(
                                                 `Auto-approving tool call: ${toolCall.function.name}`
                                             );
-                                            toolResult = await executeToolCall(toolCall);
+                                            toolResult = await executeToolCall(
+                                                toolCall,
+                                                allowedExecutableToolNames
+                                            );
 
                                             // 添加工具结果消息
                                             const toolResultMessage: Message = {
@@ -11448,7 +11455,10 @@
                                             });
 
                                             if (approved) {
-                                                toolResult = await executeToolCall(toolCall);
+                                                toolResult = await executeToolCall(
+                                                    toolCall,
+                                                    allowedExecutableToolNames
+                                                );
 
                                                 // 添加工具结果消息
                                                 const toolResultMessage: Message = {
