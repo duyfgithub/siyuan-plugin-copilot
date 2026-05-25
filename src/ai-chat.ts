@@ -135,8 +135,8 @@ export interface ChatOptions {
     onThinkingChunk?: (chunk: string) => void; // 思考过程回调
     onThinkingComplete?: (thinking: string) => void; // 思考完成回调
     tools?: any[]; // Agent模式的工具列表
-    onToolCall?: (toolCall: ToolCall) => void; // Tool Call 回调
-    onToolCallComplete?: (toolCalls: ToolCall[]) => void; // Tool Calls 完成回调
+    onToolCall?: (toolCall: ToolCall) => void | Promise<void>; // Tool Call 回调
+    onToolCallComplete?: (toolCalls: ToolCall[]) => void | Promise<void>; // Tool Calls 完成回调
     customBody?: any; // 自定义请求体参数
     enableImageGeneration?: boolean; // 是否启用图片生成
     onImageGenerated?: (images: GeneratedImageData[]) => void; // 图片生成回调
@@ -471,6 +471,164 @@ function getBaseUrlForChatInterface(url: string, chatInterface: ChatInterfaceTyp
         .replace(/\/chat\/completions(?:\/.*)?$/i, '');
 }
 
+function hasAssistantToolCalls(message: any): boolean {
+    return message?.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+}
+
+function hasSendableAssistantContent(message: any): boolean {
+    if (!message || message.role !== 'assistant') return true;
+
+    if (typeof message.content === 'string') {
+        return message.content.trim().length > 0 || !!message.reasoning_content;
+    }
+
+    if (Array.isArray(message.content)) {
+        return message.content.length > 0 || !!message.reasoning_content;
+    }
+
+    return message.content !== undefined && message.content !== null;
+}
+
+function withoutToolCalls(message: any): any | null {
+    const messageWithoutToolCalls = { ...message };
+    delete messageWithoutToolCalls.tool_calls;
+    return hasSendableAssistantContent(messageWithoutToolCalls) ? messageWithoutToolCalls : null;
+}
+
+/**
+ * 工具调用协议要求 assistant.tool_calls 后面必须跟着每个 tool_call_id 的 tool 消息。
+ * 历史消息经过截断、合并或多模型选择后，tool 结果可能不再相邻甚至缺失，因此发送前统一修正。
+ */
+function normalizeToolCallMessages(messages: any[]): any[] {
+    const toolResultById = new Map<string, any>();
+    for (const message of messages) {
+        if (message?.role === 'tool' && message.tool_call_id && !toolResultById.has(message.tool_call_id)) {
+            toolResultById.set(message.tool_call_id, message);
+        }
+    }
+
+    const normalizedMessages: any[] = [];
+    const usedToolResultIds = new Set<string>();
+
+    for (const message of messages) {
+        if (message?.role === 'tool') {
+            continue;
+        }
+
+        if (!hasAssistantToolCalls(message)) {
+            normalizedMessages.push(message);
+            continue;
+        }
+
+        const seenToolCallIds = new Set<string>();
+        const completedToolCalls = message.tool_calls.filter((toolCall: ToolCall) => {
+            if (!toolCall?.id || seenToolCallIds.has(toolCall.id)) return false;
+            seenToolCallIds.add(toolCall.id);
+            return !usedToolResultIds.has(toolCall.id) && toolResultById.has(toolCall.id);
+        });
+
+        if (completedToolCalls.length === 0) {
+            const fallbackMessage = withoutToolCalls(message);
+            if (fallbackMessage) {
+                normalizedMessages.push(fallbackMessage);
+            }
+            continue;
+        }
+
+        normalizedMessages.push({
+            ...message,
+            tool_calls: completedToolCalls,
+        });
+
+        for (const toolCall of completedToolCalls) {
+            if (usedToolResultIds.has(toolCall.id)) continue;
+
+            const toolResult = toolResultById.get(toolCall.id);
+            if (toolResult) {
+                normalizedMessages.push(toolResult);
+                usedToolResultIds.add(toolCall.id);
+            }
+        }
+    }
+
+    return normalizedMessages;
+}
+
+function parseToolCallArguments(argumentsJson?: string): any {
+    if (!argumentsJson || !argumentsJson.trim()) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(argumentsJson);
+    } catch (error) {
+        console.warn('Failed to parse tool call arguments:', error, argumentsJson);
+        return {};
+    }
+}
+
+function getToolDefinitionName(tool: any): string {
+    return tool?.function?.name || tool?.name || '';
+}
+
+function getToolInputSchema(tool: any): any {
+    return tool?.function?.parameters || tool?.input_schema || {};
+}
+
+function inferToolNameFromInput(input: any, tools?: any[]): string {
+    if (!input || typeof input !== 'object' || !tools || tools.length === 0) {
+        return '';
+    }
+
+    const inputKeys = Object.keys(input);
+    if (inputKeys.length === 0) {
+        return '';
+    }
+
+    let bestMatch = '';
+    let bestScore = -1;
+    let isAmbiguous = false;
+
+    for (const tool of tools) {
+        const toolName = getToolDefinitionName(tool);
+        const schema = getToolInputSchema(tool);
+        const properties = schema?.properties || {};
+        const required = Array.isArray(schema?.required) ? schema.required : [];
+
+        if (!toolName || required.some((key: string) => !(key in input))) {
+            continue;
+        }
+
+        const propertyMatches = inputKeys.filter(key => key in properties).length;
+        if (propertyMatches === 0) {
+            continue;
+        }
+
+        const score = required.length * 10 + propertyMatches;
+        if (score > bestScore) {
+            bestMatch = toolName;
+            bestScore = score;
+            isAmbiguous = false;
+        } else if (score === bestScore) {
+            isAmbiguous = true;
+        }
+    }
+
+    return isAmbiguous ? '' : bestMatch;
+}
+
+function inferToolNameFromArguments(argumentsJson: string, tools?: any[]): string {
+    return inferToolNameFromInput(parseToolCallArguments(argumentsJson), tools);
+}
+
+function getToolCallDeltaName(toolCallDelta: any): string {
+    return toolCallDelta?.function?.name ||
+        toolCallDelta?.name ||
+        toolCallDelta?.tool_name ||
+        toolCallDelta?.toolName ||
+        '';
+}
+
 interface ThinkTagParseState {
     carry: string;
     inThinkTag: boolean;
@@ -790,9 +948,11 @@ async function chatOpenAIFormat(
         return formatted;
     }));
 
+    const normalizedMessages = normalizeToolCallMessages(formattedMessages);
+
     const requestBody: any = {
         model: options.model,
-        messages: formattedMessages,
+        messages: normalizedMessages,
         temperature: options.temperature || 1,
         max_tokens: options.maxTokens,
         stream: options.stream !== false,
@@ -1538,6 +1698,7 @@ async function handleStreamResponse(
                         if (delta?.tool_calls) {
                             for (const toolCallDelta of delta.tool_calls) {
                                 const index = toolCallDelta.index;
+                                const deltaName = getToolCallDeltaName(toolCallDelta);
                                 
                                 // 检查此 index 是否属于一个新工具调用
                                 // 1. 此 index 还没有对应的调用
@@ -1550,7 +1711,7 @@ async function handleStreamResponse(
                                         id: toolCallDelta.id || `call_${Math.random().toString(36).substring(2, 9)}`,
                                         type: 'function',
                                         function: {
-                                            name: toolCallDelta.function?.name || '',
+                                            name: deltaName,
                                             arguments: toolCallDelta.function?.arguments || '',
                                             thought_signature: thoughtSig
                                         }
@@ -1562,8 +1723,8 @@ async function handleStreamResponse(
                                     if (toolCallDelta.id) {
                                         currentCall.id = toolCallDelta.id;
                                     }
-                                    if (toolCallDelta.function?.name) {
-                                        currentCall.function.name = toolCallDelta.function.name;
+                                    if (deltaName) {
+                                        currentCall.function.name = deltaName;
                                     }
                                     if (toolCallDelta.function?.arguments) {
                                         currentCall.function.arguments += toolCallDelta.function.arguments;
@@ -1602,9 +1763,17 @@ async function handleStreamResponse(
             // 移除临时使用的 _index 属性
             const cleanToolCalls = toolCalls.map(tc => {
                 const { _index, ...rest } = tc as any;
+                if (!rest.function.name) {
+                    rest.function.name = inferToolNameFromArguments(
+                        rest.function.arguments || '{}',
+                        options.tools
+                    );
+                }
                 return rest as ToolCall;
-            });
-            options.onToolCallComplete(cleanToolCalls);
+            }).filter(tc => tc.function.name);
+            if (cleanToolCalls.length > 0) {
+                await options.onToolCallComplete(cleanToolCalls);
+            }
         }
 
         // 如果有生成的图片，调用回调（等待完成，避免与 onComplete 并发竞态）

@@ -79,6 +79,19 @@
 **为什么要这样做？**
 - 每个工具都有复杂的参数和特定的使用场景，直接使用而不看文档极有可能导致错误操作`;
 
+    const MULTI_MODEL_AUTO_EXECUTE_TOOLS = new Set([
+        'get_siyuan_skills',
+        'read_skill',
+        'siyuan_get_block_content',
+    ]);
+
+    function shouldAutoExecuteMultiModelTool(
+        toolName: string,
+        toolConfig?: { autoApprove?: boolean }
+    ): boolean {
+        return MULTI_MODEL_AUTO_EXECUTE_TOOLS.has(toolName) || !!toolConfig?.autoApprove;
+    }
+
     export let plugin: any;
     export let initialMessage: string = ''; // 初始消息
     export let mode: 'sidebar' | 'dialog' = 'sidebar'; // 使用模式：sidebar或dialog
@@ -966,11 +979,10 @@
                                 const toolConfig = currentSelectedTools.find(
                                     t => t.name === tc.function.name
                                 );
-                                const isSystemTool =
-                                    tc.function.name === 'get_siyuan_skills' ||
-                                    tc.function.name === 'read_skill';
-                                const autoApprove =
-                                    isSystemTool || (toolConfig && toolConfig.autoApprove) || false;
+                                const autoApprove = shouldAutoExecuteMultiModelTool(
+                                    tc.function.name,
+                                    toolConfig
+                                );
 
                                 let toolResult: string;
                                 if (autoApprove) {
@@ -3370,13 +3382,10 @@
                                     const toolConfig = currentSelectedTools.find(
                                         t => t.name === tc.function.name
                                     );
-                                    const isSystemTool =
-                                        tc.function.name === 'get_siyuan_skills' ||
-                                        tc.function.name === 'read_skill';
-                                    const autoApprove =
-                                        isSystemTool ||
-                                        (toolConfig && toolConfig.autoApprove) ||
-                                        false;
+                                    const autoApprove = shouldAutoExecuteMultiModelTool(
+                                        tc.function.name,
+                                        toolConfig
+                                    );
 
                                     let toolResult: string;
                                     if (autoApprove) {
