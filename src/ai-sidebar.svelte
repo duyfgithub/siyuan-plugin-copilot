@@ -7390,6 +7390,40 @@
         });
     }
 
+    function getElementFromSelectionNode(node: Node | null): HTMLElement | null {
+        if (!node) return null;
+
+        return node.nodeType === Node.ELEMENT_NODE
+            ? (node as HTMLElement)
+            : (node.parentElement as HTMLElement | null);
+    }
+
+    function getClosestLinkFromSelectionNode(node: Node | null): HTMLAnchorElement | null {
+        return getElementFromSelectionNode(node)?.closest('a[href]') as HTMLAnchorElement | null;
+    }
+
+    function cloneSelectionContentsWithLinks(range: Range): DocumentFragment {
+        const fragment = range.cloneContents();
+        const startLink = getClosestLinkFromSelectionNode(range.startContainer);
+        const endLink = getClosestLinkFromSelectionNode(range.endContainer);
+
+        if (!startLink || startLink !== endLink || fragment.querySelector('a[href]')) {
+            return fragment;
+        }
+
+        const wrappedFragment = document.createDocumentFragment();
+        const link = startLink.cloneNode(false) as HTMLAnchorElement;
+        link.appendChild(fragment);
+        wrappedFragment.appendChild(link);
+        return wrappedFragment;
+    }
+
+    function createSelectionHtmlContainer(range: Range): HTMLDivElement {
+        const div = document.createElement('div');
+        div.appendChild(cloneSelectionContentsWithLinks(range));
+        return div;
+    }
+
     // 复制单条消息
     function copyMessage(content: string | MessageContent[]) {
         const textContent = typeof content === 'string' ? content : getMessageText(content);
@@ -7457,8 +7491,7 @@
 
         try {
             // 获取选中内容的HTML
-            const div = document.createElement('div');
-            div.appendChild(range.cloneContents());
+            const div = createSelectionHtmlContainer(range);
 
             // 检查选区是否包含代码块或 code 元素
             // 使用更可靠的方式：检查选区开始/结束节点的祖先是否包含 code/pre
@@ -7835,8 +7868,8 @@
                     const anchorNode = sel.anchorNode;
                     const focusNode = sel.focusNode;
                     if (anchorNode && focusNode) {
-                        const anchorEl = (anchorNode as Node).parentElement;
-                        const focusEl = (focusNode as Node).parentElement;
+                        const anchorEl = getElementFromSelectionNode(anchorNode);
+                        const focusEl = getElementFromSelectionNode(focusNode);
                         if (
                             anchorEl &&
                             focusEl &&
@@ -7846,8 +7879,7 @@
                             selectionInMessage = true;
                             // 获取选区的 HTML
                             const range = sel.getRangeAt(0);
-                            const div = document.createElement('div');
-                            div.appendChild(range.cloneContents());
+                            const div = createSelectionHtmlContainer(range);
                             selectionHtml = div.innerHTML;
                             selectionText = sel.toString();
                         }
