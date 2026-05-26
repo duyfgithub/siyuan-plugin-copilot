@@ -71,10 +71,6 @@
 
   <img alt="image" src="https://assets.b3logfile.com/siyuan/1610205759005/assets/image-20260118231449-4pdqcll.png" style="width: 498px;" />
 
-  比如之前在[用Kimi K2 Thinking写了一个钙成像配准软件](https://mp.weixin.qq.com/s/R8GBAdzL5p3QnTVfud_GtQ)，就用这个插件，帮我这里整合关于钙成像配准的零散笔记，成功写一个python钙成像配准模块出来
-
-  <img alt="PixPin_2025-11-08_19-45-58" src="https://assets.b3logfile.com/siyuan/1610205759005/assets/PixPin_2025-11-08_19-45-58-20251108194601-4mks3of.png" style="width: 388px;" />
-
 ### 会话管理
 
 - 支持保存对话历史，支持对历史记录进行置顶和删除
