@@ -1099,7 +1099,7 @@ async function chatOpenAIFormat(
                 method: 'POST',
                 headers,
                 body: JSON.stringify(requestBody),
-                timeout: 120000
+                timeout: 0
             });
 
             if (!result.ok) {
@@ -1416,7 +1416,7 @@ async function chatGeminiFormat(
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),
-                timeout: 120000
+                timeout: 0
             });
 
             if (!result.ok) {
@@ -2123,7 +2123,7 @@ async function chatClaudeFormat(
                 method: 'POST',
                 headers,
                 body: JSON.stringify(requestBody),
-                timeout: 120000
+                timeout: 0
             });
 
             // 错误处理：优先提取 JSON 中的 error.message，降级为纯文本
@@ -2694,7 +2694,7 @@ export async function generateImage(
                 method: 'POST',
                 headers,
                 body: JSON.stringify(requestBody),
-                timeout: 120000
+                timeout: 0
             });
             response = new Response(await result.text(), {
                 status: result.status,

@@ -565,24 +565,6 @@
             </div>
         </div>
 
-        <div>
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                <input
-                    type="checkbox"
-                    class="b3-switch"
-                    checked={config.useForwardProxy || false}
-                    on:change={e => {
-                        config.useForwardProxy = e.currentTarget.checked;
-                        dispatch('change');
-                    }}
-                />
-                <span>{i18n('platform.useForwardProxy')}</span>
-            </label>
-            <div class="b3-label__text label-description">
-                {i18n('platform.useForwardProxyHint')}
-            </div>
-        </div>
-
         {#if isCustomProvider}
             <div>
                 <div class="b3-label__text">{i18n('platform.websiteUrl')}</div>
@@ -674,6 +656,24 @@
                             on:change={() => dispatch('change')}
                             placeholder={getChatUrlPlaceholder(currentChatInterface)}
                         />
+                    </div>
+
+                    <div>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-top: 12px;">
+                            <input
+                                type="checkbox"
+                                class="b3-switch"
+                                checked={config.useForwardProxy || false}
+                                on:change={e => {
+                                    config.useForwardProxy = e.currentTarget.checked;
+                                    dispatch('change');
+                                }}
+                            />
+                            <span>{i18n('platform.useForwardProxy')}</span>
+                        </label>
+                        <div class="b3-label__text label-description">
+                            {i18n('platform.useForwardProxyHint')}
+                        </div>
                     </div>
                 </div>
             {/if}
