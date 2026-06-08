@@ -694,7 +694,7 @@ export async function forwardProxyFetch(
         method,
         init?.body || '',
         headersArray,
-        init?.timeout !== undefined ? init.timeout : 0,
+        init?.timeout !== undefined && init.timeout > 0 ? init.timeout : 3600000,
         'application/json'
     );
     const responseHeaders = new Headers();
