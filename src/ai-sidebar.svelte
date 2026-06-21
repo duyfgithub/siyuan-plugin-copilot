@@ -1554,6 +1554,9 @@
         window.addEventListener(PROMPTS_SYNC_EVENT, handlePromptsUpdated as EventListener);
 
         isInitialLoading = false;
+
+        // 初始化真实视口高度（即便不进全屏，iOS 上 100vh 也有偏差）
+        updateRealVh();
     });
 
     onDestroy(async () => {
@@ -1581,6 +1584,17 @@
         // 如果有未保存的更改，自动保存当前会话
         if (hasUnsavedChanges && messages.filter(m => m.role !== 'system').length > 0) {
             await saveCurrentSession(true); // 静默保存，不显示提示
+        }
+
+        // 清理全屏/视口相关监听
+        if (typeof window !== 'undefined') {
+            const vv: any = (window as any).visualViewport;
+            if (vv && typeof vv.removeEventListener === 'function') {
+                vv.removeEventListener('resize', handleViewportResize);
+                vv.removeEventListener('scroll', handleViewportResize);
+            }
+            window.removeEventListener('resize', handleViewportResize);
+            window.removeEventListener('focusin', handleFocusIn);
         }
     });
 
@@ -2030,10 +2044,69 @@
         }
     }
 
+    // 真实视口高度（iOS / Android 键盘弹起时，100vh 会被高估，
+    // 使用 visualViewport.height 写入 CSS 变量 --app-vh，规避此问题）
+    let realVh = 0;
+
+    // 更新 :root 的 --app-vh 自定义属性
+    function updateRealVh() {
+        if (typeof window === 'undefined') return;
+        const vv: any = (window as any).visualViewport;
+        const height = vv && typeof vv.height === 'number' && vv.height > 0
+            ? vv.height
+            : window.innerHeight;
+        if (!height) return;
+        realVh = height * 0.01;
+        // 写 px 形式以兼容老 WebView，CSS 中用 calc(var(--app-vh) * 100) 取值
+        document.documentElement.style.setProperty('--app-vh', `${realVh}px`);
+    }
+
+    // visualViewport resize 监听（键盘弹起 / 地址栏收起时触发）
+    function handleViewportResize() {
+        updateRealVh();
+    }
+
+    // iOS 键盘弹起时，把输入框滚到可视区中央，避免被 fixed 定位 + 缩放视口遮挡
+    function handleFocusIn(e: FocusEvent) {
+        if (!isFullscreen) return;
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+            // 下一帧再滚，等浏览器完成视口缩放
+            requestAnimationFrame(() => {
+                target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            });
+        }
+    }
+
     // 全屏切换
     function toggleFullscreen() {
         if (!sidebarContainer) return;
         isFullscreen = !isFullscreen;
+        if (isFullscreen) {
+            // 进入全屏：更新真实视口高度 + 注册监听
+            updateRealVh();
+            if (typeof window !== 'undefined') {
+                const vv: any = (window as any).visualViewport;
+                if (vv && typeof vv.addEventListener === 'function') {
+                    vv.addEventListener('resize', handleViewportResize);
+                    vv.addEventListener('scroll', handleViewportResize);
+                }
+                window.addEventListener('resize', handleViewportResize);
+                window.addEventListener('focusin', handleFocusIn);
+            }
+        } else {
+            // 退出全屏：清理监听
+            if (typeof window !== 'undefined') {
+                const vv: any = (window as any).visualViewport;
+                if (vv && typeof vv.removeEventListener === 'function') {
+                    vv.removeEventListener('resize', handleViewportResize);
+                    vv.removeEventListener('scroll', handleViewportResize);
+                }
+                window.removeEventListener('resize', handleViewportResize);
+                window.removeEventListener('focusin', handleFocusIn);
+            }
+        }
     }
 
     // 滚动到底部
@@ -19205,13 +19278,16 @@
     }
 
     // 全屏模式样式
+    // --app-vh 由 JS 根据 window.visualViewport.height 实时写入 :root，
+    // 避免 iOS / Android 键盘弹起时 100vh 被高估，把输入框钉出可视区。
     .ai-sidebar--fullscreen {
         position: fixed !important;
         top: var(--b3-toolbar-height) !important;
         left: 0 !important;
         right: 0 !important;
         bottom: 0 !important;
-        width: 100vw !important;
+        width: 100% !important;
+        height: calc(var(--app-vh, 1vh) * 100) !important;
         z-index: 10 !important;
         background: var(--b3-theme-background) !important;
         border: none !important;
@@ -19231,7 +19307,7 @@
         flex: 1 !important;
         padding: 20px !important;
         gap: 16px !important;
-        max-height: calc(100vh - 140px) !important;
+        max-height: calc(var(--app-vh, 1vh) * 100 - 140px) !important;
     }
 
     .ai-sidebar--fullscreen .ai-sidebar__input-container {
@@ -19239,6 +19315,7 @@
         border-top: 1px solid var(--b3-border-color) !important;
         box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1) !important;
         padding: 16px 20px !important;
+        flex-shrink: 0 !important;
     }
 
     .ai-sidebar--fullscreen .ai-message__content {
@@ -19247,23 +19324,15 @@
         padding: 16px 18px !important;
     }
 
+    // 全屏模式仅修复 iOS 必需的布局问题（宽度拉伸 / 原生外观），
+    // 不改输入框字体 / padding / 高度，避免与非全屏状态视觉不一致。
     .ai-sidebar--fullscreen .ai-sidebar__input {
-        font-size: 15px !important;
-        padding: 14px 18px !important;
-        padding-right: 52px !important;
-        min-height: 50px !important;
-        max-height: 300px !important;
-    }
-
-    .ai-sidebar--fullscreen .ai-sidebar__send-btn {
-        width: 40px !important;
-        height: 40px !important;
-        min-width: 40px !important;
-
-        .b3-button__icon {
-            width: 20px !important;
-            height: 20px !important;
-        }
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        font-size: 16px !important;       /* iOS <16px 会触发自动 zoom */
+        -webkit-appearance: none !important;
+        appearance: none !important;
     }
 
     // 图片查看器样式
