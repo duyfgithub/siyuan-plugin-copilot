@@ -390,6 +390,10 @@
             "title": "Attachments",
             "remove": "Remove Attachment"
         },
+        "focus": {
+            "enter": "Focus Mode",
+            "exit": "Exit Focus"
+        },
         "edit": {
             "title": "Edit Operations",
             "blockId": "Block ID",

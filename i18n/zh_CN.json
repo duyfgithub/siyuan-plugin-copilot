@@ -391,6 +391,10 @@
             "title": "附件",
             "remove": "移除附件"
         },
+        "focus": {
+            "enter": "专注模式",
+            "exit": "退出专注"
+        },
         "edit": {
             "title": "编辑操作",
             "blockId": "块ID",

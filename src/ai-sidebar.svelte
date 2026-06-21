@@ -244,6 +244,8 @@
 
     // 全屏模式
     let isFullscreen = false;
+    // 专注模式（隐藏输入区，让消息区占满）
+    let isFocusMode = false;
     let sidebarContainer: HTMLElement;
 
     // 当前选中的提供商和模型
@@ -12107,6 +12109,17 @@
                     ></use>
                 </svg>
             </button>
+            <!-- 专注模式按钮 -->
+            <button
+                class="b3-button b3-button--text"
+                class:ai-sidebar__focus-active={isFocusMode}
+                on:click={() => { isFocusMode = !isFocusMode; }}
+                title={isFocusMode ? i18n('aiSidebar.focus.exit') : i18n('aiSidebar.focus.enter')}
+            >
+                <svg class="b3-button__icon">
+                    <use xlink:href={isFocusMode ? '#iconEyeoff' : '#iconEye'}></use>
+                </svg>
+            </button>
             <button
                 class="b3-button b3-button--text"
                 on:click={openSettings}
@@ -14768,6 +14781,7 @@
             </div>
         </div>
     {/if}
+    {#if !isFocusMode}
     <div
         class="ai-sidebar__input-container"
         class:ai-sidebar__input-container--drag-over={isDragOver && contextDocuments.length === 0}
@@ -15140,6 +15154,7 @@
             </div>
         {/if}
     </div>
+    {/if}
 
     <!-- 提示词管理对话框 -->
     {#if isPromptManagerOpen}
@@ -19354,5 +19369,11 @@
         &:hover {
             opacity: 0.9;
         }
+    }
+
+    // 专注模式（工具栏按钮激活态高亮）
+    .ai-sidebar__focus-active {
+        color: var(--b3-theme-primary) !important;
+        background: var(--b3-theme-primary-lightest);
     }
 </style>
