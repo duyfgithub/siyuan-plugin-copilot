@@ -19310,10 +19310,11 @@
         max-height: calc(var(--app-vh, 1vh) * 100 - 140px) !important;
     }
 
+    // 全屏态输入区不画 border-top 和顶部阴影，
+    // 让输入区和底部屏幕边无缝衔接，和非全屏视觉一致。
+    // 全屏态输入区不设背景，让它继承 sidebar 背景 (--b3-theme-background)，
+    // 与非全屏保持同一颜色。
     .ai-sidebar--fullscreen .ai-sidebar__input-container {
-        background: var(--b3-theme-surface) !important;
-        border-top: 1px solid var(--b3-border-color) !important;
-        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1) !important;
         padding: 16px 20px !important;
         flex-shrink: 0 !important;
     }
